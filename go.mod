@@ -7,6 +7,7 @@ require (
 	github.com/a2aproject/a2a-go v0.3.15
 	github.com/getkin/kin-openapi v0.142.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
+	golang.org/x/mod v0.25.0
 )
 
 require (

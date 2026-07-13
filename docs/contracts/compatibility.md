@@ -28,6 +28,7 @@ The versioned JSON Schema, OpenAPI, and A2A Profile files under `contracts/` are
 - Changing a field type or requiredness
 - Changing an existing field's semantics
 - Reusing an error code for a different state
+- Changing the fixed public message associated with an error code
 - Reinterpreting historical Ledger events
 
 Breaking changes require a new contract version, migration guidance, and a stated compatibility window.

@@ -40,7 +40,12 @@
         "type": { "const": "a2a" },
         "version": { "const": "0.3.0" },
         "transport": { "const": "JSONRPC" },
-        "endpoint": { "type": "string", "format": "uri", "pattern": "^https?://" }
+        "endpoint": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048,
+          "pattern": "^https?://[^\\s]+$"
+        }
       }
     },
     "skills": {

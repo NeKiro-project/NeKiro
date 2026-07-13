@@ -72,6 +72,28 @@ paths:
                   $ref: ../schemas/invocation-event.v0.1.schema.json
         "404":
           $ref: "#/components/responses/Error"
+  /internal/v1/invocations/{invocationId}/events:
+    get:
+      operationId: streamRouterInvocationEvents
+      summary: Stream append-only invocation events as Server-Sent Events
+      description: Each SSE data field contains one JSON RouterEventEnvelope. The stream ends after a terminal event.
+      parameters:
+        - in: path
+          name: invocationId
+          required: true
+          schema:
+            $ref: ../schemas/common.v1.schema.json#/$defs/invocationId
+      responses:
+        "200":
+          description: Invocation event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              x-sse-data-schema:
+                $ref: "#/components/schemas/RouterEventEnvelope"
+        "404":
+          $ref: "#/components/responses/Error"
   /internal/v1/traces/{traceId}:
     get:
       operationId: getRouterTrace
@@ -168,3 +190,10 @@ components:
           $ref: ../schemas/common.v1.schema.json#/$defs/jsonObject
         stream:
           type: boolean
+    RouterEventEnvelope:
+      type: object
+      additionalProperties: false
+      required: [event]
+      properties:
+        event:
+          $ref: ../schemas/invocation-event.v0.1.schema.json

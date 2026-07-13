@@ -64,7 +64,7 @@ Go and TypeScript types are consumers of these artifacts, never competing source
 | `GET` | `/v1/invocations/:invocationId` | Read one invocation and its events |
 | `GET` | `/v1/traces/:traceId` | Read a complete parent/child invocation trace |
 
-The Gateway returns the shared `PlatformError` shape for known failures. Dependency failure must never be represented as not found, an empty list, or success.
+The Gateway returns the shared `PlatformError` shape for known failures. Public messages are fixed by error code and cannot contain internal dependency errors, credentials, request payloads, or Agent output. Dependency failure must never be represented as not found, an empty list, or success.
 
 ## Internal API v1
 
@@ -73,6 +73,7 @@ The Gateway returns the shared `PlatformError` shape for known failures. Depende
 | `POST` | `/internal/v1/resolve-agent` | Control Plane | Resolve an installed exact Agent Card and capability |
 | `POST` | `/internal/v1/invocations` | Router | Accept an authorized invocation for A2A execution |
 | `GET` | `/internal/v1/invocations/:id` | Router | Read Router-owned invocation facts |
+| `GET` | `/internal/v1/invocations/:id/events` | Router | Stream `RouterEventEnvelope` values over SSE |
 | `GET` | `/internal/v1/traces/:traceId` | Router | Read invocation lineage |
 
 The Router resolves cards through the internal Control Plane API. It must not query Registry tables directly.
