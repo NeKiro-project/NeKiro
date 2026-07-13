@@ -52,7 +52,10 @@ jobs:
       - name: Migrate Catalog test database
         run: go run ./apps/control-plane/cmd/control-plane migrate up
 
-      - name: Test Catalog integration
+      - name: Test Catalog readiness integration
+        run: go test -tags=integration -count=1 ./apps/control-plane/internal/catalog/postgres
+
+      - name: Test Catalog HTTP integration
         run: go test -tags=integration -count=1 ./tests/integration/catalog
 
       - name: Vet Go
