@@ -1,7 +1,9 @@
 # Agent Operating Platform 项目约定
 
 <!-- SPECKIT START -->
-当前功能的实现上下文由 `.specify/feature.json` 指向的 Spec Kit Plan 提供；在修改业务代码前必须读取该 Plan。
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+at specs/001-complete-invocation-contracts/plan.md
 <!-- SPECKIT END -->
 
 本文件是整个仓库的长期项目宪章，适用于所有目录、模块和参与者。它记录稳定的产品目标、领域语言、架构边界和交付标准，不替代具体需求、API 文档或 ADR。

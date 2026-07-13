@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No `[NEEDS CLARIFICATION]` markers remain
+- [x] No `[NEEDS CLARIFICATION]` markers remain
 - [x] Requirements are testable and unambiguous except for the marked result-delivery decision
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic
@@ -31,5 +31,5 @@
 
 ## Notes
 
-- FR-003 requires a user decision before planning because result delivery shape
-  changes the public northbound contract and retention responsibility.
+- FR-003 was resolved as direct same-request result delivery on 2026-07-13;
+  Phase 1 does not persist or replay Invocation Results.

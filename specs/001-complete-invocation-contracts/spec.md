@@ -4,12 +4,18 @@
 
 **Created**: 2026-07-13
 
-**Status**: Needs Clarification
+**Status**: Ready for Implementation
 
 **Input**: Complete the Phase 1 contract foundation so platform users receive
 Agent results through the Gateway, platform modules communicate through
 unambiguous directional contracts, and all language implementations agree on
 Agent Card, invocation lifecycle, and supported A2A behavior.
+
+## Clarifications
+
+### Session 2026-07-13
+
+- Q: How does the Gateway return non-streaming and streaming Agent results? → A: The invocation request itself returns the result; non-streaming returns one complete result and streaming emits ordered result chunks on the same response. Results are not persisted or replayed.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -130,29 +136,31 @@ dispatch and invocation queries target the Router.
   successful result.
 - **FR-002**: Streaming result chunks MUST preserve order and correlate to one
   invocation and trace through the Gateway.
-- **FR-003**: Non-streaming and streaming result delivery MUST follow
-  [NEEDS CLARIFICATION: choose whether the invocation request itself returns the
-  result, or whether it first returns acceptance and exposes a separate
-  Gateway-owned result channel].
+- **FR-003**: The invocation request itself MUST return the Agent result.
+  Non-streaming requests return one complete result, while streaming requests
+  emit ordered result chunks and a terminal outcome on the same response.
 - **FR-004**: Result content MUST remain separate from append-only Ledger facts
   and MUST NOT be exposed through Router-only interfaces to the Frontend.
 - **FR-005**: The platform MUST define the observable outcome when result
   delivery is interrupted, timed out, canceled, or fails after partial output.
-- **FR-006**: Control Plane-owned resolution and Router-owned dispatch/query
+- **FR-006**: Invocation results MUST NOT be persisted or replayed in Phase 1.
+  After a result connection is lost, the caller can inspect Ledger facts for
+  the original invocation but MUST start a new invocation to receive a result.
+- **FR-007**: Control Plane-owned resolution and Router-owned dispatch/query
   operations MUST identify different service ownership and destinations.
-- **FR-007**: Every terminal invocation fact MUST have a coherent event type,
+- **FR-008**: Every terminal invocation fact MUST have a coherent event type,
   status, and error classification; contradictory combinations MUST be invalid.
-- **FR-008**: The language-neutral Agent Card contract MUST normatively define
+- **FR-009**: The language-neutral Agent Card contract MUST normatively define
   identifier uniqueness and declared-permission reference rules.
-- **FR-009**: All conforming Agent Card validators MUST make the same decision
+- **FR-010**: All conforming Agent Card validators MUST make the same decision
   for the published valid and invalid examples in this feature.
-- **FR-010**: The A2A Profile MUST define verifiable compatibility expectations
+- **FR-011**: The A2A Profile MUST define verifiable compatibility expectations
   for message sending, message streaming, task lookup, task cancellation, and
   the task lifecycle states used by Phase 1.
-- **FR-011**: Contract changes MUST state version and compatibility impact and
+- **FR-012**: Contract changes MUST state version and compatibility impact and
   MUST preserve fixed public error messages without exposing Agent output,
   secrets, or dependency details.
-- **FR-012**: Every requirement in this feature MUST map to a later contract,
+- **FR-013**: Every requirement in this feature MUST map to a later contract,
   implementation, and post-implementation test task before the feature can be
   marked complete.
 
@@ -196,12 +204,13 @@ dispatch and invocation queries target the Router.
 - Phase 1 supports both non-streaming and streaming invocation modes as already
   stated by the accepted architecture.
 - Agent Card Schema and Agent version identifiers remain separate and versioned.
-- Invocation Result retention is not assumed; it depends on the FR-003 delivery
-  decision and must not be introduced as an undocumented fallback.
+- Invocation Results are transient response data and are not retained for
+  polling, replay, or reconnect.
 
 ## Non-Goals
 
 - Persisting Agent input or output in the Invocation Ledger.
+- Persisting or replaying Invocation Results through a separate result store.
 - Adding a Scheduler, Planner, Agent runtime deployment, billing, rating, or
   enterprise governance workflow.
 - Allowing the Frontend to access the Router or Agent endpoint directly.
