@@ -43,3 +43,9 @@ declared only by another version of the Agent Card does not satisfy this rule.
 Each conforming implementation MUST produce the manifest's combined validity
 decision and violated rule IDs. Rule evaluation order, error wording, and
 implementation-specific object paths are not normative.
+
+Every manifest case explicitly declares `contextFiles`. Context fixtures MUST
+be valid Agent Card v0.2 documents, but they MUST NOT participate in semantic
+evaluation of the primary `file`. They exist to demonstrate facts such as a
+permission being declared by another Agent Card version. For validator output,
+only `valid` and `violatedRules` are normative.

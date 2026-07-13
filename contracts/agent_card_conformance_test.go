@@ -20,18 +20,10 @@ func TestAgentCardConformance(t *testing.T) {
 	schema := compileAgentCardV02Schema(t)
 	manifestPath := filepath.Join("agent-card", "v0.2", "conformance", "manifest.json")
 	manifest := loadAgentCardConformanceManifest(t, manifestPath)
-	if len(manifest.Cases) == 0 {
-		t.Fatal("Agent Card conformance manifest contains no cases")
-	}
-
-	knownRuleIDs := map[AgentCardSemanticRuleID]struct{}{
-		AgentCardRuleUniqueSkillIDs:             {},
-		AgentCardRuleUniquePermissionIDs:        {},
-		AgentCardRuleRequiredPermissionDeclared: {},
-	}
 	requiredCaseIDs := []string{
 		"valid-baseline",
 		"valid-shared-permission",
+		"valid-cross-version-permission-source",
 		"invalid-duplicate-skill-id",
 		"invalid-duplicate-permission-id",
 		"invalid-undeclared-permission",
@@ -43,38 +35,35 @@ func TestAgentCardConformance(t *testing.T) {
 
 	for _, testCase := range manifest.Cases {
 		t.Run(testCase.ID, func(t *testing.T) {
-			if _, exists := caseIDs[testCase.ID]; exists {
-				t.Fatalf("duplicate conformance case id %q", testCase.ID)
-			}
 			caseIDs[testCase.ID] = struct{}{}
-			for _, ruleID := range testCase.ViolatedRules {
-				if _, exists := knownRuleIDs[ruleID]; !exists {
-					t.Fatalf("manifest contains unknown semantic rule id %q", ruleID)
-				}
-			}
-
 			fixturePath := filepath.Join(filepath.Dir(manifestPath), testCase.File)
-			fixture := readConformanceFixture(t, fixturePath)
-			document, err := jsonschema.UnmarshalJSON(bytes.NewReader(fixture))
-			if err != nil {
-				t.Fatalf("decode raw fixture: %v", err)
+			card, structuralErr, actualRuleIDs := evaluateAgentCardFixture(t, schema, fixturePath)
+			if structuralErr != nil && len(testCase.ViolatedRules) > 0 {
+				t.Fatalf("semantic fixture failed structural validation: %v", structuralErr)
 			}
 
-			structuralErr := schema.Validate(document)
-			actualRuleIDs := make([]AgentCardSemanticRuleID, 0)
-			if structuralErr == nil {
-				var card AgentCard
-				decoder := json.NewDecoder(bytes.NewReader(fixture))
-				decoder.DisallowUnknownFields()
-				if err := decoder.Decode(&card); err != nil {
-					t.Fatalf("decode structurally valid fixture into Go mapping: %v", err)
+			crossVersionReferenceProven := false
+			for _, contextFile := range testCase.ContextFiles {
+				contextPath := filepath.Join(filepath.Dir(manifestPath), contextFile)
+				contextCard, contextStructuralErr, contextRuleIDs := evaluateAgentCardFixture(t, schema, contextPath)
+				if contextStructuralErr != nil {
+					t.Fatalf("context fixture %q failed structural validation: %v", contextFile, contextStructuralErr)
 				}
-				if err := requireJSONEOF(decoder); err != nil {
-					t.Fatalf("decode structurally valid fixture into Go mapping: %v", err)
+				if len(contextRuleIDs) > 0 {
+					t.Fatalf("context fixture %q failed semantic validation with rules %v", contextFile, contextRuleIDs)
 				}
-				actualRuleIDs = uniqueSemanticRuleIDs(EvaluateAgentCardSemantics(card))
-			} else if len(testCase.ViolatedRules) > 0 {
-				t.Fatalf("semantic fixture failed structural validation: %v", structuralErr)
+				if contextCard.AgentID != card.AgentID {
+					t.Fatalf("context fixture %q agent id = %q, primary agent id = %q", contextFile, contextCard.AgentID, card.AgentID)
+				}
+				if contextCard.Version == card.Version {
+					t.Fatalf("context fixture %q uses primary Agent version %q", contextFile, card.Version)
+				}
+				if contextDeclaresMissingPermission(card, contextCard) {
+					crossVersionReferenceProven = true
+				}
+			}
+			if len(testCase.ContextFiles) > 0 && !crossVersionReferenceProven {
+				t.Fatal("context fixtures do not declare a permission missing from the primary Card version")
 			}
 
 			actualValid := structuralErr == nil && len(actualRuleIDs) == 0
@@ -94,6 +83,55 @@ func TestAgentCardConformance(t *testing.T) {
 		if _, exists := caseIDs[caseID]; !exists {
 			t.Errorf("Agent Card conformance manifest is missing required case %q", caseID)
 		}
+	}
+}
+
+func TestAgentCardConformanceManifestRequiresExplicitFields(t *testing.T) {
+	testCases := []struct {
+		name     string
+		document string
+	}{
+		{name: "missing cases", document: `{}`},
+		{name: "empty cases", document: `{"cases":[]}`},
+		{name: "missing id", document: `{"cases":[{"file":"card.json","valid":false,"violatedRules":[],"contextFiles":[]}]}`},
+		{name: "missing file", document: `{"cases":[{"id":"case","valid":false,"violatedRules":[],"contextFiles":[]}]}`},
+		{name: "missing valid", document: `{"cases":[{"id":"case","file":"card.json","violatedRules":[],"contextFiles":[]}]}`},
+		{name: "null valid", document: `{"cases":[{"id":"case","file":"card.json","valid":null,"violatedRules":[],"contextFiles":[]}]}`},
+		{name: "missing violated rules", document: `{"cases":[{"id":"case","file":"card.json","valid":false,"contextFiles":[]}]}`},
+		{name: "null violated rules", document: `{"cases":[{"id":"case","file":"card.json","valid":false,"violatedRules":null,"contextFiles":[]}]}`},
+		{name: "missing context files", document: `{"cases":[{"id":"case","file":"card.json","valid":false,"violatedRules":[]}]}`},
+		{name: "unknown root field", document: `{"cases":[{"id":"case","file":"card.json","valid":false,"violatedRules":[],"contextFiles":[]}],"unknown":true}`},
+		{name: "unknown case field", document: `{"cases":[{"id":"case","file":"card.json","valid":false,"violatedRules":[],"contextFiles":[],"unknown":true}]}`},
+		{name: "unknown rule id", document: `{"cases":[{"id":"case","file":"card.json","valid":false,"violatedRules":["AC-SEM-999"],"contextFiles":[]}]}`},
+		{name: "valid with violated rule", document: `{"cases":[{"id":"case","file":"card.json","valid":true,"violatedRules":["AC-SEM-001"],"contextFiles":[]}]}`},
+		{name: "duplicate case id", document: `{"cases":[{"id":"case","file":"one.json","valid":true,"violatedRules":[],"contextFiles":[]},{"id":"case","file":"two.json","valid":true,"violatedRules":[],"contextFiles":[]}]}`},
+		{name: "trailing JSON", document: `{"cases":[{"id":"case","file":"card.json","valid":true,"violatedRules":[],"contextFiles":[]}]} {}`},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if _, err := DecodeAgentCardConformanceManifest([]byte(testCase.document)); err == nil {
+				t.Fatal("malformed Agent Card conformance manifest was accepted")
+			}
+		})
+	}
+}
+
+func TestAgentCardConformanceManifestPreservesExplicitZeroValues(t *testing.T) {
+	document := []byte(`{"cases":[{"id":"structural-invalid","file":"card.json","valid":false,"violatedRules":[],"contextFiles":[]}]}`)
+	manifest, err := DecodeAgentCardConformanceManifest(document)
+	if err != nil {
+		t.Fatalf("decode explicit false and empty arrays: %v", err)
+	}
+	manifestCase := manifest.Cases[0]
+	if manifestCase.Valid {
+		t.Fatal("explicit false validity decoded as true")
+	}
+	if manifestCase.ViolatedRules == nil {
+		t.Fatal("explicit empty violatedRules decoded as absent")
+	}
+	if manifestCase.ContextFiles == nil {
+		t.Fatal("explicit empty contextFiles decoded as absent")
 	}
 }
 
@@ -129,16 +167,56 @@ func compileAgentCardV02Schema(t *testing.T) *jsonschema.Schema {
 func loadAgentCardConformanceManifest(t *testing.T, path string) AgentCardConformanceManifest {
 	t.Helper()
 	data := readConformanceFixture(t, path)
-	var manifest AgentCardConformanceManifest
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&manifest); err != nil {
-		t.Fatalf("decode Agent Card conformance manifest: %v", err)
-	}
-	if err := requireJSONEOF(decoder); err != nil {
+	manifest, err := DecodeAgentCardConformanceManifest(data)
+	if err != nil {
 		t.Fatalf("decode Agent Card conformance manifest: %v", err)
 	}
 	return manifest
+}
+
+func evaluateAgentCardFixture(t *testing.T, schema *jsonschema.Schema, path string) (AgentCard, error, []AgentCardSemanticRuleID) {
+	t.Helper()
+	fixture := readConformanceFixture(t, path)
+	document, err := jsonschema.UnmarshalJSON(bytes.NewReader(fixture))
+	if err != nil {
+		t.Fatalf("decode raw fixture %q: %v", path, err)
+	}
+	if err := schema.Validate(document); err != nil {
+		return AgentCard{}, err, nil
+	}
+
+	var card AgentCard
+	decoder := json.NewDecoder(bytes.NewReader(fixture))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&card); err != nil {
+		t.Fatalf("decode structurally valid fixture %q into Go mapping: %v", path, err)
+	}
+	if err := requireJSONEOF(decoder); err != nil {
+		t.Fatalf("decode structurally valid fixture %q into Go mapping: %v", path, err)
+	}
+	return card, nil, uniqueSemanticRuleIDs(EvaluateAgentCardSemantics(card))
+}
+
+func contextDeclaresMissingPermission(primary AgentCard, context AgentCard) bool {
+	primaryPermissions := make(map[string]struct{}, len(primary.Permissions))
+	for _, permission := range primary.Permissions {
+		primaryPermissions[permission.ID] = struct{}{}
+	}
+	contextPermissions := make(map[string]struct{}, len(context.Permissions))
+	for _, permission := range context.Permissions {
+		contextPermissions[permission.ID] = struct{}{}
+	}
+
+	for _, skill := range primary.Skills {
+		for _, permissionID := range skill.RequiredPermissions {
+			_, declaredByPrimary := primaryPermissions[permissionID]
+			_, declaredByContext := contextPermissions[permissionID]
+			if !declaredByPrimary && declaredByContext {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func readConformanceFixture(t *testing.T, path string) []byte {
