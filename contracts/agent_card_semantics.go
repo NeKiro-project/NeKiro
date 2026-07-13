@@ -148,6 +148,7 @@ func decodeAgentCardConformanceCase(index int, wireCase agentCardConformanceCase
 
 func rejectDuplicateJSONMemberNames(data []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
 	if err := scanJSONValue(decoder); err != nil {
 		return err
 	}

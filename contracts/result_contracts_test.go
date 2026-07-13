@@ -60,6 +60,59 @@ func TestInvocationResultAndChunksPreserveArbitraryJSONValues(t *testing.T) {
 	}
 }
 
+func TestInvocationResultAndStreamChunkDecodingPreservesLargeJSONNumberTokens(t *testing.T) {
+	testCases := []struct {
+		name  string
+		value string
+	}{
+		{name: "top level", value: `1e400`},
+		{name: "nested", value: `{"magnitude":1e400}`},
+	}
+
+	for _, testCase := range testCases {
+		t.Run("Invocation Result/"+testCase.name, func(t *testing.T) {
+			encoded, err := json.Marshal(InvocationResult{
+				SchemaVersion: InvocationResultSchemaVersion,
+				InvocationID:  "inv-large-number",
+				RootTaskID:    "task-large-number",
+				TraceID:       "trace-large-number",
+				Status:        "succeeded",
+				Result:        json.RawMessage(testCase.value),
+			})
+			if err != nil {
+				t.Fatalf("marshal Invocation Result: %v", err)
+			}
+
+			var decoded InvocationResult
+			if err := json.Unmarshal(encoded, &decoded); err != nil {
+				t.Fatalf("decode Invocation Result containing %s: %v", testCase.value, err)
+			}
+			if actual := string(decoded.Result); actual != testCase.value {
+				t.Fatalf("decoded result = %s, want exact token %s", actual, testCase.value)
+			}
+		})
+
+		t.Run("stream chunk/"+testCase.name, func(t *testing.T) {
+			chunkIndex := int64(0)
+			chunk := resultStreamEvent(ResultStreamEventChunk, 1)
+			chunk.ChunkIndex = &chunkIndex
+			chunk.Chunk = json.RawMessage(testCase.value)
+			encoded, err := json.Marshal(chunk)
+			if err != nil {
+				t.Fatalf("marshal Invocation Result Stream Event: %v", err)
+			}
+
+			var decoded InvocationResultStreamEvent
+			if err := json.Unmarshal(encoded, &decoded); err != nil {
+				t.Fatalf("decode stream chunk containing %s: %v", testCase.value, err)
+			}
+			if actual := string(decoded.Chunk); actual != testCase.value {
+				t.Fatalf("decoded chunk = %s, want exact token %s", actual, testCase.value)
+			}
+		})
+	}
+}
+
 func TestInvocationResultRequiresPresentJSONValue(t *testing.T) {
 	validator := mustResultContractValidator(t)
 	result := InvocationResult{
