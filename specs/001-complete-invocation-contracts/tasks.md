@@ -176,8 +176,9 @@ MUST NOT edit shared Go mapping files or Result/Agent Card artifacts.
   artifact ordering, all context headers, semantically empty Agent Messages,
   malformed manifests, unsafe paths, invalid metadata combinations, unknown or
   unexecuted rule claims, expected concrete result types, both/neither
-  result/error, unsupported JSON-RPC ID types, cross-wired protocol errors, and
-  incompatible Profile operation fields in the same conformance test file
+  result/error, top-level null/non-object response envelopes, unsupported
+  JSON-RPC ID types, cross-wired protocol errors, and incompatible Profile
+  operation fields in the same conformance test file
 - [ ] T023 [US3] Run Module C tests, `go vet ./...`, and `git diff --check`,
   report Module C fallback delta/evidence, then commit all Module C-owned files
 

@@ -22,6 +22,8 @@ publishes normative operation, state, and conformance requirements.
 
 Fixed fixtures MUST validate:
 
+- a top-level JSON object response; JSON `null`, arrays, and scalars are invalid
+  response envelopes rather than version or member failures;
 - JSON-RPC version, request/response ID match, and exactly one result or error;
 - required request params and structurally valid concrete result kinds;
 - non-empty Agent-authored Message results and semantically valid Task results;
@@ -39,7 +41,8 @@ and EOF without terminal are invalid profile behavior.
 Response IDs use only the JSON types accepted by the pinned SDK server: string,
 number, or null. Boolean, object, and array IDs are invalid. Version, ID type,
 and result/error exclusivity are mandatory baseline checks for every response
-case and cannot be omitted by manifest rule selection.
+case and cannot be omitted by manifest rule selection. These member-level
+checks run only after the top-level response is confirmed to be a JSON object.
 
 ## Task State Policy
 

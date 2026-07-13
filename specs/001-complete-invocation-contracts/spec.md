@@ -159,6 +159,9 @@ dispatch and invocation queries target the Router.
   is not restricted by the capability output schema.
 - A nominally valid JSON-RPC response contains both `result` and `error`, or an
   ID type that the pinned SDK/server cannot accept.
+- A JSON-RPC response is valid JSON but its top-level value is `null`, an array,
+  or another non-object value; it must fail as an invalid response envelope
+  rather than as a missing or incorrect JSON-RPC version.
 - An invalid A2A fixture fails, but for a different protocol reason than the
   `protocolError` declared by its manifest case.
 - An A2A Profile operation declares result, event, or error fields belonging to
@@ -242,7 +245,9 @@ dispatch and invocation queries target the Router.
 - **FR-024**: Every A2A JSON-RPC response case MUST enforce version `2.0`, a
   pinned-SDK-compatible ID type, and exactly one of `result` or `error` as
   baseline envelope conformance. A valid fixture cannot omit this baseline by
-  leaving a rule out of its manifest.
+  leaving a rule out of its manifest. The top-level response MUST be a JSON
+  object; `null`, arrays, and scalar values MUST be classified as an invalid
+  JSON-RPC envelope before version, ID, or result/error checks.
 - **FR-025**: An invalid A2A conformance case MUST prove the exact stable failure
   classification declared by `protocolError`. Failure of a prerequisite or a
   different assertion MUST NOT count as evidence for the declared error.
@@ -335,7 +340,9 @@ dispatch and invocation queries target the Router.
 - **SC-017**: 100% of Module A public DTO fixtures containing duplicate JSON
   members are rejected before business validation.
 - **SC-018**: 100% of A2A response fixtures with both/neither result and error or
-  with a non-supported JSON-RPC ID type are rejected by baseline conformance.
+  with a non-supported JSON-RPC ID type are rejected by baseline conformance,
+  and every top-level non-object response is classified as an invalid JSON-RPC
+  envelope.
 - **SC-019**: 100% of invalid A2A cases whose actual failure classification does
   not equal their declared `protocolError` are rejected as malformed cases.
 - **SC-020**: 100% of A2A Profile operations containing fields from an

@@ -161,6 +161,9 @@ profile conformance
   results and Task results must satisfy the profile's semantic invariants.
 - JSON-RPC response baseline checks always enforce supported ID types and
   result/error exclusivity, independent of optional manifest composition.
+- Baseline decoding first requires a top-level JSON object. Valid JSON values
+  such as `null`, arrays, or scalars are envelope failures and cannot fall
+  through to version, ID, or result/error classifications.
 - Invalid cases return stable typed assertion classifications; the declared
   `protocolError` must equal the actual classification rather than merely share
   a rule name.

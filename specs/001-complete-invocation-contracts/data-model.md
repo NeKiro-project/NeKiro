@@ -279,9 +279,12 @@ rule and expected type must be asserted; metadata that is merely recorded or
 ignored does not establish conformance.
 
 All response cases execute baseline JSON-RPC rules for version, supported ID
-type, and exactly one result or error. Invalid cases produce one stable actual
-protocol classification, which must equal the manifest's `protocolError`.
-Error prose and internal prerequisite failures are not classification evidence.
+type, and exactly one result or error. The response itself is first required to
+be a top-level JSON object; `null`, arrays, and scalar values classify as an
+invalid JSON-RPC envelope before member-level checks. Invalid cases produce one
+stable actual protocol classification, which must equal the manifest's
+`protocolError`. Error prose and internal prerequisite failures are not
+classification evidence.
 
 An accepted Agent Message result has a non-empty ID, Agent role, and at least
 one part. An accepted Task result has non-empty Task and Context IDs plus a
