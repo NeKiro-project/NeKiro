@@ -1,0 +1,701 @@
+//go:build integration
+
+package catalog_test
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/Nene7ko/NeKiro/contracts"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+const (
+	ownerAToken = "catalog-owner-a-integration-token"
+	ownerBToken = "catalog-owner-b-integration-token"
+	userToken   = "catalog-user-integration-token"
+)
+
+type testServer struct {
+	command *exec.Cmd
+	logs    bytes.Buffer
+	baseURL string
+}
+
+type httpResult struct {
+	status int
+	header http.Header
+	body   []byte
+}
+
+func TestCatalogPostgreSQLAndHTTPAcceptance(t *testing.T) {
+	ctx := context.Background()
+	databaseURL := guardedDatabaseURL(t)
+	root := repositoryRoot(t)
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatalf("create test database pool: %v", err)
+	}
+	defer pool.Close()
+	if err := pool.Ping(ctx); err != nil {
+		t.Fatalf("connect dedicated test database: %v", err)
+	}
+	resetCatalog(t, pool)
+
+	binary := buildControlPlane(t, root)
+	runCommand(t, root, databaseURL, binary, "migrate", "up")
+	runCommand(t, root, databaseURL, binary, "migrate", "up")
+	runCommand(t, root, databaseURL, binary, "migrate", "down")
+	runCommand(t, root, databaseURL, binary, "migrate", "up")
+
+	server := startServer(t, root, databaseURL, binary)
+	defer func() {
+		server.stop(t)
+		assertLogsAreSecretSafe(t, server.logs.String())
+	}()
+
+	runtimeA := readFixture(t, root, "runtime-a-card.json")
+	runtimeB := readFixture(t, root, "runtime-b-card.json")
+
+	t.Run("fixed authentication and registration semantics", func(t *testing.T) {
+		missing := request(t, http.MethodGet, server.baseURL+"/v2/agents", "", nil)
+		assertPlatformError(t, missing, http.StatusUnauthorized, contracts.ErrorCodeUnauthenticated)
+		if bytes.Contains(missing.body, []byte(ownerAToken)) || bytes.Contains(missing.body, []byte(digest(ownerAToken))) {
+			t.Fatal("authentication material appeared in public error")
+		}
+
+		draft := request(t, http.MethodPost, server.baseURL+"/v2/agents", ownerAToken, registrationEnvelope(t, runtimeA))
+		draftEntry := decodeEntry(t, draft)
+		if draft.status != http.StatusCreated || draftEntry.PublicationStatus != "draft" {
+			t.Fatalf("Runtime A registration = %d %s", draft.status, draft.body)
+		}
+		var storedRegisteredAt time.Time
+		if err := pool.QueryRow(ctx, `SELECT registered_at FROM catalog.agent_versions WHERE agent_id = 'runtime-a' AND version = '1.0.0'`).Scan(&storedRegisteredAt); err != nil || !draftEntry.RegisteredAt.Equal(storedRegisteredAt) {
+			t.Fatalf("registration response time = %s, stored = %s, err = %v", draftEntry.RegisteredAt, storedRegisteredAt, err)
+		}
+		assertPlatformError(t, request(t, http.MethodPost, server.baseURL+"/v2/agents", ownerAToken, registrationEnvelope(t, runtimeA)), http.StatusConflict, contracts.ErrorCodeConflict)
+
+		invalid := append([]byte(nil), runtimeA...)
+		invalid = bytes.Replace(invalid, []byte(`"schemaVersion": "0.2"`), []byte(`"schemaVersion": "0.1"`), 1)
+		assertPlatformError(t, request(t, http.MethodPost, server.baseURL+"/v2/agents", ownerAToken, registrationEnvelope(t, invalid)), http.StatusBadRequest, contracts.ErrorCodeValidationError)
+
+		crossOwner := decodeCard(t, runtimeA)
+		crossOwner.Version = "2.0.0"
+		crossOwner.Owner.ID = "catalog-owner-b"
+		assertPlatformError(t, request(t, http.MethodPost, server.baseURL+"/v2/agents", ownerBToken, registrationEnvelope(t, mustJSON(t, crossOwner))), http.StatusForbidden, contracts.ErrorCodeForbidden)
+
+		assertPlatformError(t, request(t, http.MethodGet, server.baseURL+"/v2/agents/runtime-a/versions/1.0.0", userToken, nil), http.StatusForbidden, contracts.ErrorCodeForbidden)
+		if result := request(t, http.MethodGet, server.baseURL+"/v2/agents/runtime-a/versions/1.0.0", ownerAToken, nil); result.status != http.StatusOK {
+			t.Fatalf("owner draft read = %d %s", result.status, result.body)
+		}
+		var versionRows int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM catalog.agent_versions WHERE agent_id = 'runtime-a'`).Scan(&versionRows); err != nil || versionRows != 1 {
+			t.Fatalf("rollback evidence rows = %d, err = %v", versionRows, err)
+		}
+	})
+
+	t.Run("publication discovery disablement and cross-runtime metadata", func(t *testing.T) {
+		publishedA := request(t, http.MethodPost, server.baseURL+"/v2/agents/runtime-a/versions/1.0.0/publish", ownerAToken, nil)
+		publishedEntry := decodeEntry(t, publishedA)
+		if publishedA.status != http.StatusOK || publishedEntry.PublicationStatus != "published" {
+			t.Fatalf("publish Runtime A = %d %s", publishedA.status, publishedA.body)
+		}
+		var storedPublishedAt time.Time
+		if err := pool.QueryRow(ctx, `SELECT published_at FROM catalog.agent_versions WHERE agent_id = 'runtime-a' AND version = '1.0.0'`).Scan(&storedPublishedAt); err != nil || publishedEntry.PublishedAt == nil || !publishedEntry.PublishedAt.Equal(storedPublishedAt) {
+			t.Fatalf("publication response time = %v, stored = %s, err = %v", publishedEntry.PublishedAt, storedPublishedAt, err)
+		}
+		assertPlatformError(t, request(t, http.MethodPost, server.baseURL+"/v2/agents/runtime-a/versions/1.0.0/publish", ownerAToken, nil), http.StatusConflict, contracts.ErrorCodeConflict)
+		if result := request(t, http.MethodGet, server.baseURL+"/v2/agents/runtime-a/versions/1.0.0", userToken, nil); result.status != http.StatusOK {
+			t.Fatalf("published public read = %d %s", result.status, result.body)
+		}
+
+		if result := request(t, http.MethodPost, server.baseURL+"/v2/agents", ownerBToken, registrationEnvelope(t, runtimeB)); result.status != http.StatusCreated {
+			t.Fatalf("register Runtime B = %d %s", result.status, result.body)
+		}
+		if result := request(t, http.MethodPost, server.baseURL+"/v2/agents/runtime-b/versions/1.0.0/publish", ownerBToken, nil); result.status != http.StatusOK {
+			t.Fatalf("publish Runtime B = %d %s", result.status, result.body)
+		}
+		search := decodeSearch(t, request(t, http.MethodGet, server.baseURL+"/v2/agents?capability=runtime.echo", userToken, nil))
+		if len(search.Items) != 2 {
+			t.Fatalf("cross-runtime discovery count = %d, want 2", len(search.Items))
+		}
+		filtered := decodeSearch(t, request(t, http.MethodGet, server.baseURL+"/v2/agents?query=translation&capability=runtime.translate&ownerId=catalog-owner-b", userToken, nil))
+		if len(filtered.Items) != 1 || filtered.Items[0].Card.AgentID != "runtime-b" {
+			t.Fatalf("combined discovery = %#v", filtered)
+		}
+		for _, literal := range []string{"%", "_"} {
+			literalResult := decodeSearch(t, request(t, http.MethodGet, server.baseURL+"/v2/agents?query="+url.QueryEscape(literal), userToken, nil))
+			if len(literalResult.Items) != 0 {
+				t.Fatalf("literal wildcard query %q matched %d rows", literal, len(literalResult.Items))
+			}
+		}
+
+		assertPlatformError(t, request(t, http.MethodPost, server.baseURL+"/v2/agents/runtime-a/versions/1.0.0/disable", userToken, nil), http.StatusForbidden, contracts.ErrorCodeForbidden)
+		firstDisable := request(t, http.MethodPost, server.baseURL+"/v2/agents/runtime-a/versions/1.0.0/disable", ownerAToken, nil)
+		secondDisable := request(t, http.MethodPost, server.baseURL+"/v2/agents/runtime-a/versions/1.0.0/disable", ownerAToken, nil)
+		firstEntry, secondEntry := decodeEntry(t, firstDisable), decodeEntry(t, secondDisable)
+		if firstDisable.status != http.StatusOK || secondDisable.status != http.StatusOK || firstEntry.PublicationStatus != "disabled" || firstEntry.PublishedAt == nil || secondEntry.PublishedAt == nil || !firstEntry.PublishedAt.Equal(*secondEntry.PublishedAt) {
+			t.Fatalf("idempotent disable = %#v / %#v", firstEntry, secondEntry)
+		}
+		afterDisable := decodeSearch(t, request(t, http.MethodGet, server.baseURL+"/v2/agents?capability=runtime.echo", userToken, nil))
+		if len(afterDisable.Items) != 1 || afterDisable.Items[0].Card.AgentID != "runtime-b" {
+			t.Fatalf("discovery after disable = %#v", afterDisable)
+		}
+	})
+
+	t.Run("concurrent lifecycle has one legal final state", func(t *testing.T) {
+		card := decodeCard(t, runtimeA)
+		card.AgentID = "race-agent"
+		if result := request(t, http.MethodPost, server.baseURL+"/v2/agents", ownerAToken, registrationEnvelope(t, mustJSON(t, card))); result.status != http.StatusCreated {
+			t.Fatalf("register race Card = %d %s", result.status, result.body)
+		}
+		var wait sync.WaitGroup
+		wait.Add(2)
+		statuses := make(chan int, 2)
+		go func() {
+			defer wait.Done()
+			statuses <- request(t, http.MethodPost, server.baseURL+"/v2/agents/race-agent/versions/1.0.0/publish", ownerAToken, nil).status
+		}()
+		go func() {
+			defer wait.Done()
+			statuses <- request(t, http.MethodPost, server.baseURL+"/v2/agents/race-agent/versions/1.0.0/disable", ownerAToken, nil).status
+		}()
+		wait.Wait()
+		close(statuses)
+		for status := range statuses {
+			if status != http.StatusOK && status != http.StatusConflict {
+				t.Fatalf("race status = %d", status)
+			}
+		}
+		final := decodeEntry(t, request(t, http.MethodGet, server.baseURL+"/v2/agents/race-agent/versions/1.0.0", ownerAToken, nil))
+		if final.PublicationStatus != "disabled" {
+			t.Fatalf("race final state = %q", final.PublicationStatus)
+		}
+	})
+
+	t.Run("restart and explicit dependency failure", func(t *testing.T) {
+		previousServer := server
+		previousServer.stop(t)
+		assertLogsAreSecretSafe(t, previousServer.logs.String())
+		server = startServer(t, root, databaseURL, binary)
+		if result := request(t, http.MethodGet, server.baseURL+"/v2/agents/runtime-b/versions/1.0.0", userToken, nil); result.status != http.StatusOK {
+			t.Fatalf("durable read after restart = %d %s", result.status, result.body)
+		}
+
+		if _, err := pool.Exec(ctx, `ALTER SCHEMA catalog RENAME TO catalog_unavailable`); err != nil {
+			t.Fatal(err)
+		}
+		failure := request(t, http.MethodGet, server.baseURL+"/v2/agents?capability=runtime.echo", userToken, nil)
+		assertPlatformError(t, failure, http.StatusServiceUnavailable, contracts.ErrorCodeDependency)
+		if _, err := pool.Exec(ctx, `ALTER SCHEMA catalog_unavailable RENAME TO catalog`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `UPDATE catalog.schema_version SET version = 2`); err != nil {
+			t.Fatal(err)
+		}
+		if ready := request(t, http.MethodGet, server.baseURL+"/readyz", "", nil); ready.status != http.StatusServiceUnavailable {
+			t.Fatalf("schema mismatch readiness = %d", ready.status)
+		}
+		if _, err := pool.Exec(ctx, `UPDATE catalog.schema_version SET version = 1`); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("stable cursor traversal and scale latency", func(t *testing.T) {
+		seedPublishedVersions(t, pool, 0, 1000)
+		registerClockRaceCards(t, server)
+		clockTransaction, firstSequence := beginDelayedPublication(t, pool, "clock-race-a")
+		secondPublication := make(chan httpResult, 1)
+		go func() {
+			secondPublication <- request(t, http.MethodPost, server.baseURL+"/v2/agents/clock-race-b/versions/1.0.0/publish", ownerAToken, nil)
+		}()
+		select {
+		case result := <-secondPublication:
+			t.Fatalf("competing publication bypassed transactional clock with status %d", result.status)
+		case <-time.After(100 * time.Millisecond):
+		}
+		first := decodeSearch(t, request(t, http.MethodGet, server.baseURL+"/v2/agents?capability=scale.test&limit=100", userToken, nil))
+		if len(first.Items) != 100 || first.NextCursor == nil {
+			t.Fatalf("first scale page = %d items, cursor %v", len(first.Items), first.NextCursor)
+		}
+		mismatched := request(t, http.MethodGet, server.baseURL+"/v2/agents?capability=other.test&limit=100&cursor="+*first.NextCursor, userToken, nil)
+		assertPlatformError(t, mismatched, http.StatusBadRequest, contracts.ErrorCodeValidationError)
+		firstVersions := make([]string, len(first.Items))
+		for index, item := range first.Items {
+			firstVersions[index] = item.Card.Version
+		}
+		if !sort.StringsAreSorted(firstVersions) {
+			t.Fatalf("tie ordering is not exact-string ascending: %v", firstVersions)
+		}
+		if err := clockTransaction.Commit(ctx); err != nil {
+			t.Fatalf("commit delayed publication: %v", err)
+		}
+		second := <-secondPublication
+		if second.status != http.StatusOK {
+			t.Fatalf("competing publication after clock release = %d %s", second.status, second.body)
+		}
+		var secondSequence int64
+		if err := pool.QueryRow(ctx, `SELECT publication_sequence FROM catalog.agent_versions WHERE agent_id = 'clock-race-b' AND version = '1.0.0'`).Scan(&secondSequence); err != nil {
+			t.Fatal(err)
+		}
+		if secondSequence <= firstSequence {
+			t.Fatalf("publication sequence order = delayed %d, competing %d", firstSequence, secondSequence)
+		}
+		seedLatePublication(t, pool)
+		if _, err := pool.Exec(ctx, `UPDATE catalog.agent_versions SET publication_status = 'disabled', disabled_at = now() WHERE agent_id = 'scale-agent' AND version = '1.0.999'`); err != nil {
+			t.Fatal(err)
+		}
+		seen := make(map[string]struct{}, 1000)
+		for _, item := range first.Items {
+			seen[item.Card.AgentID+"@"+item.Card.Version] = struct{}{}
+		}
+		cursor := first.NextCursor
+		for cursor != nil {
+			page := decodeSearch(t, request(t, http.MethodGet, server.baseURL+"/v2/agents?capability=scale.test&limit=100&cursor="+*cursor, userToken, nil))
+			for _, item := range page.Items {
+				key := item.Card.AgentID + "@" + item.Card.Version
+				if _, exists := seen[key]; exists {
+					t.Fatalf("duplicate traversal result %s", key)
+				}
+				seen[key] = struct{}{}
+			}
+			cursor = page.NextCursor
+		}
+		if len(seen) != 999 {
+			t.Fatalf("stable traversal count = %d, want 999", len(seen))
+		}
+		if _, exists := seen["scale-agent@2.0.0"]; exists {
+			t.Fatal("publication after first page entered traversal")
+		}
+		if _, exists := seen["scale-agent@1.0.999"]; exists {
+			t.Fatal("between-page disablement remained in traversal")
+		}
+		if _, exists := seen["clock-race-a@1.0.0"]; exists {
+			t.Fatal("delayed lower-sequence publication entered traversal")
+		}
+		if _, exists := seen["clock-race-b@1.0.0"]; exists {
+			t.Fatal("publication serialized after delayed commit entered traversal")
+		}
+
+		seedPublishedVersions(t, pool, 1000, 9000)
+		started := time.Now()
+		page := request(t, http.MethodGet, server.baseURL+"/v2/agents?capability=scale.test&limit=100", userToken, nil)
+		elapsed := time.Since(started)
+		if page.status != http.StatusOK {
+			t.Fatalf("10,000-version first page = %d %s", page.status, page.body)
+		}
+		if elapsed >= 500*time.Millisecond {
+			t.Fatalf("10,000-version first page latency = %s, want <500ms", elapsed)
+		}
+	})
+}
+
+func guardedDatabaseURL(t *testing.T) string {
+	t.Helper()
+	value := os.Getenv("NEKIRO_TEST_DATABASE_URL")
+	if strings.TrimSpace(value) == "" {
+		t.Fatal("NEKIRO_TEST_DATABASE_URL is required for integration tests")
+	}
+	configuration, err := pgxpool.ParseConfig(value)
+	if err != nil {
+		t.Fatal("NEKIRO_TEST_DATABASE_URL is invalid")
+	}
+	if !strings.HasSuffix(configuration.ConnConfig.Database, "_test") {
+		t.Fatalf("integration database %q must end in _test", configuration.ConnConfig.Database)
+	}
+	return value
+}
+
+func repositoryRoot(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func resetCatalog(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `DROP SCHEMA IF EXISTS catalog CASCADE`); err != nil {
+		t.Fatalf("reset dedicated Catalog schema: %v", err)
+	}
+}
+
+func buildControlPlane(t *testing.T, root string) string {
+	t.Helper()
+	name := "control-plane"
+	if filepath.Separator == '\\' {
+		name += ".exe"
+	}
+	binary := filepath.Join(t.TempDir(), name)
+	command := exec.Command("go", "build", "-o", binary, "./apps/control-plane/cmd/control-plane")
+	command.Dir = root
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build Control Plane: %v\n%s", err, output)
+	}
+	return binary
+}
+
+func runCommand(t *testing.T, root, databaseURL, binary string, arguments ...string) {
+	t.Helper()
+	command := exec.Command(binary, arguments...)
+	command.Dir = root
+	command.Env = environmentWith(map[string]string{"NEKIRO_DATABASE_URL": databaseURL})
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("run %v: %v\n%s", arguments, err, output)
+	}
+}
+
+func startServer(t *testing.T, root, databaseURL, binary string) *testServer {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	listener.Close()
+	principals := []map[string]string{
+		{"id": "catalog-owner-a", "tokenSha256": digest(ownerAToken)},
+		{"id": "catalog-owner-b", "tokenSha256": digest(ownerBToken)},
+		{"id": "catalog-user", "tokenSha256": digest(userToken)},
+	}
+	principalsJSON, err := json.Marshal(principals)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &testServer{baseURL: "http://" + address}
+	server.command = exec.Command(binary, "serve")
+	server.command.Dir = root
+	server.command.Env = environmentWith(map[string]string{
+		"NEKIRO_DATABASE_URL":             databaseURL,
+		"NEKIRO_LISTEN_ADDRESS":           address,
+		"NEKIRO_AUTH_MODE":                "development-static",
+		"NEKIRO_DEV_AUTH_PRINCIPALS_JSON": string(principalsJSON),
+	})
+	server.command.Stdout = &server.logs
+	server.command.Stderr = &server.logs
+	if err := server.command.Start(); err != nil {
+		t.Fatalf("start Control Plane: %v", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		response, err := http.Get(server.baseURL + "/readyz")
+		if err == nil {
+			response.Body.Close()
+			if response.StatusCode == http.StatusNoContent {
+				return server
+			}
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	server.stop(t)
+	t.Fatalf("Control Plane did not become ready: %s", server.logs.String())
+	return nil
+}
+
+func (server *testServer) stop(t *testing.T) {
+	t.Helper()
+	if server == nil || server.command == nil || server.command.Process == nil || server.command.ProcessState != nil {
+		return
+	}
+	if err := server.command.Process.Signal(os.Interrupt); err != nil {
+		_ = server.command.Process.Kill()
+	}
+	done := make(chan error, 1)
+	go func() { done <- server.command.Wait() }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		_ = server.command.Process.Kill()
+		<-done
+	}
+	server.command = nil
+}
+
+func environmentWith(values map[string]string) []string {
+	environment := make([]string, 0, len(os.Environ())+len(values))
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		if _, replaced := values[strings.ToUpper(name)]; !replaced {
+			keep := true
+			for replacement := range values {
+				if strings.EqualFold(name, replacement) {
+					keep = false
+					break
+				}
+			}
+			if keep {
+				environment = append(environment, entry)
+			}
+		}
+	}
+	for name, value := range values {
+		environment = append(environment, name+"="+value)
+	}
+	return environment
+}
+
+func request(t *testing.T, method, url, token string, body []byte) httpResult {
+	t.Helper()
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(context.Background(), method, url, reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, url, err)
+	}
+	defer response.Body.Close()
+	data, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return httpResult{status: response.StatusCode, header: response.Header.Clone(), body: data}
+}
+
+func assertPlatformError(t *testing.T, result httpResult, status int, code contracts.PlatformErrorCode) {
+	t.Helper()
+	if result.status != status {
+		t.Fatalf("status = %d, want %d: %s", result.status, status, result.body)
+	}
+	var platformError contracts.PlatformError
+	if err := json.Unmarshal(result.body, &platformError); err != nil {
+		t.Fatalf("decode Platform Error: %v: %s", err, result.body)
+	}
+	if platformError.Code != code || string(platformError.TraceID) != result.header.Get("x-nek-trace-id") {
+		t.Fatalf("Platform Error = %#v, header trace = %q", platformError, result.header.Get("x-nek-trace-id"))
+	}
+}
+
+func decodeEntry(t *testing.T, result httpResult) contracts.CatalogEntry {
+	t.Helper()
+	var entry contracts.CatalogEntry
+	decoder := json.NewDecoder(bytes.NewReader(result.body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&entry); err != nil {
+		t.Fatalf("decode Catalog entry: %v: %s", err, result.body)
+	}
+	return entry
+}
+
+func decodeSearch(t *testing.T, result httpResult) contracts.SearchAgentsResponse {
+	t.Helper()
+	if result.status != http.StatusOK {
+		t.Fatalf("search status = %d: %s", result.status, result.body)
+	}
+	var response contracts.SearchAgentsResponse
+	decoder := json.NewDecoder(bytes.NewReader(result.body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&response); err != nil {
+		t.Fatalf("decode search: %v: %s", err, result.body)
+	}
+	return response
+}
+
+func decodeCard(t *testing.T, data []byte) contracts.AgentCard {
+	t.Helper()
+	var card contracts.AgentCard
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&card); err != nil {
+		t.Fatal(err)
+	}
+	return card
+}
+
+func assertLogsAreSecretSafe(t *testing.T, logs string) {
+	t.Helper()
+	for _, forbidden := range []string{
+		ownerAToken,
+		ownerBToken,
+		userToken,
+		digest(ownerAToken),
+		digest(ownerBToken),
+		digest(userToken),
+		"runtime-a.example.test",
+		"inputSchema",
+		"NEKIRO_DATABASE_URL",
+	} {
+		if strings.Contains(logs, forbidden) {
+			t.Fatalf("Control Plane logs contain forbidden request or credential material %q", forbidden)
+		}
+	}
+}
+
+func readFixture(t *testing.T, root, name string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(root, "tests", "fixtures", "catalog", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func registrationEnvelope(t *testing.T, card []byte) []byte {
+	t.Helper()
+	var document any
+	decoder := json.NewDecoder(bytes.NewReader(card))
+	decoder.UseNumber()
+	if err := decoder.Decode(&document); err != nil {
+		t.Fatal(err)
+	}
+	return mustJSON(t, map[string]any{"card": document})
+}
+
+func mustJSON(t *testing.T, value any) []byte {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func digest(token string) string {
+	digest := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(digest[:])
+}
+
+func seedPublishedVersions(t *testing.T, pool *pgxpool.Pool, start, count int) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	registeredAt := time.Date(2026, 7, 14, 0, 0, 0, 0, time.UTC)
+	if _, err := tx.Exec(ctx, `INSERT INTO catalog.agent_identities (agent_id, owner_id, created_at) VALUES ('scale-agent', 'catalog-owner-a', $1) ON CONFLICT DO NOTHING`, registeredAt); err != nil {
+		t.Fatal(err)
+	}
+	var sequence int64
+	if err := tx.QueryRow(ctx, `SELECT last_sequence FROM catalog.publication_clock WHERE singleton = true FOR UPDATE`).Scan(&sequence); err != nil {
+		t.Fatal(err)
+	}
+	versionRows := make([][]any, 0, count)
+	capabilityRows := make([][]any, 0, count)
+	for index := start; index < start+count; index++ {
+		version := fmt.Sprintf("1.0.%d", index)
+		card := scaleCard(version)
+		cardJSON := mustJSON(t, card)
+		cardDigest := sha256.Sum256(cardJSON)
+		sequence++
+		versionRows = append(versionRows, []any{"scale-agent", version, "0.2", string(cardJSON), cardDigest[:], "published", registeredAt, registeredAt, sequence, nil})
+		capabilityRows = append(capabilityRows, []any{"scale-agent", version, "scale.test"})
+	}
+	if _, err := tx.CopyFrom(ctx, pgx.Identifier{"catalog", "agent_versions"}, []string{"agent_id", "version", "schema_version", "card", "card_digest", "publication_status", "registered_at", "published_at", "publication_sequence", "disabled_at"}, pgx.CopyFromRows(versionRows)); err != nil {
+		t.Fatalf("seed scale versions: %v", err)
+	}
+	if _, err := tx.CopyFrom(ctx, pgx.Identifier{"catalog", "agent_version_capabilities"}, []string{"agent_id", "version", "capability_id"}, pgx.CopyFromRows(capabilityRows)); err != nil {
+		t.Fatalf("seed scale capabilities: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE catalog.publication_clock SET last_sequence = $1 WHERE singleton = true`, sequence); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func seedLatePublication(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	ctx := context.Background()
+	card := scaleCard("2.0.0")
+	cardJSON := mustJSON(t, card)
+	cardDigest := sha256.Sum256(cardJSON)
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	var sequence int64
+	if err := tx.QueryRow(ctx, `UPDATE catalog.publication_clock SET last_sequence = last_sequence + 1 WHERE singleton = true RETURNING last_sequence`).Scan(&sequence); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO catalog.agent_versions (agent_id, version, schema_version, card, card_digest, publication_status, registered_at, published_at, publication_sequence)
+VALUES ('scale-agent', '2.0.0', '0.2', $1, $2, 'published', now(), now(), $3)`, string(cardJSON), cardDigest[:], sequence); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO catalog.agent_version_capabilities (agent_id, version, capability_id) VALUES ('scale-agent', '2.0.0', 'scale.test')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func registerClockRaceCards(t *testing.T, server *testServer) {
+	t.Helper()
+	for _, agentID := range []string{"clock-race-a", "clock-race-b"} {
+		card := scaleCard("1.0.0")
+		card.AgentID = agentID
+		result := request(t, http.MethodPost, server.baseURL+"/v2/agents", ownerAToken, registrationEnvelope(t, mustJSON(t, card)))
+		if result.status != http.StatusCreated {
+			t.Fatalf("register %s = %d %s", agentID, result.status, result.body)
+		}
+	}
+}
+
+func beginDelayedPublication(t *testing.T, pool *pgxpool.Pool, agentID string) (pgx.Tx, int64) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM catalog.agent_versions WHERE agent_id = $1 AND version = '1.0.0' FOR UPDATE`, agentID); err != nil {
+		tx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	var sequence int64
+	if err := tx.QueryRow(ctx, `UPDATE catalog.publication_clock SET last_sequence = last_sequence + 1 WHERE singleton = true RETURNING last_sequence`).Scan(&sequence); err != nil {
+		tx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE catalog.agent_versions SET publication_status = 'published', published_at = now(), publication_sequence = $3 WHERE agent_id = $1 AND version = $2`, agentID, "1.0.0", sequence); err != nil {
+		tx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	return tx, sequence
+}
+
+func scaleCard(version string) contracts.AgentCard {
+	return contracts.AgentCard{
+		SchemaVersion: "0.2", AgentID: "scale-agent", Name: "Scale Agent", Description: "Cursor scale acceptance fixture.",
+		Owner: contracts.AgentOwner{ID: "catalog-owner-a", DisplayName: "Catalog Owner A"}, Version: version,
+		Protocol:       contracts.AgentProtocol{Type: "a2a", Version: "0.3.0", Transport: "JSONRPC", Endpoint: "https://scale.example.test/a2a"},
+		Skills:         []contracts.AgentSkill{{ID: "scale.test", Name: "Scale", Description: "Scale test.", InputSchema: contracts.JSONSchema{"type": "object"}, OutputSchema: contracts.JSONSchema{"type": "object"}, RequiredPermissions: []string{}}},
+		Authentication: contracts.AgentAuthentication{Type: "none"}, Permissions: []contracts.PermissionDeclaration{},
+		Limits: contracts.AgentLimits{TimeoutMS: 1000, MaxInputBytes: 1024, MaxOutputBytes: 1024, Streaming: false},
+	}
+}

@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "0.2",
+  "agentId": "runtime-b",
+  "name": "Runtime B Translation Agent",
+  "description": "Translates text through an independent acceptance Runtime.",
+  "owner": {
+    "id": "catalog-owner-b",
+    "displayName": "Catalog Owner B"
+  },
+  "version": "1.0.0",
+  "protocol": {
+    "type": "a2a",
+    "version": "0.3.0",
+    "transport": "JSONRPC",
+    "endpoint": "https://runtime-b.example.test/a2a"
+  },
+  "skills": [
+    {
+      "id": "runtime.echo",
+      "name": "Echo translated input",
+      "description": "Returns translated input for metadata portability tests.",
+      "inputSchema": {"type": "object"},
+      "outputSchema": {"type": "object"},
+      "requiredPermissions": ["text.read"]
+    },
+    {
+      "id": "runtime.translate",
+      "name": "Translate text",
+      "description": "Translates text into a requested language.",
+      "inputSchema": {"type": "object"},
+      "outputSchema": {"type": "object"},
+      "requiredPermissions": ["text.read"]
+    }
+  ],
+  "authentication": {"type": "none"},
+  "permissions": [
+    {"id": "text.read", "description": "Read supplied text."}
+  ],
+  "limits": {
+    "timeoutMs": 30000,
+    "maxInputBytes": 1048576,
+    "maxOutputBytes": 1048576,
+    "streaming": true
+  }
+}
