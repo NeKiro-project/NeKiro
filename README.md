@@ -7,6 +7,24 @@ Plane / A2A Router. Phase 1 proves this loop:
 Register -> Discover -> Install -> Invoke -> Record
 ```
 
+## Product boundary
+
+NeKiro operates independently built Agents from the outside. It owns versioned
+registration, capability discovery, Workspace installation and permission
+acceptance, managed routing, and cross-Agent invocation lineage. Agent Runtime
+frameworks own model calls, prompts, tools, workflows, memory, RAG, sessions,
+and runtime-internal telemetry.
+
+Frameworks such as `trpc-agent-go` are complementary Runtime integrations, not
+the implementation foundation of the Control Plane or A2A Router. The NeKiro
+Agent SDK stays thin and covers Agent Card conformance, platform context
+propagation, and nested calls through the Router.
+
+Phase 1 must prove this boundary with at least two sample Agents backed by
+different Runtime implementations. See
+[Platform direction](docs/architecture/platform-direction.md) and
+[ADR 0003](docs/decisions/0003-runtime-agnostic-platform-boundary.md).
+
 ## Current status
 
 The repository currently has language-neutral JSON Schema/OpenAPI contracts,

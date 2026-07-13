@@ -44,6 +44,9 @@
   Invoke, or Record, or cites an ADR for a blocking prerequisite.
 - **Ownership**: Control Plane/Data Plane placement and owning module/data are
   explicit; no module writes another module's data.
+- **Runtime independence**: Core behavior remains useful across independently
+  implemented Agents; framework-specific behavior stays in an adapter or
+  external Runtime, and core services do not depend on a full Agent framework.
 - **Contracts**: Cross-boundary schemas, API direction, versions, compatibility,
   and migration impact are identified before implementation.
 - **Invocation lineage**: Invocation, Task, Trace, result transport, and Ledger
@@ -52,6 +55,8 @@
   fallback or secret-bearing contract/log/event field is introduced.
 - **SDD traceability**: Source paths and tasks map to accepted requirements;
   tests are planned after implementation and map to acceptance scenarios.
+- **Cross-runtime proof**: Features touching Agent integration identify how the
+  Phase 1 multi-Runtime scenario verifies the platform boundary.
 
 ## Project Structure
 

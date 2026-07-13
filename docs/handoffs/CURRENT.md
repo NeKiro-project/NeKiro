@@ -5,6 +5,11 @@
 switching devices. Do not continue implementation automatically from this
 checkpoint.
 
+**Direction amendment**: After this implementation checkpoint, the project
+adopted the runtime-agnostic platform boundary in Constitution `1.1.0` and ADR
+0003. This amendment does not resume Spec 001 implementation; all module gates
+and the resume order below still apply.
+
 ## Resume Point
 
 - Repository: `E:\NeKiro`
@@ -26,6 +31,8 @@ Read these before changing code:
 
 - `AGENTS.md`
 - `.specify/memory/constitution.md`
+- `docs/architecture/platform-direction.md`
+- `docs/decisions/0003-runtime-agnostic-platform-boundary.md`
 - `specs/001-complete-invocation-contracts/spec.md`
 - `specs/001-complete-invocation-contracts/plan.md`
 - `specs/001-complete-invocation-contracts/data-model.md`
@@ -40,6 +47,10 @@ solely from this handoff.
 ## Required Workflow
 
 - Continue Spec Kit SDD: observe/specify/clarify/plan/tasks/analyze before code.
+- Keep full Agent Runtime frameworks out of Control Plane and Router core;
+  framework-specific behavior belongs in adapters or sample Agents.
+- Features touching Agent integration must preserve the Phase 1 cross-runtime
+  acceptance proof defined by the platform direction.
 - The project intentionally implements approved behavior before mapped tests;
   do not introduce TDD as the required workflow.
 - Every implementation Agent reads
@@ -171,4 +182,3 @@ No remote push is authorized unless the user explicitly requests it.
 - `code-review` for every fresh module and integrated Review
 - `ai-fallback-disable` for all failure/default/compatibility decisions
 - `speckit-converge` only after the final integrated Review passes
-

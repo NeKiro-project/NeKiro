@@ -58,6 +58,9 @@ profile conformance
 - **Ownership — PASS**: Gateway owns northbound normalization, Control Plane
   owns resolution, Router owns dispatch/result transport, and Ledger receives
   metadata-only lifecycle facts.
+- **Runtime independence — PASS**: The feature defines language-neutral Agent
+  Card, Invocation, and A2A conformance facts without importing a full Agent
+  Runtime framework into Control Plane or Router core.
 - **Contracts — PASS**: New breaking versions are explicit; historical files
   remain unchanged and migration impact is documented.
 - **Invocation lineage — PASS**: Result and stream envelopes carry invocation,
@@ -67,6 +70,10 @@ profile conformance
   Ledger facts.
 - **SDD traceability — PASS**: Design artifacts map every requirement to exact
   target contract files; implementation tasks precede mapped tests.
+- **Cross-runtime proof — PASS**: The conformance corpora are portable across
+  implementations and establish the contract boundary required by the later
+  Phase 1 multi-Runtime E2E scenario; this contract-only feature does not run
+  that future scenario itself.
 
 ## Design Decisions
 

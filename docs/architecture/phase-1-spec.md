@@ -10,6 +10,20 @@ Register -> Discover -> Install -> Invoke -> Record
 
 The deliverable is an Agent Operating Platform slice, not a marketplace catalog page. A user must be able to publish a versioned Agent Card, discover it by capability, install it into a workspace, invoke it through the A2A Router, and inspect the complete invocation lineage.
 
+## Product Boundary
+
+Phase 1 operates independently implemented Agents as protocol-facing black
+boxes. Agent Runtimes own model, prompt, tool, planner, workflow, memory, RAG,
+session, and runtime telemetry behavior. NeKiro owns publication, discovery,
+Workspace authorization, exact-version resolution, managed routing, and
+platform-level invocation lineage.
+
+Full Agent Runtime frameworks must not become Control Plane or A2A Router core
+dependencies. They may be used by sample Agents or isolated adapters. The
+Phase 1 proof uses at least two sample Agents backed by different Runtime
+implementations so the platform cannot pass acceptance by relying on one
+framework's internal types or storage.
+
 ## Deployment Units
 
 ```text
@@ -148,6 +162,10 @@ The final E2E suite must prove:
 3. Installation requires explicit permission acceptance and resolves an exact version.
 4. An installed agent can be invoked through the Router and returns the exact non-streaming result or ordered streaming result events through the Gateway.
 5. An uninstalled, disabled, or unauthorized agent is rejected before dispatch.
-6. Agent A can call Agent B through the Router and produce a complete parent-child trace.
+6. Two sample Agents backed by different Runtime implementations can be
+   registered and installed; Agent A can call Agent B through the Router and
+   produce a complete parent-child trace without shared Runtime internals.
 7. Timeout, cancellation, route failure, A2A failure, and agent failure remain distinguishable in Ledger without persisting Agent input or output.
 8. Router resolution reaches only the Control Plane destination, while dispatch and Ledger queries reach only the Router destination.
+9. Both sample Agents pass the same A2A Profile conformance and are invoked
+   without framework-specific Control Plane or Router behavior.

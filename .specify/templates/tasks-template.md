@@ -246,4 +246,8 @@ With multiple developers:
 - Add tests after implementing the approved behavior and trace them to the Spec
 - Commit after each task or logical group
 - Stop at any checkpoint to validate story independently
+- Keep framework-specific integration in adapter or sample-Agent paths; do not
+  add full Agent Runtime dependencies to Control Plane or Router core
+- When a story touches Agent integration, include a cross-runtime contract or
+  E2E task mapped to the Spec's Runtime/Platform Boundary
 - Avoid: vague tasks, same file conflicts, cross-story dependencies that break independence

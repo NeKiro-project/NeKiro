@@ -103,6 +103,19 @@
 - **[Entity 1]**: [What it represents, key attributes without implementation]
 - **[Entity 2]**: [What it represents, relationships to other entities]
 
+### Runtime/Platform Boundary *(mandatory when feature touches Agent execution or integration)*
+
+<!--
+  State whether each behavior belongs to NeKiro core, a protocol adapter, or an
+  external Agent Runtime. Core requirements must remain valid when the Agent's
+  language, model, or framework changes. Framework-specific behavior must not
+  be promoted into platform semantics without an ADR.
+-->
+
+- **Platform-owned behavior**: [Registration, authorization, routing, lineage, or N/A]
+- **Runtime-owned behavior**: [Model/tool/workflow/session behavior that remains external, or N/A]
+- **Cross-runtime proof**: [How independently implemented Agents verify this boundary, or N/A with reason]
+
 ## Success Criteria *(mandatory)*
 
 <!--
@@ -135,3 +148,5 @@
 
 - [Explicitly list behavior, modules, and future-stage capabilities excluded
   from this feature]
+- [Explicitly list Agent Runtime behavior that remains in frameworks or
+  adapters rather than NeKiro core]
