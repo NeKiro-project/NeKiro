@@ -22,3 +22,8 @@ pnpm-debug.log*
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Agent-local state; project Spec Kit skills remain versioned
+.agents/*
+!.agents/skills/
+!.agents/skills/**
