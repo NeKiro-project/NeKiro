@@ -66,6 +66,7 @@ func (platformError *PlatformErrorV2) UnmarshalJSON(data []byte) error {
 		data,
 		&decoded,
 		[]string{"code", "message", "traceId"},
+		nil,
 		[]string{"invocationId", "rootTaskId"},
 	); err != nil {
 		return fmt.Errorf("decode Platform Error v2: %w", err)
@@ -123,6 +124,30 @@ type InvocationResult struct {
 	Result        json.RawMessage `json:"result"`
 }
 
+func (result *InvocationResult) UnmarshalJSON(data []byte) error {
+	type wireInvocationResult InvocationResult
+	var decoded wireInvocationResult
+	if err := unmarshalStrictResultContractObject(
+		data,
+		&decoded,
+		[]string{"schemaVersion", "invocationId", "rootTaskId", "traceId", "status"},
+		[]string{"result"},
+		nil,
+	); err != nil {
+		return fmt.Errorf("decode Invocation Result: %w", err)
+	}
+	value := InvocationResult(decoded)
+	validator, err := resultContractDecodeValidator()
+	if err != nil {
+		return err
+	}
+	if err := validator.ValidateInvocationResult(value); err != nil {
+		return fmt.Errorf("decode Invocation Result: %w", err)
+	}
+	*result = value
+	return nil
+}
+
 type InvocationResultStreamEvent struct {
 	SchemaVersion string                `json:"schemaVersion"`
 	Sequence      int64                 `json:"sequence"`
@@ -143,6 +168,7 @@ func (event *InvocationResultStreamEvent) UnmarshalJSON(data []byte) error {
 		data,
 		&decoded,
 		[]string{"schemaVersion", "sequence", "type", "status", "invocationId", "rootTaskId", "traceId"},
+		nil,
 		[]string{"chunkIndex", "error"},
 	); err != nil {
 		return fmt.Errorf("decode Invocation Result Stream Event: %w", err)
@@ -203,6 +229,7 @@ func (event *InvocationEventV02) UnmarshalJSON(data []byte) error {
 			"agentCardVersion",
 			"capability",
 		},
+		nil,
 		[]string{"parentInvocationId", "chunkIndex", "chunkBytes", "latencyMs", "error"},
 	); err != nil {
 		return fmt.Errorf("decode Invocation Event v0.2: %w", err)
@@ -221,6 +248,22 @@ func (event *InvocationEventV02) UnmarshalJSON(data []byte) error {
 
 type RouterEventEnvelopeV02 struct {
 	Event InvocationEventV02 `json:"event"`
+}
+
+func (envelope *RouterEventEnvelopeV02) UnmarshalJSON(data []byte) error {
+	type wireRouterEventEnvelopeV02 RouterEventEnvelopeV02
+	var decoded wireRouterEventEnvelopeV02
+	if err := unmarshalStrictResultContractObject(
+		data,
+		&decoded,
+		[]string{"event"},
+		nil,
+		nil,
+	); err != nil {
+		return fmt.Errorf("decode Router Event Envelope v0.2: %w", err)
+	}
+	*envelope = RouterEventEnvelopeV02(decoded)
+	return nil
 }
 
 const (
@@ -455,7 +498,8 @@ func validateSafeContractIdentifier(name string, value string) error {
 func unmarshalStrictResultContractObject(
 	data []byte,
 	destination any,
-	requiredFields []string,
+	requiredNonNullableFields []string,
+	requiredNullableFields []string,
 	optionalNonNullableFields []string,
 ) error {
 	var fields map[string]json.RawMessage
@@ -465,13 +509,18 @@ func unmarshalStrictResultContractObject(
 	if fields == nil {
 		return errors.New("contract value must be a JSON object")
 	}
-	for _, field := range requiredFields {
+	for _, field := range requiredNonNullableFields {
 		value, exists := fields[field]
 		if !exists {
 			return fmt.Errorf("required field %q is missing", field)
 		}
 		if isJSONNull(value) {
 			return fmt.Errorf("required field %q must not be null", field)
+		}
+	}
+	for _, field := range requiredNullableFields {
+		if _, exists := fields[field]; !exists {
+			return fmt.Errorf("required field %q is missing", field)
 		}
 	}
 	for _, field := range optionalNonNullableFields {

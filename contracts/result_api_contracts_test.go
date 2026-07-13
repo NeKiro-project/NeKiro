@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -165,6 +166,58 @@ func TestInvocationOpenAPIsExposeOnlyMetadataLedgerReads(t *testing.T) {
 	}
 }
 
+func TestActiveOpenAPIErrorMappingsAreCompleteAndDeterministic(t *testing.T) {
+	northbound := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v2.yaml"))
+	controlPlaneInternal := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v1.yaml"))
+	routerInternal := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v2.yaml"))
+
+	for name, document := range map[string]*openapi3.T{
+		"Northbound v2":             northbound,
+		"Control Plane Internal v1": controlPlaneInternal,
+		"Router Internal v2":        routerInternal,
+	} {
+		t.Run(name, func(t *testing.T) {
+			assertAllOpenAPIErrorMappings(t, document)
+		})
+	}
+
+	testCases := []struct {
+		path   string
+		method string
+		status int
+		codes  []string
+	}{
+		{path: "/v2/agents", method: "POST", status: 400, codes: []string{"VALIDATION_ERROR"}},
+		{path: "/v2/agents", method: "POST", status: 409, codes: []string{"CONFLICT"}},
+		{path: "/v2/agents/{agentId}/versions/{version}", method: "GET", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v2/agents/{agentId}/versions/{version}/publish", method: "POST", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v2/agents/{agentId}/versions/{version}/publish", method: "POST", status: 409, codes: []string{"CONFLICT"}},
+		{path: "/v2/agents/{agentId}/versions/{version}/disable", method: "POST", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v2/workspaces/{workspaceId}/installations", method: "POST", status: 400, codes: []string{"VALIDATION_ERROR"}},
+		{path: "/v2/workspaces/{workspaceId}/installations", method: "POST", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v2/workspaces/{workspaceId}/installations", method: "POST", status: 409, codes: []string{"CONFLICT"}},
+		{path: "/v2/workspaces/{workspaceId}/installations/{installationId}", method: "PATCH", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v2/workspaces/{workspaceId}/installations/{installationId}", method: "DELETE", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v2/workspaces/{workspaceId}/invocations", method: "POST", status: 400, codes: []string{"VALIDATION_ERROR"}},
+		{path: "/v2/workspaces/{workspaceId}/invocations", method: "POST", status: 401, codes: []string{"UNAUTHENTICATED"}},
+		{path: "/v2/workspaces/{workspaceId}/invocations", method: "POST", status: 403, codes: []string{"FORBIDDEN", "AGENT_DISABLED", "CAPABILITY_NOT_ALLOWED"}},
+		{path: "/v2/workspaces/{workspaceId}/invocations", method: "POST", status: 404, codes: []string{"NOT_FOUND", "AGENT_NOT_INSTALLED"}},
+		{path: "/v2/workspaces/{workspaceId}/invocations", method: "POST", status: 406, codes: []string{"NOT_ACCEPTABLE"}},
+		{path: "/v2/workspaces/{workspaceId}/invocations", method: "POST", status: 409, codes: []string{"CONFLICT", "CANCELED"}},
+		{path: "/v2/workspaces/{workspaceId}/invocations", method: "POST", status: 502, codes: []string{"AGENT_EXECUTION_FAILED", "A2A_PROTOCOL_ERROR"}},
+		{path: "/v2/workspaces/{workspaceId}/invocations", method: "POST", status: 503, codes: []string{"ROUTE_NOT_FOUND", "AGENT_UNAVAILABLE", "DEPENDENCY_ERROR"}},
+		{path: "/v2/workspaces/{workspaceId}/invocations", method: "POST", status: 504, codes: []string{"TIMEOUT"}},
+		{path: "/v2/invocations/{invocationId}", method: "GET", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v2/invocations/{invocationId}", method: "GET", status: 503, codes: []string{"DEPENDENCY_ERROR"}},
+		{path: "/v2/traces/{traceId}", method: "GET", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v2/traces/{traceId}", method: "GET", status: 503, codes: []string{"DEPENDENCY_ERROR"}},
+	}
+	for _, testCase := range testCases {
+		operation := northbound.Paths.Find(testCase.path).GetOperation(testCase.method)
+		assertExactResponseErrorCodes(t, operation, testCase.status, testCase.codes)
+	}
+}
+
 func assertDirectResultOperation(t *testing.T, document *openapi3.T, path string) {
 	t.Helper()
 	pathItem := document.Paths.Find(path)
@@ -254,21 +307,79 @@ func assertDeterministicErrorCodeStatuses(t *testing.T, operation *openapi3.Oper
 func responseErrorCodes(t *testing.T, operation *openapi3.Operation, status int) []string {
 	t.Helper()
 	response := operation.Responses.Status(status)
+	return responseErrorCodesFromRef(t, fmt.Sprintf("response %d", status), response)
+}
+
+func responseErrorCodesFromRef(t *testing.T, label string, response *openapi3.ResponseRef) []string {
+	t.Helper()
 	if response == nil || response.Value == nil {
-		t.Fatalf("response %d is missing", status)
+		t.Fatalf("%s is missing", label)
 	}
 	encoded, err := json.Marshal(response.Value.Extensions["x-platform-error-codes"])
 	if err != nil {
-		t.Fatalf("marshal response %d error codes: %v", status, err)
+		t.Fatalf("marshal %s error codes: %v", label, err)
 	}
 	var codes []string
 	if err := json.Unmarshal(encoded, &codes); err != nil {
-		t.Fatalf("decode response %d error codes: %v", status, err)
+		t.Fatalf("decode %s error codes: %v", label, err)
 	}
 	if len(codes) == 0 {
-		t.Fatalf("response %d has no error codes", status)
+		t.Fatalf("%s has no error codes", label)
 	}
 	return codes
+}
+
+func assertAllOpenAPIErrorMappings(t *testing.T, document *openapi3.T) {
+	t.Helper()
+	for path, pathItem := range document.Paths.Map() {
+		for method, operation := range pathItem.Operations() {
+			seen := make(map[string]string)
+			for statusText, response := range operation.Responses.Map() {
+				status, err := strconv.Atoi(statusText)
+				if err != nil {
+					t.Fatalf("%s %s has unsupported response key %q", method, path, statusText)
+				}
+				if status < 400 {
+					continue
+				}
+				label := fmt.Sprintf("%s %s response %s", method, path, statusText)
+				for _, code := range responseErrorCodesFromRef(t, label, response) {
+					if _, known := platformErrorV2Messages[PlatformErrorCode(code)]; !known {
+						t.Fatalf("%s declares unknown error code %s", label, code)
+					}
+					if previousStatus, exists := seen[code]; exists {
+						t.Fatalf("%s %s maps %s under both %s and %s", method, path, code, previousStatus, statusText)
+					}
+					seen[code] = statusText
+				}
+			}
+		}
+	}
+	for name, response := range document.Components.Responses {
+		label := fmt.Sprintf("component response %s", name)
+		for _, code := range responseErrorCodesFromRef(t, label, response) {
+			if _, known := platformErrorV2Messages[PlatformErrorCode(code)]; !known {
+				t.Fatalf("%s declares unknown error code %s", label, code)
+			}
+		}
+	}
+}
+
+func assertExactResponseErrorCodes(t *testing.T, operation *openapi3.Operation, status int, expected []string) {
+	t.Helper()
+	actual := responseErrorCodes(t, operation, status)
+	if len(actual) != len(expected) {
+		t.Fatalf("response %d error codes = %v, want %v", status, actual, expected)
+	}
+	actualSet := make(map[string]struct{}, len(actual))
+	for _, code := range actual {
+		actualSet[code] = struct{}{}
+	}
+	for _, code := range expected {
+		if _, exists := actualSet[code]; !exists {
+			t.Fatalf("response %d error codes = %v, want %v", status, actual, expected)
+		}
+	}
 }
 
 func loadResultOpenAPIDocument(t *testing.T, path string) *openapi3.T {

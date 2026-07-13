@@ -108,12 +108,47 @@ func TestStrictResultContractDecodingRejectsMissingNullAndUnknownFields(t *testi
 	ledgerFailureError := mustCorrelatedPlatformErrorV2(t, ErrorCodeAgentExecutionFailed)
 	ledgerFailedEvent := validInvocationEventV02("failed", "failed", &ledgerFailureError)
 	ledgerStartedEvent := validInvocationEventV02("started", "running", nil)
+	invocationResult := InvocationResult{
+		SchemaVersion: InvocationResultSchemaVersion,
+		InvocationID:  "inv-decode",
+		RootTaskID:    "task-decode",
+		TraceID:       "trace-decode",
+		Status:        "succeeded",
+		Result:        json.RawMessage(`{"ok":true}`),
+	}
+	routerEnvelope := RouterEventEnvelopeV02{Event: ledgerStartedEvent}
 
 	testCases := []struct {
 		name        string
 		data        []byte
 		destination func() any
 	}{
+		{
+			name: "Invocation Result missing required result",
+			data: mutateContractJSON(t, invocationResult, func(document map[string]any) {
+				delete(document, "result")
+			}),
+			destination: func() any { return &InvocationResult{} },
+		},
+		{
+			name: "Invocation Result null non-nullable traceId",
+			data: mutateContractJSON(t, invocationResult, func(document map[string]any) {
+				document["traceId"] = nil
+			}),
+			destination: func() any { return &InvocationResult{} },
+		},
+		{
+			name: "Invocation Result unknown field",
+			data: mutateContractJSON(t, invocationResult, func(document map[string]any) {
+				document["replayToken"] = "unsupported"
+			}),
+			destination: func() any { return &InvocationResult{} },
+		},
+		{
+			name:        "Invocation Result trailing JSON",
+			data:        appendTrailingJSONObject(t, invocationResult),
+			destination: func() any { return &InvocationResult{} },
+		},
 		{
 			name: "Platform Error missing required traceId",
 			data: mutateContractJSON(t, platformError, func(document map[string]any) {
@@ -218,6 +253,39 @@ func TestStrictResultContractDecodingRejectsMissingNullAndUnknownFields(t *testi
 				document["result"] = map[string]any{"secret": true}
 			}),
 			destination: func() any { return &InvocationEventV02{} },
+		},
+		{
+			name: "Router Event Envelope missing required event",
+			data: mutateContractJSON(t, routerEnvelope, func(document map[string]any) {
+				delete(document, "event")
+			}),
+			destination: func() any { return &RouterEventEnvelopeV02{} },
+		},
+		{
+			name: "Router Event Envelope null event",
+			data: mutateContractJSON(t, routerEnvelope, func(document map[string]any) {
+				document["event"] = nil
+			}),
+			destination: func() any { return &RouterEventEnvelopeV02{} },
+		},
+		{
+			name: "Router Event Envelope unknown field",
+			data: mutateContractJSON(t, routerEnvelope, func(document map[string]any) {
+				document["result"] = "forbidden"
+			}),
+			destination: func() any { return &RouterEventEnvelopeV02{} },
+		},
+		{
+			name: "Router Event Envelope malformed nested event",
+			data: mutateContractJSON(t, routerEnvelope, func(document map[string]any) {
+				document["event"] = map[string]any{"schemaVersion": InvocationEventV02SchemaVersion}
+			}),
+			destination: func() any { return &RouterEventEnvelopeV02{} },
+		},
+		{
+			name:        "Router Event Envelope trailing JSON",
+			data:        appendTrailingJSONObject(t, routerEnvelope),
+			destination: func() any { return &RouterEventEnvelopeV02{} },
 		},
 	}
 
@@ -491,6 +559,15 @@ func mutateContractJSON(t *testing.T, value any, mutate func(map[string]any)) []
 		t.Fatalf("marshal mutated contract value: %v", err)
 	}
 	return data
+}
+
+func appendTrailingJSONObject(t *testing.T, value any) []byte {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal contract value: %v", err)
+	}
+	return append(data, []byte(` {}`)...)
 }
 
 func mustResultContractValidator(t *testing.T) *ResultContractValidator {

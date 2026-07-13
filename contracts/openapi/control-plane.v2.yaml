@@ -32,9 +32,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/CatalogEntry"
         "400":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/BadRequest"
         "409":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/StateConflict"
     get:
       operationId: searchAgents
       summary: Discover published Agents
@@ -87,7 +87,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/CatalogEntry"
         "404":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/ResourceNotFound"
   /v2/agents/{agentId}/versions/{version}/publish:
     post:
       operationId: publishAgentVersion
@@ -102,9 +102,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/CatalogEntry"
         "404":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/ResourceNotFound"
         "409":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/StateConflict"
   /v2/agents/{agentId}/versions/{version}/disable:
     post:
       operationId: disableAgentVersion
@@ -119,7 +119,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/CatalogEntry"
         "404":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/ResourceNotFound"
   /v2/workspaces/{workspaceId}/installations:
     post:
       operationId: installAgent
@@ -151,11 +151,11 @@ paths:
               schema:
                 $ref: ../schemas/installation.v1.schema.json
         "400":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/BadRequest"
         "404":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/ResourceNotFound"
         "409":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/StateConflict"
   /v2/workspaces/{workspaceId}/installations/{installationId}:
     patch:
       operationId: updateInstallation
@@ -180,7 +180,7 @@ paths:
               schema:
                 $ref: ../schemas/installation.v1.schema.json
         "404":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/ResourceNotFound"
     delete:
       operationId: uninstallAgent
       parameters:
@@ -190,7 +190,7 @@ paths:
         "204":
           description: Agent uninstalled
         "404":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/ResourceNotFound"
   /v2/workspaces/{workspaceId}/invocations:
     post:
       operationId: invokeAgent
@@ -266,9 +266,9 @@ paths:
                     items:
                       $ref: ../schemas/invocation-event.v0.2.schema.json
         "404":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/ResourceNotFound"
         "503":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/DependencyUnavailable"
   /v2/traces/{traceId}:
     get:
       operationId: getTrace
@@ -296,9 +296,9 @@ paths:
                     items:
                       $ref: "#/components/schemas/InvocationRecord"
         "404":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/ResourceNotFound"
         "503":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/DependencyUnavailable"
 components:
   parameters:
     AgentId:
@@ -342,14 +342,29 @@ components:
         type: string
         minLength: 1
   responses:
-    Error:
-      description: Fixed, secret-safe Platform Error v2
+    ResourceNotFound:
+      description: Requested resource was not found
+      x-platform-error-codes: [NOT_FOUND]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    StateConflict:
+      description: Requested operation conflicts with current state
+      x-platform-error-codes: [CONFLICT]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    DependencyUnavailable:
+      description: A required platform dependency failed
+      x-platform-error-codes: [DEPENDENCY_ERROR]
       content:
         application/json:
           schema:
             $ref: ../schemas/platform-error.v2.schema.json
     BadRequest:
-      description: Invalid invocation request
+      description: Invalid request
       x-platform-error-codes: [VALIDATION_ERROR]
       content:
         application/json:
