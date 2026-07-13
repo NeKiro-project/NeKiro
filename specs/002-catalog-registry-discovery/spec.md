@@ -38,7 +38,9 @@ available while invalid and duplicate submissions create no Registry fact.
    fixed validation failure and no Agent or version is created.
 3. **Given** an existing Agent ID and version, **When** any caller submits that
    identity again with identical or different Card content, **Then** the request
-   conflicts and the original Card remains unchanged.
+   conflicts and the original Card remains unchanged. Exact-version conflict
+   takes precedence over owner mismatch; the response reveals no Card, owner,
+   or publication metadata.
 4. **Given** an existing Agent owned by one developer, **When** that owner
    registers a different valid version, **Then** the new immutable draft is
    accepted; a different owner cannot register a version under that Agent ID.
@@ -205,7 +207,9 @@ public outcomes, durable state, and secret-safe diagnostics.
   MUST declare the same owner.
 - **FR-005**: Re-registering an existing `(agent_id, version)` MUST conflict and
   MUST NOT overwrite, merge, or compare-and-replace the stored Card, even when
-  the submitted content is byte-for-byte identical.
+  the submitted content is byte-for-byte identical. This exact-version conflict
+  MUST take precedence over stable-owner mismatch; a different version under an
+  existing Agent ID still uses the distinct forbidden ownership failure.
 - **FR-006**: Agent Card content MUST remain immutable after registration.
   Publication metadata MUST be stored separately and MUST NOT alter the Card.
 - **FR-007**: Publication state MUST follow `draft -> published -> disabled`,

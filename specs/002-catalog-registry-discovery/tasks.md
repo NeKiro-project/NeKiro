@@ -388,6 +388,11 @@ and require a fresh independent Review before convergence.
     public `migrate down` deletes an ordinary populated Catalog, and the
     connection-level 30-second `ReadTimeout` includes header time rather than
     providing the specified registration-body window.
+  - Review round 4: fresh boundary-focused Reviewer
+    `019f5d2f-2e36-7923-b258-22ac42610c33` did not use OCR and validated the
+    migration/deadline remediations, but returned `High 0`, `Medium 1`, `Low 0`:
+    exact duplicate registration by a different owner returns forbidden before
+    reaching the FR-005 conflict rule, while the contract described both codes.
 
 ### Review Round 1 Remediation
 
@@ -476,6 +481,19 @@ and require a fresh independent Review before convergence.
   - Review round 3 remediation fallback delta: removed `0`, retained `3`, added
     `0`, net `0`. Added fallback evidence: none.
 - [ ] T060 [Review-R3] Run the complete verification matrix, report fallback
+  delta, and create another fresh non-OCR independent Reviewer
+
+### Review Round 4 Remediation
+
+- [ ] T061 [Review-R4] After locking the stable Agent identity, detect an
+  existing exact `(agent_id, version)` before evaluating owner mismatch and
+  return fixed conflict without exposing stored metadata in
+  `apps/control-plane/internal/catalog/postgres/store.go`
+- [ ] T062 [Review-R4] Add real PostgreSQL/HTTP acceptance proving cross-owner
+  exact duplicates return `409 CONFLICT` with the original Card unchanged,
+  while a cross-owner different version remains `403 FORBIDDEN`, in
+  `tests/integration/catalog/catalog_test.go`
+- [ ] T063 [Review-R4] Run the complete verification matrix, report fallback
   delta, and create another fresh non-OCR independent Reviewer
 
 ---

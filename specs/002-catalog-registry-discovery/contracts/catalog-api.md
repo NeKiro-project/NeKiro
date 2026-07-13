@@ -81,14 +81,17 @@ or invalid request correlation is never replaced with caller-controlled data.
 
 The authenticated caller must equal `card.owner.id`. The exact Card identity is
 globally unique. A repeated `(agentId, version)` returns conflict regardless of
-whether the submitted Card is equal.
+whether the submitted Card is equal or its declared owner differs. Exact
+duplicate detection takes precedence over stable-owner mismatch and returns no
+stored Card, owner, or publication detail. A different version that attempts to
+change the established Agent owner remains forbidden.
 
 | Status | Platform Error code | Meaning |
 |---:|---|---|
 | `400` | `VALIDATION_ERROR` | Malformed, oversized, or nonconforming active Card request |
 | `401` | `UNAUTHENTICATED` | No accepted caller identity |
-| `403` | `FORBIDDEN` | Caller does not match Card owner or existing Agent owner |
-| `409` | `CONFLICT` | Exact version already exists or immutable owner conflicts |
+| `403` | `FORBIDDEN` | Caller does not match submitted Card owner, or a different version changes the existing Agent owner |
+| `409` | `CONFLICT` | Exact Agent ID and version already exists, regardless of submitted owner or content |
 | `503` | `DEPENDENCY_ERROR` | Registry transaction could not complete |
 
 ### Publish Agent Version

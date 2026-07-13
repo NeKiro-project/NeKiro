@@ -84,6 +84,9 @@ Primary key: `(agent_id, version)`.
   transaction writes any row.
 - Re-registration never replaces or merges `card`, even when the new document
   has the same digest.
+- After locking the stable Agent identity, registration checks exact version
+  existence before owner mismatch. An existing exact version returns only the
+  fixed conflict outcome; a different version with a changed owner is forbidden.
 - Application canonicalization may normalize insignificant whitespace and
   object member order before registration. The resulting JSON text is stored
   byte-for-byte and returned without PostgreSQL JSON or numeric coercion.

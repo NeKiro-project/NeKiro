@@ -108,6 +108,10 @@ design.*
 
 - Database uniqueness and row locks enforce immutable registration and legal
   `draft -> published -> disabled` or `draft -> disabled` transitions.
+- Registration locks the stable Agent identity, checks exact version existence
+  before owner mismatch, and returns fixed conflict for every exact duplicate.
+  Only a different version attempting to change the established owner returns
+  forbidden; neither outcome exposes stored Card metadata.
 - Publish succeeds only from draft and increments one Catalog-owned
   transactional publication clock. The clock row remains locked until commit,
   so immutable publication sequence order is also successful commit order.
