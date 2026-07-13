@@ -147,7 +147,8 @@ MUST NOT edit shared Go mapping files or Result/Agent Card artifacts.
 - [ ] T018 [P] [US3] Add Profile Schema
   `contracts/schemas/a2a-profile.v0.2.schema.json` and active profile
   `contracts/a2a-profile/v0.3.0/profile.v0.2.json` while preserving the legacy
-  profile file
+  profile file; model all four operations as closed per-method variants that
+  reject incompatible result/event/error fields
 - [ ] T019 [P] [US3] Add hand-authored JSON-RPC/SSE request, result, error,
   lifecycle, artifact, and propagation fixtures plus manifest under
   `contracts/a2a-profile/v0.3.0/conformance/`; keep manifest metadata
@@ -156,7 +157,8 @@ MUST NOT edit shared Go mapping files or Result/Agent Card artifacts.
 - [ ] T020 [US3] Add Profile v0.2 DTOs, loader, state mapping, and conformance
   manifest types in `contracts/a2a_profile_v02.go`, including duplicate-member
   rejection, presence checks, portable corpus-confined regular-file paths, and
-  strict conditional metadata combinations
+  strict conditional metadata combinations; require baseline response rules and
+  stable actual protocol failure classification matching `protocolError`
 
 ### Tests After Implementation
 
@@ -168,8 +170,9 @@ MUST NOT edit shared Go mapping files or Result/Agent Card artifacts.
   mismatched IDs, event-after-terminal, EOF-without-terminal, task errors,
   artifact ordering, all context headers, semantically empty Agent Messages,
   malformed manifests, unsafe paths, invalid metadata combinations, unknown or
-  unexecuted rule claims, and expected concrete result types in the same
-  conformance test file
+  unexecuted rule claims, expected concrete result types, both/neither
+  result/error, unsupported JSON-RPC ID types, cross-wired protocol errors, and
+  incompatible Profile operation fields in the same conformance test file
 - [ ] T023 [US3] Run Module C tests, `go vet ./...`, and `git diff --check`,
   report Module C fallback delta/evidence, then commit all Module C-owned files
 

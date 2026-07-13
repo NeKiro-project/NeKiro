@@ -193,6 +193,19 @@ Describes NeKiro's supported subset of A2A protocol `0.3.0`.
 | Context | Five required NeKiro propagation headers |
 | Conformance | Relative manifest references for fixed wire fixtures |
 
+Each operation is one closed variant:
+
+| Method | Required operation-specific fields | Forbidden operation-specific fields |
+|---|---|---|
+| `message/send` | accepted result kinds | accepted event kinds, expected task errors |
+| `message/stream` | accepted event kinds | accepted result kinds, expected task errors |
+| `tasks/get` | accepted Task result and task-not-found error | accepted event kinds, task-not-cancelable error |
+| `tasks/cancel` | accepted Task result and both cancel errors | accepted event kinds |
+
+The method also fixes its client method, server method, interaction mode, and
+request type. Adding a correct required field does not permit fields owned by
+another variant.
+
 ### Task State Mapping
 
 | A2A state | Phase 1 classification | Platform outcome |
@@ -243,6 +256,11 @@ Operation, fixture kind, media type, conditional fields, and rules must form a
 supported combination before fixture execution. During execution, every listed
 rule and expected type must be asserted; metadata that is merely recorded or
 ignored does not establish conformance.
+
+All response cases execute baseline JSON-RPC rules for version, supported ID
+type, and exactly one result or error. Invalid cases produce one stable actual
+protocol classification, which must equal the manifest's `protocolError`.
+Error prose and internal prerequisite failures are not classification evidence.
 
 An accepted Agent Message result has a non-empty ID, Agent role, and at least
 one part. An accepted Task result has non-empty Task and Context IDs plus a

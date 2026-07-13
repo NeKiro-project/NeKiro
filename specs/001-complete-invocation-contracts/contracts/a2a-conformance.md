@@ -36,6 +36,11 @@ SDK decode success alone is not conformance. Zero-valued Tasks, arbitrary task
 state strings, unknown/missing `kind`, mismatched identity, event after terminal,
 and EOF without terminal are invalid profile behavior.
 
+Response IDs use only the JSON types accepted by the pinned SDK server: string,
+number, or null. Boolean, object, and array IDs are invalid. Version, ID type,
+and result/error exclusivity are mandatory baseline checks for every response
+case and cannot be omitted by manifest rule selection.
+
 ## Task State Policy
 
 - Transient: `submitted`, `working`.
@@ -77,3 +82,14 @@ assertion for that case. A manifest cannot claim type, media, or rule coverage
 that the harness ignores. Manifest schema `0.1` receives no compatibility
 decoder because this active Profile has not been released to an external
 consumer.
+
+Invalid-case assertions return stable protocol failure classifications. The
+actual classification MUST equal `protocolError`; merely failing a rule that is
+associated with the declared error is insufficient when that rule can also fail
+for another reason. Prerequisite envelope, decode, and result-kind failures stay
+distinct from Message/Task semantic failures.
+
+Profile Schema `0.2` models each required method as a closed operation variant.
+It forbids `acceptedResultKinds`, `acceptedEventKinds`, or `expectedErrors` when
+the field does not belong to that method, even if all required method fields are
+otherwise present.

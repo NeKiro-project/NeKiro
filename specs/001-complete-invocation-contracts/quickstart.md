@@ -79,6 +79,10 @@ Expected outcomes:
 - Manifests with duplicate members, unsafe paths, invalid metadata combinations,
   unknown rules, or type/rule claims that the harness does not execute are
   rejected before they can claim coverage.
+- JSON-RPC response cases reject both/neither result and error, unsupported ID
+  types, and cross-wired `protocolError` classifications.
+- Profile operations reject result, event, or error fields owned by another
+  method variant.
 - All required NeKiro context headers are emitted.
 
 ## 5. Run Repository Static Verification

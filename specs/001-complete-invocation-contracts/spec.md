@@ -145,6 +145,12 @@ dispatch and invocation queries target the Router.
   Invocation than the request being completed.
 - A public result, event, error, envelope, or resolution DTO repeats a JSON
   member and different parsers select different values.
+- A nominally valid JSON-RPC response contains both `result` and `error`, or an
+  ID type that the pinned SDK/server cannot accept.
+- An invalid A2A fixture fails, but for a different protocol reason than the
+  `protocolError` declared by its manifest case.
+- An A2A Profile operation declares result, event, or error fields belonging to
+  a different operation while still satisfying its required fields.
 
 ## Requirements *(mandatory)*
 
@@ -221,6 +227,17 @@ dispatch and invocation queries target the Router.
   events, Platform Errors, Router envelopes, and resolution requests MUST reject
   duplicate object member names before typed decoding. First-member-wins and
   last-member-wins behavior are both nonconforming.
+- **FR-024**: Every A2A JSON-RPC response case MUST enforce version `2.0`, a
+  pinned-SDK-compatible ID type, and exactly one of `result` or `error` as
+  baseline envelope conformance. A valid fixture cannot omit this baseline by
+  leaving a rule out of its manifest.
+- **FR-025**: An invalid A2A conformance case MUST prove the exact stable failure
+  classification declared by `protocolError`. Failure of a prerequisite or a
+  different assertion MUST NOT count as evidence for the declared error.
+- **FR-026**: Each A2A Profile operation MUST be a closed per-method variant.
+  Fields for accepted results, accepted stream events, and expected errors MUST
+  be required or forbidden according to that exact operation; incompatible
+  operation metadata is structurally invalid.
 
 ### Key Entities
 
@@ -283,6 +300,12 @@ dispatch and invocation queries target the Router.
   root-task, or trace identifier are rejected before delivery.
 - **SC-017**: 100% of Module A public DTO fixtures containing duplicate JSON
   members are rejected before business validation.
+- **SC-018**: 100% of A2A response fixtures with both/neither result and error or
+  with a non-supported JSON-RPC ID type are rejected by baseline conformance.
+- **SC-019**: 100% of invalid A2A cases whose actual failure classification does
+  not equal their declared `protocolError` are rejected as malformed cases.
+- **SC-020**: 100% of A2A Profile operations containing fields from an
+  incompatible operation variant fail structural Schema validation.
 
 ## Assumptions
 

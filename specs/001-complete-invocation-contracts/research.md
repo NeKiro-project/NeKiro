@@ -198,6 +198,11 @@ JSON-RPC envelope integrity, SSE framing/content type, task/context identity,
 artifact append/final-chunk ordering, task-not-found/not-cancelable errors, and
 all five required NeKiro context headers.
 
+Every JSON-RPC response assertion begins with a non-optional baseline: version
+`2.0`, ID represented as string, number, or null as accepted by the pinned SDK
+server, and exactly one of result or error. Operation-specific checks cannot
+turn a baseline-invalid response into a valid case.
+
 Task state policy:
 
 - Phase 1 transient: `submitted`, `working`.
@@ -219,6 +224,11 @@ combinations are closed. Conditional fields such as `requestFile`,
 as required by the case kind. Each `rules` entry names a known harness assertion
 that must execute for that case; unsupported or unexecuted claims invalidate the
 manifest rather than being ignored.
+
+Assertion failures carry a stable protocol classification separate from error
+prose. For invalid cases, the actual classification must equal
+`protocolError`; a prerequisite decode/type failure or another rule failure
+cannot satisfy a cross-wired claim.
 
 Successful `message/send` Message results require a non-empty Message ID, Agent
 role, and at least one part. Task results continue through the task identity and
@@ -244,6 +254,10 @@ harness never performed.
   protocol instead of defining NeKiro's supported subset.
 - Dispatch only by operation and fixture kind: rejected because unvalidated
   manifest type and rule metadata could falsely report conformance coverage.
+- Treat any rule error as the declared protocol error: rejected because one rule
+  may contain prerequisites and multiple failure modes.
+- One permissive operation object with optional cross-operation fields: rejected
+  because method-specific required fields do not forbid contradictory extras.
 
 ## Decision 7: Failure Status Mapping
 

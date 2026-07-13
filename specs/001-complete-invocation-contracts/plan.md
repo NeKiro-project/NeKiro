@@ -144,6 +144,13 @@ profile conformance
   corresponding server handlers. Direct transport checks are supplemental.
 - Decoding a result is not sufficient conformance. Agent-authored Message
   results and Task results must satisfy the profile's semantic invariants.
+- JSON-RPC response baseline checks always enforce supported ID types and
+  result/error exclusivity, independent of optional manifest composition.
+- Invalid cases return stable typed assertion classifications; the declared
+  `protocolError` must equal the actual classification rather than merely share
+  a rule name.
+- Profile operations are closed per-method Schema variants that forbid result,
+  stream-event, and expected-error fields owned by another method.
 
 ## Project Structure
 
