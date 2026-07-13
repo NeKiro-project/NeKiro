@@ -410,21 +410,30 @@ and require a fresh independent Review before convergence.
 
 ### Review Round 2 Remediation
 
-- [ ] T052 [Review-R2] Add an ordered Catalog schema-v2 migration that converts
+- [x] T052 [Review-R2] Add an ordered Catalog schema-v2 migration that converts
   the immutable Card fact from PostgreSQL `jsonb` to JSON `text`, backfills
   transactionally derived `card_name` and `card_description`, and makes
   readiness require schema v2 in `apps/control-plane/migrations/`,
   `apps/control-plane/internal/catalog/postgres/migrations.go`, and migration
   tests
-- [ ] T053 [Review-R2] Persist canonical Card text and derived free-text query
+- [x] T053 [Review-R2] Persist canonical Card text and derived free-text query
   columns without PostgreSQL numeric coercion, while preserving immutable
   digest, owner/capability transactionality, exact reads, and Discovery in
   `apps/control-plane/internal/catalog/postgres/store.go`
-- [ ] T054 [Review-R2] Prove a conforming Card containing `1e131072` registers,
+- [x] T054 [Review-R2] Prove a conforming Card containing `1e131072` registers,
   survives PostgreSQL storage and process reconstruction, and round-trips
   through exact read and Discovery; retain the existing `1e400` contract
   coverage in `tests/integration/catalog/catalog_test.go` and relevant migration
   tests
+  - Evidence T052-T054: schema migration v2 preserves existing v1 Cards while
+    replacing `jsonb` with text plus required derived name/description columns;
+    readiness requires v2. A fresh PostgreSQL 17 container passed migration
+    up/up/down/up and the real HTTP acceptance, including `1e131072` storage,
+    publication, Discovery, process reconstruction, and exact read. Default and
+    full race tests, vet, binary and pinned Docker builds, Compose rendering,
+    tidy-diff, formatting, and diff checks pass.
+  - Review round 2 remediation fallback delta: removed `0`, retained `3`, added
+    `0`, net `0`. Added fallback evidence: none.
 - [ ] T055 [Review-R2] Run default, real PostgreSQL integration, split race,
   vet, build, Compose, migration, tidy-diff, and diff verification; report
   fallback delta and create a fresh non-OCR independent Reviewer
