@@ -139,6 +139,12 @@ dispatch and invocation queries target the Router.
   be reported as Agent or route unavailability.
 - A nested terminal Platform Error carries identifiers that differ from its
   enclosing Invocation Event or result-stream event.
+- A post-dispatch HTTP failure omits invocation or root-task correlation even
+  though the Invocation already exists.
+- A non-streaming success carries valid identifiers that belong to a different
+  Invocation than the request being completed.
+- A public result, event, error, envelope, or resolution DTO repeats a JSON
+  member and different parsers select different values.
 
 ## Requirements *(mandatory)*
 
@@ -203,6 +209,18 @@ dispatch and invocation queries target the Router.
   to equal the enclosing Invocation Event or result-stream event identifiers.
   Portable positive and negative conformance cases MUST produce the same
   decision in every supported implementation.
+- **FR-021**: Every HTTP error produced after Invocation creation MUST require
+  `invocation_id`, `root_task_id`, and `trace_id` and preserve the request's
+  exact values. The reusable base error shape MAY keep invocation and root-task
+  identifiers conditional only for operations that fail before creation.
+- **FR-022**: A non-streaming Invocation Result MUST be validated against the
+  expected invocation, root-task, and trace identifiers of the request that is
+  being completed; an independently valid result from another Invocation is
+  invalid for that request.
+- **FR-023**: Public JSON decoders for Invocation results, stream events, Ledger
+  events, Platform Errors, Router envelopes, and resolution requests MUST reject
+  duplicate object member names before typed decoding. First-member-wins and
+  last-member-wins behavior are both nonconforming.
 
 ### Key Entities
 
@@ -258,6 +276,13 @@ dispatch and invocation queries target the Router.
   without dispatch-only error codes.
 - **SC-014**: Every published Invocation correlation conformance case produces
   the same valid or invalid decision in each supported language implementation.
+- **SC-015**: 100% of post-creation `502`, `503`, and `504` responses in active
+  invocation APIs require and preserve invocation, root-task, and trace
+  correlation, while pre-creation errors retain their declared semantics.
+- **SC-016**: 100% of non-streaming result cases with any mismatched invocation,
+  root-task, or trace identifier are rejected before delivery.
+- **SC-017**: 100% of Module A public DTO fixtures containing duplicate JSON
+  members are rejected before business validation.
 
 ## Assumptions
 

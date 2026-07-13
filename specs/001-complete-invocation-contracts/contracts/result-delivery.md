@@ -20,6 +20,8 @@ cannot condition a response media type on a request-body boolean.
 `POST /internal/v2/invocations` uses the same request mode and response model.
 The Control Plane relays the Router result through the Gateway while preserving
 correlation IDs and fixed errors. Neither process creates a result store.
+Non-streaming delivery compares the returned `invocationId`, `rootTaskId`, and
+`traceId` with this dispatch context before the result is accepted.
 
 ## Response Schemas
 
@@ -40,6 +42,10 @@ locations, so raw JSON cases and their manifest live under
 `contracts/invocation/v1/conformance/`. All language implementations MUST make
 the same decision for that corpus.
 
+All public JSON DTO decoders covered by this contract reject duplicate member
+names before typed decoding, including nested objects. Duplicate-member payloads
+do not receive first-member-wins or last-member-wins interpretation.
+
 ## Failure Matrix
 
 Before an SSE response is committed:
@@ -52,6 +58,12 @@ Before an SSE response is committed:
 | Agent or A2A protocol failure | `502` | `AGENT_EXECUTION_FAILED` or `A2A_PROTOCOL_ERROR` |
 | Route, Agent, or dependency unavailable | `503` | matching fixed unavailable/dependency code |
 | Deadline exceeded | `504` | `TIMEOUT` |
+
+The `502`, `503`, and `504` rows occur after Invocation creation. Their active
+Northbound and Router error responses require `traceId`, `invocationId`, and
+`rootTaskId`; each value is the existing request context. The reusable base
+Platform Error v2 shape remains suitable for pre-creation failures where
+invocation and root-task identifiers do not yet exist.
 
 After SSE commitment, failed, canceled, and timed-out outcomes are terminal
 stream events. HTTP remains `200`; clients MUST inspect the terminal event.

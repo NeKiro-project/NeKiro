@@ -40,6 +40,9 @@ Expected outcomes:
   root-task, or trace identifier differs from the enclosing event.
 - Resolution requests and errors preserve existing correlation, while Router
   Ledger/trace reads expose dependency-only unavailable semantics.
+- Post-dispatch HTTP errors require all correlation identifiers, non-streaming
+  results are bound to their request context, and duplicate-member public DTO
+  payloads are rejected before typed decoding.
 - Invocation Event fixtures cannot contain result or chunk content.
 
 ## 3. Validate Agent Card Portability

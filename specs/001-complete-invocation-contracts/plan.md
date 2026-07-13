@@ -82,9 +82,16 @@ profile conformance
   include invocation context without Agent output or dependency details.
 - Once the Gateway creates invocation, root-task, and trace identifiers, every
   downstream resolution request and failure preserves those exact values.
+- Operation-level post-dispatch error schemas require all three identifiers;
+  the reusable Platform Error retains conditional fields only for genuine
+  pre-creation failures.
 - Nested terminal errors repeat correlation for standalone error compatibility,
   so a versioned semantic rule and raw JSON corpus enforce equality with their
   enclosing event across language implementations.
+- Non-streaming results are accepted only through a request-bound validator that
+  compares all three identifiers, matching the stream sequence validator.
+- All public Invocation JSON DTO decoders reject duplicate members before typed
+  decoding so parser selection cannot change correlation or error meaning.
 - Results and chunks are transient. Disconnect does not create a result replay
   or polling store; Ledger remains available for lifecycle diagnosis.
 - Exactly one terminal event ends a clean stream. EOF without one is interrupted

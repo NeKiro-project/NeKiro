@@ -13,6 +13,9 @@ media types on the same versioned POST endpoint:
 An incompatible `Accept` header receives `406`. OpenAPI lists both response
 media types and normative operation text plus contract tests enforce the
 request-field/media-type relationship that OpenAPI cannot express directly.
+The non-streaming result is validated against the invocation, root-task, and
+trace context of the request being completed; structural validity alone cannot
+authorize a result carrying another Invocation's identifiers.
 
 **Rationale**: This is the user-selected Option A and closes the current gap in
 which a caller receives only `202` identifiers. It avoids result persistence and
@@ -25,6 +28,8 @@ keeps the Frontend on the Gateway boundary.
   acceptance/result gap and adds another lifecycle.
 - Result data in Ledger events: rejected because result transport and auditable
   facts have different ownership and sensitivity.
+- Schema-only non-streaming validation: rejected because it cannot bind a valid
+  result document to the request that is currently awaiting completion.
 
 ## Decision 2: Separate Result Transport from Ledger Facts
 
@@ -52,6 +57,11 @@ Raw positive and negative JSON fixtures plus a versioned manifest make
 `INV-CORR-001` portable. JSON Schema remains responsible for field shape and
 presence; the semantic profile is responsible for equality between instance
 locations, which standard JSON Schema cannot express.
+
+Public result, stream-event, Ledger-event, Platform Error, Router-envelope, and
+resolve-request decoders reject duplicate JSON object members before typed
+decoding. This prevents language/parser differences from selecting different
+correlation or error values.
 
 **Rationale**: The user can consume output while operators retain a secret-safe,
 append-only lifecycle history.
@@ -243,6 +253,10 @@ harness never performed.
   meaning; incompatible media type uses `406`; protocol/Agent execution uses
   `502`; route, unavailable, or dependency failure uses `503`; timeout uses
   `504`; observable cancellation uses `409`.
+- Active invocation API `502`, `503`, and `504` errors occur after Invocation
+  creation and therefore use an operation-level correlated error schema that
+  requires invocation, root-task, and trace identifiers. The base Platform Error
+  retains conditional invocation/root fields for true pre-creation failures.
 - After SSE commitment, failed, timed-out, and canceled terminal events carry a
   fixed Platform Error. Agent result data and dependency details are forbidden.
 - Invocation Event `0.2` permits `TIMEOUT` only with `timed_out` and `CANCELED`

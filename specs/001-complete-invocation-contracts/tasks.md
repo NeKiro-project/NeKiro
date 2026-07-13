@@ -56,7 +56,8 @@ artifacts.
 
 - [ ] T003 [P] [US1] Add transient result schemas at
   `contracts/schemas/invocation-result.v1.schema.json` and
-  `contracts/schemas/invocation-result-stream-event.v1.schema.json`
+  `contracts/schemas/invocation-result-stream-event.v1.schema.json`, plus
+  operation-level correlated error schemas for post-creation failures
 - [ ] T004 [P] [US2] Add coherent metadata-only event schema at
   `contracts/schemas/invocation-event.v0.2.schema.json` and safe correlated
   error schema at `contracts/schemas/platform-error.v2.schema.json`; add
@@ -64,7 +65,9 @@ artifacts.
   `contracts/invocation/v1/`
 - [ ] T005 [US1] Add Go result/error DTO mappings and stream sequence validation
   in `contracts/result_contracts.go`, including corpus-driven enforcement that
-  nested error correlation equals its enclosing event
+  nested error correlation equals its enclosing event, request-bound
+  non-streaming result validation, and duplicate-member rejection for every
+  public Module A DTO decoder
 - [ ] T006 [US1] [US4] Add active API documents
   `contracts/openapi/control-plane.v2.yaml`,
   `contracts/openapi/control-plane-internal.v1.yaml`, and
@@ -81,11 +84,13 @@ artifacts.
 - [ ] T008 [P] [US1] Add non-streaming/streaming result, first-terminal-wins,
   interrupted-stream, no-result-in-Ledger, and Platform Error v2 tests in
   `contracts/result_contracts_test.go`, including every raw `INV-CORR-001`
-  positive and negative fixture
+  positive and negative fixture, non-streaming request-context mismatch, and
+  duplicate-member cases across public DTOs
 - [ ] T009 [P] [US2] [US4] Add terminal coherence and directional OpenAPI/media
   negotiation mapping tests in `contracts/result_api_contracts_test.go`,
   including resolve correlation fields and exact Router Ledger/trace read error
-  mappings
+  mappings plus required post-dispatch error correlation for active Northbound
+  and Router `502`/`503`/`504` responses
 - [ ] T010 [US1] Run Module A tests, `go vet ./...`, and `git diff --check`,
   report Module A fallback delta/evidence, then commit all Module A-owned files
 

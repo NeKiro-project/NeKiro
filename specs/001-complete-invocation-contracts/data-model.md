@@ -22,6 +22,9 @@ Gateway request.
 - A non-success outcome is not an Invocation Result.
 - `result` may be any JSON value permitted by the resolved Agent Skill output
   schema; the contract layer must preserve its JSON shape.
+- Delivery validation compares `invocationId`, `rootTaskId`, and `traceId` to the
+  expected request context. Schema-valid identifiers from another Invocation do
+  not satisfy the current request.
 - Input and result values are transient and cannot be copied into Ledger events
   or public error details.
 
@@ -94,6 +97,12 @@ Platform Error v2 adds a distinct `NOT_ACCEPTABLE` code for request result-mode
 and `Accept` header mismatch. It never contains Agent input/output, endpoint,
 credential, raw dependency error, or stack detail.
 
+The base shape keeps `invocationId` and `rootTaskId` conditional because some
+input and negotiation failures can occur before creation. Active invocation API
+responses that represent post-creation execution, route, dependency, protocol,
+Agent, or timeout failure apply an operation-level correlated error shape where
+all three identifiers are required and must match the request context.
+
 ### Invocation Correlation Semantic Profile v1
 
 `INV-CORR-001`: When Platform Error v2 is nested in Invocation Event `0.2` or
@@ -109,6 +118,10 @@ same corpus.
 After Gateway creation, `ResolveAgentRequest` also carries these three required
 identifiers. They are correlation context, not new identity, and resolution
 failures return them unchanged in Platform Error v2.
+
+Every public JSON decoder in this feature rejects duplicate object member names
+before typed decoding. Duplicate correlation, status, discriminator, result,
+error, or nested object members are invalid rather than parser-dependent.
 
 ## Invocation Event v0.2
 
