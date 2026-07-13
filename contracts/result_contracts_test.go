@@ -79,6 +79,39 @@ func TestInvocationResultRequiresPresentJSONValue(t *testing.T) {
 	}
 }
 
+func TestInvocationResultRequiresExactRequestCorrelation(t *testing.T) {
+	validator := mustResultContractValidator(t)
+	result := InvocationResult{
+		SchemaVersion: InvocationResultSchemaVersion,
+		InvocationID:  "inv-result",
+		RootTaskID:    "task-result",
+		TraceID:       "trace-result",
+		Status:        "succeeded",
+		Result:        json.RawMessage(`{"answer":42}`),
+	}
+	if err := validator.ValidateInvocationResultForRequest(result, "inv-result", "task-result", "trace-result"); err != nil {
+		t.Fatalf("matching Invocation Result rejected: %v", err)
+	}
+
+	testCases := []struct {
+		name   string
+		mutate func(*InvocationResult)
+	}{
+		{name: "invocation id", mutate: func(value *InvocationResult) { value.InvocationID = "inv-other" }},
+		{name: "root task id", mutate: func(value *InvocationResult) { value.RootTaskID = "task-other" }},
+		{name: "trace id", mutate: func(value *InvocationResult) { value.TraceID = "trace-other" }},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			mismatched := result
+			testCase.mutate(&mismatched)
+			if err := validator.ValidateInvocationResultForRequest(mismatched, "inv-result", "task-result", "trace-result"); err == nil || !strings.Contains(err.Error(), "correlation changed") {
+				t.Fatalf("mismatched %s error = %v, want request-correlation rejection", testCase.name, err)
+			}
+		})
+	}
+}
+
 func TestStrictResultContractDecodingRejectsMissingNullAndUnknownFields(t *testing.T) {
 	platformError, err := NewPlatformErrorV2(ErrorCodeInternal, "trace-decode")
 	if err != nil {
@@ -331,6 +364,127 @@ func TestStrictResultContractDecodingRejectsMissingNullAndUnknownFields(t *testi
 			}
 		})
 	}
+}
+
+func TestPublicModuleADTOsRejectDuplicateJSONMembers(t *testing.T) {
+	platformError, err := NewPlatformErrorV2(ErrorCodeInternal, "trace-duplicate")
+	if err != nil {
+		t.Fatalf("create Platform Error v2: %v", err)
+	}
+	streamEvent := resultStreamEvent(ResultStreamEventAccepted, 0)
+	ledgerEvent := validInvocationEventV02("started", "running", nil)
+	resolveRequest := ResolveAgentRequestV1{
+		InvocationID: "inv-duplicate",
+		RootTaskID:   "task-duplicate",
+		TraceID:      "trace-duplicate",
+		WorkspaceID:  "workspace-duplicate",
+		AgentID:      "agent-duplicate",
+		Version:      "1.2.3",
+		Capability:   "answer",
+	}
+	result := InvocationResult{
+		SchemaVersion: InvocationResultSchemaVersion,
+		InvocationID:  "inv-duplicate",
+		RootTaskID:    "task-duplicate",
+		TraceID:       "trace-duplicate",
+		Status:        "succeeded",
+		Result:        json.RawMessage(`{"answer":42}`),
+	}
+	testCases := []struct {
+		name        string
+		data        []byte
+		destination func() any
+	}{
+		{
+			name:        "Invocation Result",
+			data:        prependDuplicateJSONMember(t, result, "invocationId", `"inv-other"`),
+			destination: func() any { return &InvocationResult{} },
+		},
+		{
+			name:        "Invocation Result Stream Event",
+			data:        prependDuplicateJSONMember(t, streamEvent, "sequence", `99`),
+			destination: func() any { return &InvocationResultStreamEvent{} },
+		},
+		{
+			name:        "Invocation Event v0.2",
+			data:        prependDuplicateJSONMember(t, ledgerEvent, "status", `"failed"`),
+			destination: func() any { return &InvocationEventV02{} },
+		},
+		{
+			name:        "Platform Error v2",
+			data:        prependDuplicateJSONMember(t, platformError, "traceId", `"trace-other"`),
+			destination: func() any { return &PlatformErrorV2{} },
+		},
+		{
+			name:        "Router Event Envelope v0.2",
+			data:        prependDuplicateJSONMember(t, RouterEventEnvelopeV02{Event: ledgerEvent}, "event", `{}`),
+			destination: func() any { return &RouterEventEnvelopeV02{} },
+		},
+		{
+			name:        "Resolve Agent Request v1",
+			data:        prependDuplicateJSONMember(t, resolveRequest, "traceId", `"trace-other"`),
+			destination: func() any { return &ResolveAgentRequestV1{} },
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := json.Unmarshal(testCase.data, testCase.destination())
+			if err == nil || !strings.Contains(err.Error(), "duplicate JSON object member") {
+				t.Fatalf("duplicate-member decode error = %v, want duplicate rejection", err)
+			}
+		})
+	}
+
+	t.Run("nested Invocation Result payload", func(t *testing.T) {
+		nested := result
+		nested.Result = json.RawMessage(`{"answer":1,"answer":2}`)
+		data, err := json.Marshal(nested)
+		if err != nil {
+			t.Fatalf("marshal Invocation Result with duplicate nested member: %v", err)
+		}
+		var decoded InvocationResult
+		if err := json.Unmarshal(data, &decoded); err == nil || !strings.Contains(err.Error(), "duplicate JSON object member") {
+			t.Fatalf("nested result duplicate error = %v, want duplicate rejection", err)
+		}
+	})
+
+	t.Run("nested result stream chunk", func(t *testing.T) {
+		chunkIndex := int64(0)
+		nested := resultStreamEvent(ResultStreamEventChunk, 1)
+		nested.ChunkIndex = &chunkIndex
+		nested.Chunk = json.RawMessage(`{"piece":1,"piece":2}`)
+		data, err := json.Marshal(nested)
+		if err != nil {
+			t.Fatalf("marshal stream event with duplicate nested member: %v", err)
+		}
+		var decoded InvocationResultStreamEvent
+		if err := json.Unmarshal(data, &decoded); err == nil || !strings.Contains(err.Error(), "duplicate JSON object member") {
+			t.Fatalf("nested chunk duplicate error = %v, want duplicate rejection", err)
+		}
+	})
+
+	t.Run("nested Invocation Event caller", func(t *testing.T) {
+		data := replaceJSONMemberValue(
+			t,
+			ledgerEvent,
+			"caller",
+			json.RawMessage(`{"type":"user","id":"user-first","id":"user-last"}`),
+		)
+		var decoded InvocationEventV02
+		if err := json.Unmarshal(data, &decoded); err == nil || !strings.Contains(err.Error(), "duplicate JSON object member") {
+			t.Fatalf("nested caller duplicate error = %v, want duplicate rejection", err)
+		}
+	})
+
+	t.Run("nested Router event", func(t *testing.T) {
+		nestedEvent := prependDuplicateJSONMember(t, ledgerEvent, "status", `"failed"`)
+		data := append([]byte(`{"event":`), nestedEvent...)
+		data = append(data, '}')
+		var decoded RouterEventEnvelopeV02
+		if err := json.Unmarshal(data, &decoded); err == nil || !strings.Contains(err.Error(), "duplicate JSON object member") {
+			t.Fatalf("nested event duplicate error = %v, want duplicate rejection", err)
+		}
+	})
 }
 
 func TestResolveAgentRequestV1PreservesExistingCorrelation(t *testing.T) {
@@ -771,6 +925,50 @@ func appendTrailingJSONObject(t *testing.T, value any) []byte {
 		t.Fatalf("marshal contract value: %v", err)
 	}
 	return append(data, []byte(` {}`)...)
+}
+
+func prependDuplicateJSONMember(t *testing.T, value any, member string, duplicateValue string) []byte {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal contract value: %v", err)
+	}
+	if len(data) < 2 || data[0] != '{' {
+		t.Fatal("contract value is not a JSON object")
+	}
+	prefix, err := json.Marshal(member)
+	if err != nil {
+		t.Fatalf("marshal duplicate member name: %v", err)
+	}
+	duplicate := make([]byte, 0, len(data)+len(prefix)+len(duplicateValue)+2)
+	duplicate = append(duplicate, '{')
+	duplicate = append(duplicate, prefix...)
+	duplicate = append(duplicate, ':')
+	duplicate = append(duplicate, duplicateValue...)
+	duplicate = append(duplicate, ',')
+	duplicate = append(duplicate, data[1:]...)
+	return duplicate
+}
+
+func replaceJSONMemberValue(t *testing.T, value any, member string, replacement json.RawMessage) []byte {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal contract value: %v", err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatalf("decode contract object: %v", err)
+	}
+	if _, exists := document[member]; !exists {
+		t.Fatalf("contract object does not contain %q", member)
+	}
+	document[member] = replacement
+	data, err = json.Marshal(document)
+	if err != nil {
+		t.Fatalf("marshal contract object with replacement: %v", err)
+	}
+	return data
 }
 
 func mustResultContractValidator(t *testing.T) *ResultContractValidator {

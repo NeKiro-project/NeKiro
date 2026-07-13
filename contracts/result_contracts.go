@@ -449,6 +449,30 @@ func (v *ResultContractValidator) ValidateInvocationResult(result InvocationResu
 	return validateMappedValue(v.invocationResult, result)
 }
 
+func (v *ResultContractValidator) ValidateInvocationResultForRequest(
+	result InvocationResult,
+	invocationID string,
+	rootTaskID string,
+	traceID TraceID,
+) error {
+	if err := validateSafeContractIdentifier("invocation id", invocationID); err != nil {
+		return err
+	}
+	if err := validateSafeContractIdentifier("root task id", rootTaskID); err != nil {
+		return err
+	}
+	if _, err := ParseTraceID(string(traceID)); err != nil {
+		return fmt.Errorf("invalid trace id")
+	}
+	if err := v.ValidateInvocationResult(result); err != nil {
+		return err
+	}
+	if result.InvocationID != invocationID || result.RootTaskID != rootTaskID || result.TraceID != traceID {
+		return errors.New("invocation result correlation changed")
+	}
+	return nil
+}
+
 func (v *ResultContractValidator) ValidateInvocationResultStreamEvent(event InvocationResultStreamEvent) error {
 	if err := validateMappedValue(v.invocationResultStreamEvent, event); err != nil {
 		return err
@@ -596,6 +620,9 @@ func unmarshalStrictResultContractObject(
 	requiredNullableFields []string,
 	optionalNonNullableFields []string,
 ) error {
+	if err := rejectDuplicateJSONMemberNames(data); err != nil {
+		return err
+	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err

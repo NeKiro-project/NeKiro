@@ -19,7 +19,9 @@ paths:
         requires application/json or a compatible wildcard and returns one
         Invocation Result. stream=true requires text/event-stream and returns
         ordered Invocation Result Stream Event data values. A mismatch returns
-        406 NOT_ACCEPTABLE. Results are not persisted or replayed.
+        406 NOT_ACCEPTABLE. A JSON result and every 502, 503, or 504 response
+        MUST repeat the request invocationId, rootTaskId, and traceId exactly.
+        Results are not persisted or replayed.
       parameters:
         - $ref: "#/components/parameters/ResultAccept"
       requestBody:
@@ -178,17 +180,23 @@ components:
     AgentFailure:
       description: Agent execution or A2A protocol failed before response commitment
       x-platform-error-codes: [AGENT_EXECUTION_FAILED, A2A_PROTOCOL_ERROR]
+      x-platform-error-correlation:
+        source: request
+        exactFields: [invocationId, rootTaskId, traceId]
       content:
         application/json:
           schema:
-            $ref: ../schemas/platform-error.v2.schema.json
+            $ref: "#/components/schemas/CorrelatedPlatformError"
     Unavailable:
       description: Route, Agent, or required dependency is unavailable
       x-platform-error-codes: [ROUTE_NOT_FOUND, AGENT_UNAVAILABLE, DEPENDENCY_ERROR]
+      x-platform-error-correlation:
+        source: request
+        exactFields: [invocationId, rootTaskId, traceId]
       content:
         application/json:
           schema:
-            $ref: ../schemas/platform-error.v2.schema.json
+            $ref: "#/components/schemas/CorrelatedPlatformError"
     ReadDependencyUnavailable:
       description: A required Ledger or trace-read dependency failed
       x-platform-error-codes: [DEPENDENCY_ERROR]
@@ -199,11 +207,19 @@ components:
     Timeout:
       description: Invocation deadline expired before response commitment
       x-platform-error-codes: [TIMEOUT]
+      x-platform-error-correlation:
+        source: request
+        exactFields: [invocationId, rootTaskId, traceId]
       content:
         application/json:
           schema:
-            $ref: ../schemas/platform-error.v2.schema.json
+            $ref: "#/components/schemas/CorrelatedPlatformError"
   schemas:
+    CorrelatedPlatformError:
+      allOf:
+        - $ref: ../schemas/platform-error.v2.schema.json
+        - type: object
+          required: [invocationId, rootTaskId, traceId]
     DispatchInvocationRequest:
       type: object
       additionalProperties: false

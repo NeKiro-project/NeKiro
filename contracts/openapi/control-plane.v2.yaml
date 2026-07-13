@@ -203,7 +203,10 @@ paths:
         Invocation Result Stream Event data values. A mismatch returns 406
         NOT_ACCEPTABLE. Once SSE is committed, failed, canceled, and timed-out
         outcomes are in-band terminal events. EOF without a terminal event is
-        interrupted delivery. Results are not persisted or replayed.
+        interrupted delivery. A JSON result and every 502, 503, or 504 response
+        MUST repeat the exact invocationId, rootTaskId, and traceId from the
+        Invocation context created for this request. Results are not persisted
+        or replayed.
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ResultAccept"
@@ -408,25 +411,39 @@ components:
     AgentFailure:
       description: Agent execution or A2A protocol failed before response commitment
       x-platform-error-codes: [AGENT_EXECUTION_FAILED, A2A_PROTOCOL_ERROR]
+      x-platform-error-correlation:
+        source: created-invocation-context
+        exactFields: [invocationId, rootTaskId, traceId]
       content:
         application/json:
           schema:
-            $ref: ../schemas/platform-error.v2.schema.json
+            $ref: "#/components/schemas/CorrelatedPlatformError"
     Unavailable:
       description: Route, Agent, or required dependency is unavailable
       x-platform-error-codes: [ROUTE_NOT_FOUND, AGENT_UNAVAILABLE, DEPENDENCY_ERROR]
+      x-platform-error-correlation:
+        source: created-invocation-context
+        exactFields: [invocationId, rootTaskId, traceId]
       content:
         application/json:
           schema:
-            $ref: ../schemas/platform-error.v2.schema.json
+            $ref: "#/components/schemas/CorrelatedPlatformError"
     Timeout:
       description: Invocation deadline expired before response commitment
       x-platform-error-codes: [TIMEOUT]
+      x-platform-error-correlation:
+        source: created-invocation-context
+        exactFields: [invocationId, rootTaskId, traceId]
       content:
         application/json:
           schema:
-            $ref: ../schemas/platform-error.v2.schema.json
+            $ref: "#/components/schemas/CorrelatedPlatformError"
   schemas:
+    CorrelatedPlatformError:
+      allOf:
+        - $ref: ../schemas/platform-error.v2.schema.json
+        - type: object
+          required: [invocationId, rootTaskId, traceId]
     CatalogEntry:
       type: object
       additionalProperties: false

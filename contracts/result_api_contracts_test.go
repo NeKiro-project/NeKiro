@@ -152,7 +152,7 @@ func TestResolveAgentOpenAPIPreservesExistingCorrelation(t *testing.T) {
 	for status, expectedCodes := range responseCodes {
 		assertExactResponseErrorCodes(t, operation, status, expectedCodes)
 		response := operation.Responses.Status(status)
-		assertExactResponseCorrelation(t, status, response, []string{"invocationId", "rootTaskId", "traceId"})
+		assertExactResponseCorrelation(t, status, response, "request", []string{"invocationId", "rootTaskId", "traceId"})
 	}
 }
 
@@ -199,6 +199,99 @@ func TestInvocationOpenAPIResultMediaAndStatusMapping(t *testing.T) {
 	}
 	if strings.Contains(northbound.Servers[0].URL, "localhost") {
 		t.Fatal("Northbound v2 defines a localhost destination fallback")
+	}
+}
+
+func TestInvocationPostCreationErrorsRequireExactCorrelation(t *testing.T) {
+	northbound := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v2.yaml"))
+	router := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v2.yaml"))
+	northboundInvocation := northbound.Paths.Find("/v2/workspaces/{workspaceId}/invocations").Post
+	routerInvocation := router.Paths.Find("/internal/v2/invocations").Post
+
+	dispatchRequest := DispatchInvocationRequest{
+		InvocationID:     "inv-post-create",
+		RootTaskID:       "task-post-create",
+		TraceID:          "trace-post-create",
+		Caller:           Caller{Type: "user", ID: "user-post-create"},
+		WorkspaceID:      "workspace-post-create",
+		TargetAgentID:    "agent-post-create",
+		AgentCardVersion: "1.2.3",
+		Capability:       "answer",
+		Input:            map[string]any{"question": "contract"},
+		Stream:           false,
+	}
+	dispatchRequestSchema := routerInvocation.RequestBody.Value.Content["application/json"].Schema
+	validateOpenAPIValue(t, dispatchRequestSchema, dispatchRequest)
+	for _, field := range []string{"invocationId", "rootTaskId", "traceId"} {
+		if !containsString(dispatchRequestSchema.Value.Required, field) {
+			t.Fatalf("Router dispatch request does not require %s", field)
+		}
+	}
+
+	statusCodes := map[int]PlatformErrorCode{
+		502: ErrorCodeAgentExecutionFailed,
+		503: ErrorCodeDependency,
+		504: ErrorCodeTimeout,
+	}
+	preCreationStatusCodes := map[int]PlatformErrorCode{
+		400: ErrorCodeValidationError,
+		406: ErrorCodeNotAcceptable,
+	}
+	operations := []struct {
+		name              string
+		operation         *openapi3.Operation
+		correlationSource string
+	}{
+		{name: "Northbound", operation: northboundInvocation, correlationSource: "created-invocation-context"},
+		{name: "Router", operation: routerInvocation, correlationSource: "request"},
+	}
+	for _, operationCase := range operations {
+		t.Run(operationCase.name, func(t *testing.T) {
+			for status, code := range statusCodes {
+				t.Run(strconv.Itoa(status), func(t *testing.T) {
+					response := operationCase.operation.Responses.Status(status)
+					assertExactResponseCorrelation(
+						t,
+						status,
+						response,
+						operationCase.correlationSource,
+						[]string{"invocationId", "rootTaskId", "traceId"},
+					)
+					platformError, err := NewCorrelatedPlatformErrorV2(
+						code,
+						dispatchRequest.TraceID,
+						dispatchRequest.InvocationID,
+						dispatchRequest.RootTaskID,
+					)
+					if err != nil {
+						t.Fatalf("create correlated response: %v", err)
+					}
+					validateOpenAPIValue(t, response.Value.Content["application/json"].Schema, platformError)
+
+					uncorrelated, err := NewPlatformErrorV2(code, dispatchRequest.TraceID)
+					if err != nil {
+						t.Fatalf("create base response: %v", err)
+					}
+					assertOpenAPIValueRejected(t, response.Value.Content["application/json"].Schema, uncorrelated)
+				})
+			}
+			for status, code := range preCreationStatusCodes {
+				t.Run("base-"+strconv.Itoa(status), func(t *testing.T) {
+					response := operationCase.operation.Responses.Status(status)
+					if response == nil || response.Value == nil {
+						t.Fatalf("response %d is missing", status)
+					}
+					if _, exists := response.Value.Extensions["x-platform-error-correlation"]; exists {
+						t.Fatalf("pre-creation response %d declares post-creation correlation", status)
+					}
+					platformError, err := NewPlatformErrorV2(code, dispatchRequest.TraceID)
+					if err != nil {
+						t.Fatalf("create base response: %v", err)
+					}
+					validateOpenAPIValue(t, response.Value.Content["application/json"].Schema, platformError)
+				})
+			}
+		})
 	}
 }
 
@@ -446,6 +539,7 @@ func assertExactResponseCorrelation(
 	t *testing.T,
 	status int,
 	response *openapi3.ResponseRef,
+	expectedSource string,
 	expectedFields []string,
 ) {
 	t.Helper()
@@ -463,8 +557,8 @@ func assertExactResponseCorrelation(
 	if err := json.Unmarshal(encoded, &correlation); err != nil {
 		t.Fatalf("decode response %d correlation contract: %v", status, err)
 	}
-	if correlation.Source != "request" {
-		t.Fatalf("response %d correlation source = %q, want request", status, correlation.Source)
+	if correlation.Source != expectedSource {
+		t.Fatalf("response %d correlation source = %q, want %q", status, correlation.Source, expectedSource)
 	}
 	assertExactStringSet(t, fmt.Sprintf("response %d exact correlation fields", status), correlation.ExactFields, expectedFields)
 
@@ -481,6 +575,33 @@ func assertExactResponseCorrelation(
 		schema.Value.AllOf[1].Value.Required,
 		expectedFields,
 	)
+}
+
+func assertOpenAPIValueRejected(t *testing.T, schemaRef *openapi3.SchemaRef, value any) {
+	t.Helper()
+	if schemaRef == nil || schemaRef.Value == nil {
+		t.Fatal("OpenAPI schema was not resolved")
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal DTO: %v", err)
+	}
+	var document any
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatalf("decode DTO JSON: %v", err)
+	}
+	if err := schemaRef.Value.VisitJSON(document, openapi3.EnableJSONSchema2020()); err == nil {
+		t.Fatal("OpenAPI schema accepted an uncorrelated Platform Error")
+	}
+}
+
+func containsString(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func assertExactStringSet(t *testing.T, label string, actual []string, expected []string) {
