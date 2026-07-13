@@ -89,6 +89,7 @@ func (handler *Handler) register(writer http.ResponseWriter, request *http.Reque
 		handler.fail(writer, request, traceID, "register", catalog.ErrInvalid)
 		return
 	}
+	request.Body = http.MaxBytesReader(writer, request.Body, contracts.RegistrationMaximumBodyBytes)
 	body, err := io.ReadAll(request.Body)
 	if err != nil {
 		handler.fail(writer, request, traceID, "register", catalog.ErrInvalid)

@@ -204,7 +204,7 @@ func testCard(agentID, ownerID, version string) contracts.AgentCard {
 		}},
 		Authentication: contracts.AgentAuthentication{Type: "none"},
 		Permissions:    []contracts.PermissionDeclaration{{ID: "documents.read", Description: "Read documents."}},
-		Limits:         contracts.AgentLimits{TimeoutMS: 1000, MaxInputBytes: 1024, MaxOutputBytes: 1024, Streaming: false},
+		Limits:         contracts.AgentLimits{TimeoutMS: 1000, MaxInputBytes: json.Number("1024"), MaxOutputBytes: json.Number("1024"), Streaming: false},
 	}
 }
 

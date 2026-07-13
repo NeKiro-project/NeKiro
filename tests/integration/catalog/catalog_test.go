@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"net/url"
@@ -85,6 +86,9 @@ func TestCatalogPostgreSQLAndHTTPAcceptance(t *testing.T) {
 		draftEntry := decodeEntry(t, draft)
 		if draft.status != http.StatusCreated || draftEntry.PublicationStatus != "draft" {
 			t.Fatalf("Runtime A registration = %d %s", draft.status, draft.body)
+		}
+		if !sameJSONNumber(draftEntry.Card.Limits.MaxInputBytes.String(), "1e400") {
+			t.Fatalf("large maxInputBytes changed value to %s", draftEntry.Card.Limits.MaxInputBytes)
 		}
 		var storedRegisteredAt time.Time
 		if err := pool.QueryRow(ctx, `SELECT registered_at FROM catalog.agent_versions WHERE agent_id = 'runtime-a' AND version = '1.0.0'`).Scan(&storedRegisteredAt); err != nil || !draftEntry.RegisteredAt.Equal(storedRegisteredAt) {
@@ -167,16 +171,20 @@ func TestCatalogPostgreSQLAndHTTPAcceptance(t *testing.T) {
 			t.Fatalf("register race Card = %d %s", result.status, result.body)
 		}
 		var wait sync.WaitGroup
+		start := make(chan struct{})
 		wait.Add(2)
 		statuses := make(chan int, 2)
 		go func() {
 			defer wait.Done()
+			<-start
 			statuses <- request(t, http.MethodPost, server.baseURL+"/v2/agents/race-agent/versions/1.0.0/publish", ownerAToken, nil).status
 		}()
 		go func() {
 			defer wait.Done()
+			<-start
 			statuses <- request(t, http.MethodPost, server.baseURL+"/v2/agents/race-agent/versions/1.0.0/disable", ownerAToken, nil).status
 		}()
+		close(start)
 		wait.Wait()
 		close(statuses)
 		for status := range statuses {
@@ -187,6 +195,41 @@ func TestCatalogPostgreSQLAndHTTPAcceptance(t *testing.T) {
 		final := decodeEntry(t, request(t, http.MethodGet, server.baseURL+"/v2/agents/race-agent/versions/1.0.0", ownerAToken, nil))
 		if final.PublicationStatus != "disabled" {
 			t.Fatalf("race final state = %q", final.PublicationStatus)
+		}
+	})
+
+	t.Run("concurrent duplicate registration is atomic", func(t *testing.T) {
+		card := decodeCard(t, runtimeA)
+		card.AgentID = "registration-race-agent"
+		body := registrationEnvelope(t, mustJSON(t, card))
+		const callers = 12
+		start := make(chan struct{})
+		statuses := make(chan int, callers)
+		var wait sync.WaitGroup
+		wait.Add(callers)
+		for range callers {
+			go func() {
+				defer wait.Done()
+				<-start
+				statuses <- request(t, http.MethodPost, server.baseURL+"/v2/agents", ownerAToken, body).status
+			}()
+		}
+		close(start)
+		wait.Wait()
+		close(statuses)
+		created, conflicted := 0, 0
+		for status := range statuses {
+			switch status {
+			case http.StatusCreated:
+				created++
+			case http.StatusConflict:
+				conflicted++
+			default:
+				t.Fatalf("concurrent registration status = %d", status)
+			}
+		}
+		if created != 1 || conflicted != callers-1 {
+			t.Fatalf("concurrent registration outcomes = %d created, %d conflicted", created, conflicted)
 		}
 	})
 
@@ -214,6 +257,19 @@ func TestCatalogPostgreSQLAndHTTPAcceptance(t *testing.T) {
 			t.Fatalf("schema mismatch readiness = %d", ready.status)
 		}
 		if _, err := pool.Exec(ctx, `UPDATE catalog.schema_version SET version = 1`); err != nil {
+			t.Fatal(err)
+		}
+		var lastSequence int64
+		if err := pool.QueryRow(ctx, `SELECT last_sequence FROM catalog.publication_clock WHERE singleton = true`).Scan(&lastSequence); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `DELETE FROM catalog.publication_clock WHERE singleton = true`); err != nil {
+			t.Fatal(err)
+		}
+		if ready := request(t, http.MethodGet, server.baseURL+"/readyz", "", nil); ready.status != http.StatusServiceUnavailable {
+			t.Fatalf("missing clock readiness = %d", ready.status)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO catalog.publication_clock (singleton, last_sequence) VALUES (true, $1)`, lastSequence); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -585,6 +641,12 @@ func digest(token string) string {
 	return hex.EncodeToString(digest[:])
 }
 
+func sameJSONNumber(left, right string) bool {
+	leftNumber, _, leftErr := big.ParseFloat(left, 10, 2048, big.ToNearestEven)
+	rightNumber, _, rightErr := big.ParseFloat(right, 10, 2048, big.ToNearestEven)
+	return leftErr == nil && rightErr == nil && leftNumber.Cmp(rightNumber) == 0
+}
+
 func seedPublishedVersions(t *testing.T, pool *pgxpool.Pool, start, count int) {
 	t.Helper()
 	ctx := context.Background()
@@ -696,6 +758,6 @@ func scaleCard(version string) contracts.AgentCard {
 		Protocol:       contracts.AgentProtocol{Type: "a2a", Version: "0.3.0", Transport: "JSONRPC", Endpoint: "https://scale.example.test/a2a"},
 		Skills:         []contracts.AgentSkill{{ID: "scale.test", Name: "Scale", Description: "Scale test.", InputSchema: contracts.JSONSchema{"type": "object"}, OutputSchema: contracts.JSONSchema{"type": "object"}, RequiredPermissions: []string{}}},
 		Authentication: contracts.AgentAuthentication{Type: "none"}, Permissions: []contracts.PermissionDeclaration{},
-		Limits: contracts.AgentLimits{TimeoutMS: 1000, MaxInputBytes: 1024, MaxOutputBytes: 1024, Streaming: false},
+		Limits: contracts.AgentLimits{TimeoutMS: 1000, MaxInputBytes: json.Number("1024"), MaxOutputBytes: json.Number("1024"), Streaming: false},
 	}
 }

@@ -38,11 +38,13 @@ type fakeCatalogService struct {
 	entry          contracts.CatalogEntry
 	searchResult   catalog.SearchResult
 	err            error
+	registerCalls  int
 }
 
 func (service *fakeCatalogService) Register(_ context.Context, caller catalog.AuthenticatedCaller, body []byte) (contracts.CatalogEntry, error) {
 	service.registerCaller = caller
 	service.registerBody = append([]byte(nil), body...)
+	service.registerCalls++
 	return service.entry, service.err
 }
 func (service *fakeCatalogService) Get(context.Context, catalog.AuthenticatedCaller, string, string) (contracts.CatalogEntry, error) {
@@ -179,6 +181,23 @@ func TestHandlerRejectsInvalidMediaAndSearchParameters(t *testing.T) {
 	}
 }
 
+func TestHandlerRejectsOversizedRegistrationBeforeCatalog(t *testing.T) {
+	caller := catalog.AuthenticatedCaller{ID: "owner-a"}
+	service := &fakeCatalogService{}
+	handler := newTestHandler(t, fakeAuthenticator{caller: caller}, service, fakeReadiness{})
+	body := io.LimitReader(repeatingReader{}, contracts.RegistrationMaximumBodyBytes+1)
+	request := httptest.NewRequest(http.MethodPost, "/v2/agents", body)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("oversized registration status = %d, want 400", response.Code)
+	}
+	if service.registerCalls != 0 {
+		t.Fatalf("Catalog received %d oversized registrations", service.registerCalls)
+	}
+}
+
 func TestReadinessFailureIsExplicit(t *testing.T) {
 	handler := newTestHandler(t, fakeAuthenticator{}, &fakeCatalogService{}, fakeReadiness{err: errors.New("database unavailable")})
 	response := httptest.NewRecorder()
@@ -197,6 +216,15 @@ func TestTraceGeneratorFailsAtInitialization(t *testing.T) {
 type errorReader struct{}
 
 func (errorReader) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
+
+type repeatingReader struct{}
+
+func (repeatingReader) Read(buffer []byte) (int, error) {
+	for index := range buffer {
+		buffer[index] = 'x'
+	}
+	return len(buffer), nil
+}
 
 func newTestHandler(t *testing.T, authenticator Authenticator, service CatalogService, readiness ReadinessChecker) *Handler {
 	t.Helper()

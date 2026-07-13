@@ -41,6 +41,24 @@ func TestAgentCardContract(t *testing.T) {
 	}
 }
 
+func TestAgentCardPreservesUnboundedLimitIntegers(t *testing.T) {
+	validator := mustValidator(t)
+	card := validAgentCard()
+	card.Limits.MaxInputBytes = json.Number("1e400")
+	card.Limits.MaxOutputBytes = json.Number("999999999999999999999999999999999999999999")
+	encoded, err := json.Marshal(card)
+	if err != nil {
+		t.Fatalf("marshal large Agent limits: %v", err)
+	}
+	decoded, err := validator.DecodeAgentCard(encoded)
+	if err != nil {
+		t.Fatalf("decode valid large Agent limits: %v", err)
+	}
+	if decoded.Limits.MaxInputBytes.String() != "1e400" || decoded.Limits.MaxOutputBytes.String() != "999999999999999999999999999999999999999999" {
+		t.Fatalf("decoded Agent limits = %s / %s", decoded.Limits.MaxInputBytes, decoded.Limits.MaxOutputBytes)
+	}
+}
+
 func TestAgentCardRejectsSecretsAndRuntimeState(t *testing.T) {
 	validator := mustValidator(t)
 	card := validAgentCard()
@@ -610,7 +628,7 @@ func validAgentCard() AgentCard {
 		Permissions: []PermissionDeclaration{{
 			ID: "document.read", Description: "Read the supplied document.",
 		}},
-		Limits: AgentLimits{TimeoutMS: 30_000, MaxInputBytes: 1_000_000, MaxOutputBytes: 1_000_000, Streaming: true},
+		Limits: AgentLimits{TimeoutMS: 30_000, MaxInputBytes: json.Number("1000000"), MaxOutputBytes: json.Number("1000000"), Streaming: true},
 	}
 }
 

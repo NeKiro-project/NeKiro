@@ -98,6 +98,7 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 	server := &http.Server{
 		Addr:              cfg.ListenAddress,
 		Handler:           handler.Routes(),
+		ReadTimeout:       30 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

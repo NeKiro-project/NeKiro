@@ -28,7 +28,7 @@
   "permissions": [],
   "limits": {
     "timeoutMs": 30000,
-    "maxInputBytes": 1048576,
+    "maxInputBytes": 1e400,
     "maxOutputBytes": 1048576,
     "streaming": false
   }

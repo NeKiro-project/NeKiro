@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
@@ -54,6 +55,14 @@ func TestCatalogV2GoMappingsAndDiscoveryPolicy(t *testing.T) {
 	card := validAgentCard()
 	entry := CatalogEntry{Card: card, PublicationStatus: "published", RegisteredAt: time.Now().UTC()}
 	register := document.Paths.Find("/v2/agents").Post
+	maximumBodyBytes, exists := register.RequestBody.Value.Extensions["x-nekiro-max-body-bytes"]
+	if !exists {
+		t.Fatal("registration body limit extension is missing")
+	}
+	encodedLimit, err := json.Marshal(maximumBodyBytes)
+	if err != nil || string(encodedLimit) != "16777216" {
+		t.Fatalf("registration body limit = %s, err = %v", encodedLimit, err)
+	}
 	validateOpenAPIValue(t, register.RequestBody.Value.Content["application/json"].Schema, RegisterAgentRequest{Card: card})
 	validateOpenAPIValue(t, register.Responses.Status(201).Value.Content["application/json"].Schema, entry)
 	search := document.Paths.Find("/v2/agents").Get

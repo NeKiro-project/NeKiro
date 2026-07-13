@@ -148,6 +148,7 @@ func CheckSchema(ctx context.Context, db RowQuerier) error {
 	var version int32
 	var identitiesPresent bool
 	var clockPresent bool
+	var clockReady bool
 	var versionsPresent bool
 	var capabilitiesPresent bool
 	err := db.QueryRow(ctx, `
@@ -155,18 +156,22 @@ SELECT version,
        to_regclass('catalog.agent_identities') IS NOT NULL,
        to_regclass('catalog.publication_clock') IS NOT NULL,
        to_regclass('catalog.agent_versions') IS NOT NULL,
-       to_regclass('catalog.agent_version_capabilities') IS NOT NULL
+       to_regclass('catalog.agent_version_capabilities') IS NOT NULL,
+       (SELECT count(*) = 1
+        FROM catalog.publication_clock
+        WHERE singleton = true AND last_sequence >= 0)
 FROM catalog.schema_version`).Scan(
 		&version,
 		&identitiesPresent,
 		&clockPresent,
 		&versionsPresent,
 		&capabilitiesPresent,
+		&clockReady,
 	)
 	if err != nil {
 		return fmt.Errorf("read catalog schema version: %w", err)
 	}
-	if version != ExpectedSchemaVersion || !identitiesPresent || !clockPresent || !versionsPresent || !capabilitiesPresent {
+	if version != ExpectedSchemaVersion || !identitiesPresent || !clockPresent || !versionsPresent || !capabilitiesPresent || !clockReady {
 		return ErrSchemaVersionMismatch
 	}
 	return nil

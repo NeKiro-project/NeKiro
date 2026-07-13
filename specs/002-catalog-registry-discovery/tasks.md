@@ -381,20 +381,28 @@ and require a fresh independent Review before convergence.
 
 ### Review Round 1 Remediation
 
-- [ ] T048 [Review-R1] Enforce the Spec-defined 16,777,216-byte registration
+- [x] T048 [Review-R1] Enforce the Spec-defined 16,777,216-byte registration
   cap and 30-second request-body read window with fixed validation/no-partial
   persistence semantics in `contracts/openapi/control-plane.v2.yaml`,
   `apps/control-plane/internal/gateway/catalog_handler.go`, and
   `apps/control-plane/cmd/control-plane/main.go`
-- [ ] T049 [Review-R1] Preserve active unbounded Agent Card limit integers as
+- [x] T049 [Review-R1] Preserve active unbounded Agent Card limit integers as
   exact `json.Number` values and add beyond-`int64` contract/Catalog round-trip
   coverage in `contracts/contracts.go`, contract tests, and Catalog acceptance
-- [ ] T050 [Review-R1] Require exactly one valid Publication Clock singleton in
+- [x] T050 [Review-R1] Require exactly one valid Publication Clock singleton in
   readiness and test missing-row failure in
   `apps/control-plane/internal/catalog/postgres/migrations.go` and acceptance
-- [ ] T051 [Review-R1] Synchronize lifecycle race starts and add concurrent
+- [x] T051 [Review-R1] Synchronize lifecycle race starts and add concurrent
   duplicate registration atomicity acceptance in
   `tests/integration/catalog/catalog_test.go`
+  - Evidence T048-T051: Gateway caps registration at 16 MiB with a 30-second
+    server read window; active limit integers use `json.Number` and `1e400`
+    survives validation/PostgreSQL round-trip; readiness rejects a missing
+    clock singleton; lifecycle competitors share a start barrier and 12
+    concurrent duplicate registrations produce one create plus 11 conflicts.
+    Default, integration, split race, vet, build, and diff checks pass.
+  - Review remediation fallback delta: removed `0`, retained `3`, added `0`,
+    net `0`. Added fallback evidence: none.
 
 ---
 
