@@ -60,6 +60,25 @@ func TestInvocationResultAndChunksPreserveArbitraryJSONValues(t *testing.T) {
 	}
 }
 
+func TestInvocationResultRequiresPresentJSONValue(t *testing.T) {
+	validator := mustResultContractValidator(t)
+	result := InvocationResult{
+		SchemaVersion: InvocationResultSchemaVersion,
+		InvocationID:  "inv-result",
+		RootTaskID:    "task-result",
+		TraceID:       "trace-result",
+		Status:        "succeeded",
+	}
+	if err := validator.ValidateInvocationResult(result); err == nil {
+		t.Fatal("Invocation Result accepted a missing JSON value")
+	}
+
+	result.Result = json.RawMessage("null")
+	if err := validator.ValidateInvocationResult(result); err != nil {
+		t.Fatalf("Invocation Result rejected explicit JSON null: %v", err)
+	}
+}
+
 func TestResultStreamFirstTerminalWins(t *testing.T) {
 	validator := mustResultContractValidator(t)
 	sequence := mustResultStreamSequenceValidator(t, validator, "inv-stream", "task-stream", "trace-stream")
@@ -87,7 +106,7 @@ func TestResultStreamFirstTerminalWins(t *testing.T) {
 	}
 }
 
-func TestResultStreamInterruptedAndOutOfOrder(t *testing.T) {
+func TestResultStreamInterruptedClosesValidation(t *testing.T) {
 	validator := mustResultContractValidator(t)
 	sequence := mustResultStreamSequenceValidator(t, validator, "inv-stream", "task-stream", "trace-stream")
 	if err := sequence.Accept(resultStreamEvent(ResultStreamEventAccepted, 0)); err != nil {
@@ -100,13 +119,20 @@ func TestResultStreamInterruptedAndOutOfOrder(t *testing.T) {
 	if err := sequence.Accept(chunk); err != nil {
 		t.Fatalf("accept partial chunk: %v", err)
 	}
+	outOfOrder := resultStreamEvent(ResultStreamEventCompleted, 3)
+	if err := sequence.Accept(outOfOrder); err == nil || !strings.Contains(err.Error(), "sequence must be 2") {
+		t.Fatalf("out-of-order error = %v, want sequence rejection", err)
+	}
 	if err := sequence.Finish(); !errors.Is(err, ErrResultStreamInterrupted) {
 		t.Fatalf("interrupted finish error = %v, want ErrResultStreamInterrupted", err)
 	}
 
-	outOfOrder := resultStreamEvent(ResultStreamEventCompleted, 3)
-	if err := sequence.Accept(outOfOrder); err == nil || !strings.Contains(err.Error(), "sequence must be 2") {
-		t.Fatalf("out-of-order error = %v, want sequence rejection", err)
+	correctNextTerminal := resultStreamEvent(ResultStreamEventCompleted, 2)
+	if err := sequence.Accept(correctNextTerminal); !errors.Is(err, ErrResultStreamClosed) {
+		t.Fatalf("post-Finish terminal error = %v, want ErrResultStreamClosed", err)
+	}
+	if sequence.TerminalType() != "" {
+		t.Fatalf("interrupted stream terminal type changed to %q", sequence.TerminalType())
 	}
 }
 

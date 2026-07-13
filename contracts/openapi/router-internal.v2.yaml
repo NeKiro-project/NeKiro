@@ -155,8 +155,8 @@ components:
           schema:
             $ref: ../schemas/platform-error.v2.schema.json
     NotFound:
-      description: Invocation or route was not found
-      x-platform-error-codes: [NOT_FOUND, ROUTE_NOT_FOUND]
+      description: Invocation was not found
+      x-platform-error-codes: [NOT_FOUND]
       content:
         application/json:
           schema:

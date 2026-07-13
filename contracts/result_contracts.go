@@ -216,6 +216,9 @@ func NewResultContractValidator() (*ResultContractValidator, error) {
 }
 
 func (v *ResultContractValidator) ValidateInvocationResult(result InvocationResult) error {
+	if result.Result == nil {
+		return errors.New("invocation result JSON value is required")
+	}
 	return validateMappedValue(v.invocationResult, result)
 }
 
@@ -224,7 +227,13 @@ func (v *ResultContractValidator) ValidateInvocationResultStreamEvent(event Invo
 }
 
 func (v *ResultContractValidator) ValidateInvocationEvent(event InvocationEventV02) error {
-	return validateMappedValue(v.invocationEvent, event)
+	if err := validateMappedValue(v.invocationEvent, event); err != nil {
+		return err
+	}
+	if event.Error != nil && (event.Error.InvocationID != event.InvocationID || event.Error.RootTaskID != event.RootTaskID || event.Error.TraceID != event.TraceID) {
+		return errors.New("invocation event error correlation changed")
+	}
+	return nil
 }
 
 func (v *ResultContractValidator) ValidatePlatformError(platformError PlatformErrorV2) error {
@@ -234,6 +243,7 @@ func (v *ResultContractValidator) ValidatePlatformError(platformError PlatformEr
 var (
 	ErrResultStreamInterrupted = errors.New("result stream ended before a terminal event")
 	ErrResultStreamTerminated  = errors.New("result stream already has a terminal event")
+	ErrResultStreamClosed      = errors.New("result stream validation is closed")
 )
 
 type ResultStreamSequenceValidator struct {
@@ -244,6 +254,7 @@ type ResultStreamSequenceValidator struct {
 	nextSequence   int64
 	nextChunkIndex int64
 	terminal       ResultStreamEventType
+	closed         bool
 }
 
 func NewResultStreamSequenceValidator(
@@ -273,6 +284,9 @@ func NewResultStreamSequenceValidator(
 }
 
 func (v *ResultStreamSequenceValidator) Accept(event InvocationResultStreamEvent) error {
+	if v.closed {
+		return ErrResultStreamClosed
+	}
 	if v.terminal != "" {
 		return ErrResultStreamTerminated
 	}
@@ -309,6 +323,7 @@ func (v *ResultStreamSequenceValidator) Accept(event InvocationResultStreamEvent
 }
 
 func (v *ResultStreamSequenceValidator) Finish() error {
+	v.closed = true
 	if v.terminal == "" {
 		return ErrResultStreamInterrupted
 	}

@@ -364,14 +364,14 @@ components:
             $ref: ../schemas/platform-error.v2.schema.json
     Forbidden:
       description: Installation or capability is not authorized
-      x-platform-error-codes: [FORBIDDEN, AGENT_NOT_INSTALLED, AGENT_DISABLED, CAPABILITY_NOT_ALLOWED]
+      x-platform-error-codes: [FORBIDDEN, AGENT_DISABLED, CAPABILITY_NOT_ALLOWED]
       content:
         application/json:
           schema:
             $ref: ../schemas/platform-error.v2.schema.json
     NotFound:
-      description: Requested Agent, Installation, or route was not found
-      x-platform-error-codes: [NOT_FOUND, AGENT_NOT_INSTALLED, ROUTE_NOT_FOUND]
+      description: Requested Agent or Installation was not found
+      x-platform-error-codes: [NOT_FOUND, AGENT_NOT_INSTALLED]
       content:
         application/json:
           schema:

@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"path/filepath"
@@ -42,6 +43,29 @@ func TestInvocationEventV02TerminalCoherence(t *testing.T) {
 		if err := validator.ValidateInvocationEvent(event); err == nil {
 			t.Fatalf("contradictory terminal event was accepted: type=%s status=%s error=%v", event.Type, event.Status, event.Error)
 		}
+	}
+}
+
+func TestInvocationEventV02RejectsMismatchedErrorCorrelation(t *testing.T) {
+	validator := mustResultContractValidator(t)
+	testCases := []struct {
+		name   string
+		mutate func(*PlatformErrorV2)
+	}{
+		{name: "invocation id", mutate: func(platformError *PlatformErrorV2) { platformError.InvocationID = "inv-other" }},
+		{name: "root task id", mutate: func(platformError *PlatformErrorV2) { platformError.RootTaskID = "task-other" }},
+		{name: "trace id", mutate: func(platformError *PlatformErrorV2) { platformError.TraceID = "trace-other" }},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			platformError := mustCorrelatedPlatformErrorV2(t, ErrorCodeAgentExecutionFailed)
+			testCase.mutate(&platformError)
+			event := validInvocationEventV02("failed", "failed", &platformError)
+			if err := validator.ValidateInvocationEvent(event); err == nil || !strings.Contains(err.Error(), "correlation changed") {
+				t.Fatalf("mismatched %s error = %v, want correlation rejection", testCase.name, err)
+			}
+		})
 	}
 }
 
@@ -93,6 +117,16 @@ func TestInvocationOpenAPIResultMediaAndStatusMapping(t *testing.T) {
 
 	assertDirectResultOperation(t, northbound, "/v2/workspaces/{workspaceId}/invocations")
 	assertDirectResultOperation(t, router, "/internal/v2/invocations")
+	northboundInvocation := northbound.Paths.Find("/v2/workspaces/{workspaceId}/invocations").Post
+	routerInvocation := router.Paths.Find("/internal/v2/invocations").Post
+	assertDeterministicErrorCodeStatuses(t, northboundInvocation)
+	assertDeterministicErrorCodeStatuses(t, routerInvocation)
+	assertResponseErrorCode(t, northboundInvocation, 404, "AGENT_NOT_INSTALLED")
+	assertResponseOmitsErrorCode(t, northboundInvocation, 403, "AGENT_NOT_INSTALLED")
+	assertResponseErrorCode(t, northboundInvocation, 503, "ROUTE_NOT_FOUND")
+	assertResponseOmitsErrorCode(t, northboundInvocation, 404, "ROUTE_NOT_FOUND")
+	assertResponseErrorCode(t, routerInvocation, 503, "ROUTE_NOT_FOUND")
+	assertResponseOmitsErrorCode(t, routerInvocation, 404, "ROUTE_NOT_FOUND")
 
 	catalogCard := northbound.Components.Schemas["CatalogEntry"].Value.Properties["card"]
 	if catalogCard == nil || catalogCard.Value == nil || catalogCard.Value.Title != "NeKiro Agent Card v0.2" {
@@ -180,14 +214,57 @@ func assertDirectResultOperation(t *testing.T, document *openapi3.T, path string
 
 func assertResponseErrorCode(t *testing.T, operation *openapi3.Operation, status int, code string) {
 	t.Helper()
+	for _, candidate := range responseErrorCodes(t, operation, status) {
+		if candidate == code {
+			return
+		}
+	}
+	t.Fatalf("response %d error codes do not contain %s", status, code)
+}
+
+func assertResponseOmitsErrorCode(t *testing.T, operation *openapi3.Operation, status int, code string) {
+	t.Helper()
+	for _, candidate := range responseErrorCodes(t, operation, status) {
+		if candidate == code {
+			t.Fatalf("response %d unexpectedly contains %s", status, code)
+		}
+	}
+}
+
+func assertDeterministicErrorCodeStatuses(t *testing.T, operation *openapi3.Operation) {
+	t.Helper()
+	seen := make(map[string]int)
+	for _, status := range []int{400, 401, 403, 404, 406, 409, 502, 503, 504} {
+		if operation.Responses.Status(status) == nil {
+			continue
+		}
+		for _, code := range responseErrorCodes(t, operation, status) {
+			if previousStatus, exists := seen[code]; exists {
+				t.Fatalf("error code %s appears under both %d and %d", code, previousStatus, status)
+			}
+			seen[code] = status
+		}
+	}
+}
+
+func responseErrorCodes(t *testing.T, operation *openapi3.Operation, status int) []string {
+	t.Helper()
 	response := operation.Responses.Status(status)
 	if response == nil || response.Value == nil {
 		t.Fatalf("response %d is missing", status)
 	}
-	codes := fmt.Sprint(response.Value.Extensions["x-platform-error-codes"])
-	if !strings.Contains(codes, code) {
-		t.Fatalf("response %d error codes = %s, want %s", status, codes, code)
+	encoded, err := json.Marshal(response.Value.Extensions["x-platform-error-codes"])
+	if err != nil {
+		t.Fatalf("marshal response %d error codes: %v", status, err)
 	}
+	var codes []string
+	if err := json.Unmarshal(encoded, &codes); err != nil {
+		t.Fatalf("decode response %d error codes: %v", status, err)
+	}
+	if len(codes) == 0 {
+		t.Fatalf("response %d has no error codes", status)
+	}
+	return codes
 }
 
 func loadResultOpenAPIDocument(t *testing.T, path string) *openapi3.T {
