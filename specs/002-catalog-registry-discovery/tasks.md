@@ -446,22 +446,35 @@ and require a fresh independent Review before convergence.
 
 ### Review Round 3 Remediation
 
-- [ ] T056 [Review-R3] Restrict the public migration command to `up` and reject
+- [x] T056 [Review-R3] Restrict the public migration command to `up` and reject
   `down` or any other direction before invoking tern or changing Catalog data in
   `apps/control-plane/cmd/control-plane/main.go`,
   `apps/control-plane/internal/catalog/postgres/migrations.go`, and tests
-- [ ] T057 [Review-R3] Replace the connection-wide registration `ReadTimeout`
+- [x] T057 [Review-R3] Replace the connection-wide registration `ReadTimeout`
   with a separate five-second header deadline and a 30-second read deadline set
   when registration body processing begins; fail before persistence when the
   deadline cannot be enforced in `apps/control-plane/cmd/control-plane/main.go`,
   `apps/control-plane/internal/gateway/catalog_handler.go`, and tests
-- [ ] T058 [Review-R3] Add real PostgreSQL acceptance proving unsupported
+- [x] T058 [Review-R3] Add real PostgreSQL acceptance proving unsupported
   `migrate down` leaves an ordinary populated Catalog and schema v2 unchanged,
   while isolated tern v1/v2 migration verification remains explicit in
   `tests/integration/catalog/catalog_test.go`
-- [ ] T059 [Review-R3] Verify the body deadline is independent of header time,
+- [x] T059 [Review-R3] Verify the body deadline is independent of header time,
   clears after a complete body read, and never passes partial/timed-out content
   to Catalog using production-compatible ResponseController and socket coverage
+  - Evidence T056-T059: the CLI and migration adapter reject every non-`up`
+    direction before database mutation; a populated real PostgreSQL schema v2
+    remains byte-for-byte equivalent across the rejected actual-binary command.
+    Registration now has a separate five-second header deadline and starts its
+    30-second body deadline inside the handler. Real socket coverage proves a
+    delayed header does not consume the body window, a completed read clears
+    the deadline for connection reuse, and a partial body times out without a
+    Catalog call. Deadline-control failures also stop before persistence.
+    Default tests, five repeated socket rounds, real integration, full race,
+    vet, binary and pinned Docker builds, Compose, tidy-diff, formatting, and
+    diff checks pass.
+  - Review round 3 remediation fallback delta: removed `0`, retained `3`, added
+    `0`, net `0`. Added fallback evidence: none.
 - [ ] T060 [Review-R3] Run the complete verification matrix, report fallback
   delta, and create another fresh non-OCR independent Reviewer
 
