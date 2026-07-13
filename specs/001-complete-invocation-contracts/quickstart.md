@@ -51,6 +51,9 @@ Expected outcomes:
 - Duplicate permission ID maps to `AC-SEM-002`.
 - Undeclared or cross-version permission reference maps to `AC-SEM-003`.
 - A structurally valid but semantically invalid Card is rejected.
+- Endpoint URIs containing userinfo are structurally rejected.
+- Manifests with missing/null required fields, duplicate members, or unsafe
+  fixture paths are rejected before filesystem access.
 
 ## 4. Validate A2A Profile Compatibility
 

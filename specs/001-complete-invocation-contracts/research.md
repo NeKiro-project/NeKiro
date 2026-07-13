@@ -132,6 +132,12 @@ Go keeps schema-then-semantic validation but maps failures to rule IDs and must
 pass the same raw fixtures. Error prose and rule evaluation order are not
 normative.
 
+Agent Card `0.2` structurally forbids endpoint URI userinfo so credentials
+cannot enter a Card through an otherwise valid HTTP(S) URI. The conformance
+manifest uses presence-required fields, duplicate-member rejection, and
+canonical corpus-confined relative paths to avoid language/parser and filesystem
+differences.
+
 **Rationale**: Draft 2020-12 `uniqueItems` compares complete values and cannot
 portably enforce projected object-key uniqueness or an instance-data join.
 

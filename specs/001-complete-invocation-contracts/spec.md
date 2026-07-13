@@ -125,6 +125,9 @@ dispatch and invocation queries target the Router.
 - A result chunk exceeds declared Agent output limits.
 - An Agent Card contains distinct objects that reuse the same identifier.
 - A Card references a permission that exists only in a different Agent version.
+- An Agent Card endpoint embeds URI userinfo such as a username or password.
+- A conformance manifest repeats a JSON member name or references an absolute,
+  parent-traversing, or platform-specific fixture path.
 - Agent resolution is unavailable after an invocation has been accepted.
 
 ## Requirements *(mandatory)*
@@ -163,6 +166,12 @@ dispatch and invocation queries target the Router.
 - **FR-013**: Every requirement in this feature MUST map to a later contract,
   implementation, and post-implementation test task before the feature can be
   marked complete.
+- **FR-014**: An Agent Card protocol endpoint MUST be an absolute HTTP(S) URI
+  without URI userinfo; usernames, passwords, tokens, and equivalent credential
+  material are invalid even when the URI is otherwise well formed.
+- **FR-015**: Agent Card conformance manifests MUST preserve required-field
+  presence, reject duplicate JSON member names, and use canonical portable
+  relative fixture paths confined to the conformance corpus.
 
 ### Key Entities
 
@@ -196,6 +205,10 @@ dispatch and invocation queries target the Router.
   Control Plane and 100% of dispatch/query calls to the Router.
 - **SC-007**: No Agent input, Agent output, credential, or internal dependency
   detail appears in Ledger facts or fixed public errors during acceptance tests.
+- **SC-008**: 100% of Agent Cards containing endpoint URI userinfo are rejected
+  by the language-neutral structural contract.
+- **SC-009**: 100% of malformed conformance manifests with omitted/null required
+  fields, duplicate members, or unsafe paths are rejected consistently.
 
 ## Assumptions
 

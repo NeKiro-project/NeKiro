@@ -11,6 +11,10 @@ Agent Card `0.2` conformance requires both:
 
 Passing only one layer is invalid.
 
+The structural Schema also rejects `protocol.endpoint` URI userinfo. A username,
+password, token-like userinfo, or empty userinfo marker is credential-bearing
+Card data and is invalid even when the remainder is a valid HTTP(S) URI.
+
 ## Normative Rules
 
 - `AC-SEM-001`: every `skills[*].id` MUST be unique within one Card.
@@ -32,10 +36,18 @@ Minimum raw fixtures:
 - invalid duplicate skill ID on otherwise distinct skill objects;
 - invalid duplicate permission ID on otherwise distinct declarations;
 - invalid undeclared required permission;
-- invalid permission declared only in another Card version.
+- invalid permission declared only in another Card version;
+- invalid endpoint containing URI userinfo.
 
-`manifest.json` records stable case ID, fixture path, expected validity, and
-violated rule IDs. Fixtures are authored independently of Go marshaling.
+`manifest.json` records stable case ID, fixture path, required related-context
+fixture paths, expected validity, and violated rule IDs. Every field is present;
+`contextFiles` and `violatedRules` use explicit empty arrays when empty.
+Fixtures are authored independently of Go marshaling.
+
+Manifest JSON rejects duplicate member names. Fixture paths are canonical `/`
+separated relative paths confined beneath the conformance directory; absolute
+paths, URI-like paths, backslashes, empty segments, and `.`/`..` traversal are
+invalid before filesystem access.
 
 ## Go Mapping
 

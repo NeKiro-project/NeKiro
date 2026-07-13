@@ -134,11 +134,22 @@ Each manifest case contains:
 |---|---|
 | `id` | Stable case identity |
 | `file` | Relative path to a raw JSON Card fixture |
+| `contextFiles` | Required array of related Card fixture paths; empty when no context is needed |
 | `valid` | Expected combined structural and semantic decision |
 | `violatedRules` | Expected rule IDs for an invalid case |
 
 Error wording, error order, and implementation-specific object paths are not
 normative.
+
+All five fields are presence-required, including `false` and empty arrays.
+Fixture paths use `/`, are relative to and confined beneath the conformance
+directory, and cannot be absolute, empty, contain `.`/`..` segments, backslashes,
+or URI schemes. Duplicate JSON object member names are invalid at every manifest
+level rather than using parser-specific first/last-member behavior.
+
+Agent Card `protocol.endpoint` remains structurally constrained to an absolute
+HTTP(S) URI and additionally forbids URI userinfo so credentials cannot be
+encoded before Card publication.
 
 ## A2A Profile Schema v0.2
 

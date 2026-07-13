@@ -38,7 +38,7 @@ contract implementation.
 **Checkpoint**: Working tree contains only tracked project assets and the
 approved Spec/Plan/Tasks define all implementation behavior.
 
-**Analyze result (2026-07-13)**: 13/13 Functional Requirements covered by 34
+**Analyze result (2026-07-13)**: 15/15 Functional Requirements covered by 35
 tasks; no Critical/High findings, unresolved placeholders, or constitution
 conflicts. The T006 → T012 artifact dependency is explicit and does not share a
 write scope.
@@ -98,19 +98,23 @@ MUST NOT edit shared Go mapping files or Result/A2A artifacts.
 
 - [ ] T012 [P] [US3] Add active structural schema
   `contracts/schemas/agent-card.v0.2.schema.json` and normative RFC 2119 rules
-  `contracts/agent-card/v0.2/semantic-rules.md`
+  `contracts/agent-card/v0.2/semantic-rules.md`, including rejection of endpoint
+  URI userinfo and credential material
 - [ ] T013 [P] [US3] Add the raw Card corpus and manifest under
   `contracts/agent-card/v0.2/conformance/` for valid baseline, shared
   permission, duplicate skill, duplicate permission, undeclared permission,
-  and cross-version permission cases
+  cross-version permission, credential-bearing endpoint, required context,
+  duplicate-member, and unsafe-path cases
 - [ ] T014 [US3] Add stable rule IDs, fixture manifest DTOs, and reusable
-  schema-independent semantic evaluation in
+  schema-independent semantic evaluation plus presence-aware, duplicate-key
+  rejecting, corpus-confined manifest validation in
   `contracts/agent_card_semantics.go`
 
 ### Tests After Implementation
 
-- [ ] T015 [US3] Add corpus-driven structural/semantic decision tests and rule
-  ID assertions in `contracts/agent_card_conformance_test.go`
+- [ ] T015 [US3] Add corpus-driven structural/semantic decision, credential URI,
+  strict manifest, path confinement, and rule ID assertions in
+  `contracts/agent_card_conformance_test.go`
 - [ ] T016 [US3] Run Module B tests, `go vet ./...`, and `git diff --check`,
   report Module B fallback delta/evidence, then commit all Module B-owned files
 
