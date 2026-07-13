@@ -1,0 +1,298 @@
+{
+  "schemaVersion": "0.1",
+  "profileSchemaVersion": "0.2",
+  "protocolVersion": "0.3.0",
+  "cases": [
+    {
+      "id": "message-send-request",
+      "file": "message-send-request.json",
+      "operation": "message/send",
+      "fixtureKind": "request",
+      "expectedValid": true,
+      "mediaType": "application/json",
+      "rules": ["jsonrpc-envelope", "request-params"]
+    },
+    {
+      "id": "message-send-message-result",
+      "file": "message-send-message-response.json",
+      "requestFile": "message-send-request.json",
+      "operation": "message/send",
+      "fixtureKind": "response",
+      "expectedValid": true,
+      "wireResultKind": "message",
+      "goConcreteType": "*a2a.Message",
+      "mediaType": "application/json",
+      "rules": ["jsonrpc-envelope", "request-response-id", "result-union"]
+    },
+    {
+      "id": "message-send-task-result",
+      "file": "message-send-task-response.json",
+      "requestFile": "message-send-request.json",
+      "operation": "message/send",
+      "fixtureKind": "response",
+      "expectedValid": true,
+      "wireResultKind": "task",
+      "goConcreteType": "*a2a.Task",
+      "mediaType": "application/json",
+      "rules": ["jsonrpc-envelope", "request-response-id", "result-union", "task-identity", "task-state"]
+    },
+    {
+      "id": "message-send-invalid-kind",
+      "file": "message-send-invalid-kind-response.json",
+      "requestFile": "message-send-request.json",
+      "operation": "message/send",
+      "fixtureKind": "response",
+      "expectedValid": false,
+      "protocolError": "invalid-result-kind",
+      "mediaType": "application/json",
+      "rules": ["result-union"]
+    },
+    {
+      "id": "message-stream-request",
+      "file": "message-stream-request.json",
+      "operation": "message/stream",
+      "fixtureKind": "request",
+      "expectedValid": true,
+      "mediaType": "application/json",
+      "rules": ["jsonrpc-envelope", "request-params"]
+    },
+    {
+      "id": "message-stream-four-event-kinds",
+      "file": "message-stream-valid.sse",
+      "requestFile": "message-stream-request.json",
+      "operation": "message/stream",
+      "fixtureKind": "stream",
+      "expectedValid": true,
+      "mediaType": "text/event-stream",
+      "rules": ["sse-framing", "jsonrpc-envelope", "request-response-id", "event-kinds", "task-context-stability", "terminal-required", "artifact-order"]
+    },
+    {
+      "id": "message-stream-context-mismatch",
+      "file": "message-stream-context-mismatch.sse",
+      "requestFile": "message-stream-request.json",
+      "operation": "message/stream",
+      "fixtureKind": "stream",
+      "expectedValid": false,
+      "protocolError": "task-context-mismatch",
+      "mediaType": "text/event-stream",
+      "rules": ["task-context-stability"]
+    },
+    {
+      "id": "message-stream-event-after-terminal",
+      "file": "message-stream-event-after-terminal.sse",
+      "requestFile": "message-stream-request.json",
+      "operation": "message/stream",
+      "fixtureKind": "stream",
+      "expectedValid": false,
+      "protocolError": "event-after-terminal",
+      "mediaType": "text/event-stream",
+      "rules": ["terminal-last"]
+    },
+    {
+      "id": "message-stream-eof-without-terminal",
+      "file": "message-stream-eof-without-terminal.sse",
+      "requestFile": "message-stream-request.json",
+      "operation": "message/stream",
+      "fixtureKind": "stream",
+      "expectedValid": false,
+      "protocolError": "eof-without-terminal",
+      "mediaType": "text/event-stream",
+      "rules": ["terminal-required"]
+    },
+    {
+      "id": "message-stream-artifact-append-without-base",
+      "file": "message-stream-artifact-invalid-append.sse",
+      "requestFile": "message-stream-request.json",
+      "operation": "message/stream",
+      "fixtureKind": "stream",
+      "expectedValid": false,
+      "protocolError": "artifact-append-without-base",
+      "mediaType": "text/event-stream",
+      "rules": ["artifact-order"]
+    },
+    {
+      "id": "message-stream-artifact-after-last-chunk",
+      "file": "message-stream-artifact-after-last-chunk.sse",
+      "requestFile": "message-stream-request.json",
+      "operation": "message/stream",
+      "fixtureKind": "stream",
+      "expectedValid": false,
+      "protocolError": "artifact-after-last-chunk",
+      "mediaType": "text/event-stream",
+      "rules": ["artifact-order", "artifact-last-chunk"]
+    },
+    {
+      "id": "tasks-get-request",
+      "file": "tasks-get-request.json",
+      "operation": "tasks/get",
+      "fixtureKind": "request",
+      "expectedValid": true,
+      "mediaType": "application/json",
+      "rules": ["jsonrpc-envelope", "request-params", "history-length"]
+    },
+    {
+      "id": "tasks-get-result",
+      "file": "tasks-get-response.json",
+      "requestFile": "tasks-get-request.json",
+      "operation": "tasks/get",
+      "fixtureKind": "response",
+      "expectedValid": true,
+      "wireResultKind": "task",
+      "goConcreteType": "*a2a.Task",
+      "mediaType": "application/json",
+      "rules": ["jsonrpc-envelope", "request-response-id", "task-identity", "task-state", "history-length"]
+    },
+    {
+      "id": "tasks-get-not-found",
+      "file": "tasks-get-not-found-response.json",
+      "requestFile": "tasks-get-request.json",
+      "operation": "tasks/get",
+      "fixtureKind": "error",
+      "expectedValid": true,
+      "protocolError": "task-not-found",
+      "mediaType": "application/json",
+      "rules": ["jsonrpc-envelope", "request-response-id", "error-only"]
+    },
+    {
+      "id": "tasks-get-zero-task",
+      "file": "tasks-get-zero-task-response.json",
+      "requestFile": "tasks-get-request.json",
+      "operation": "tasks/get",
+      "fixtureKind": "response",
+      "expectedValid": false,
+      "protocolError": "invalid-task",
+      "mediaType": "application/json",
+      "rules": ["task-identity", "task-state"]
+    },
+    {
+      "id": "tasks-get-arbitrary-state",
+      "file": "tasks-get-arbitrary-state-response.json",
+      "requestFile": "tasks-get-request.json",
+      "operation": "tasks/get",
+      "fixtureKind": "response",
+      "expectedValid": false,
+      "protocolError": "unsupported-task-state",
+      "mediaType": "application/json",
+      "rules": ["task-state"]
+    },
+    {
+      "id": "tasks-get-rejected-state",
+      "file": "tasks-get-rejected-response.json",
+      "requestFile": "tasks-get-request.json",
+      "operation": "tasks/get",
+      "fixtureKind": "response",
+      "expectedValid": true,
+      "wireResultKind": "task",
+      "goConcreteType": "*a2a.Task",
+      "mediaType": "application/json",
+      "rules": ["task-state", "rejected-mapping"]
+    },
+    {
+      "id": "tasks-get-auth-required-state",
+      "file": "tasks-get-auth-required-response.json",
+      "requestFile": "tasks-get-request.json",
+      "operation": "tasks/get",
+      "fixtureKind": "response",
+      "expectedValid": false,
+      "protocolError": "unsupported-task-state",
+      "mediaType": "application/json",
+      "rules": ["task-state", "unsupported-state-mapping"]
+    },
+    {
+      "id": "tasks-cancel-request",
+      "file": "tasks-cancel-request.json",
+      "operation": "tasks/cancel",
+      "fixtureKind": "request",
+      "expectedValid": true,
+      "mediaType": "application/json",
+      "rules": ["jsonrpc-envelope", "request-params"]
+    },
+    {
+      "id": "tasks-cancel-result",
+      "file": "tasks-cancel-response.json",
+      "requestFile": "tasks-cancel-request.json",
+      "operation": "tasks/cancel",
+      "fixtureKind": "response",
+      "expectedValid": true,
+      "wireResultKind": "task",
+      "goConcreteType": "*a2a.Task",
+      "mediaType": "application/json",
+      "rules": ["jsonrpc-envelope", "request-response-id", "same-task", "canceled-state"]
+    },
+    {
+      "id": "tasks-cancel-not-found",
+      "file": "tasks-cancel-not-found-response.json",
+      "requestFile": "tasks-cancel-request.json",
+      "operation": "tasks/cancel",
+      "fixtureKind": "error",
+      "expectedValid": true,
+      "protocolError": "task-not-found",
+      "mediaType": "application/json",
+      "rules": ["jsonrpc-envelope", "request-response-id", "error-only"]
+    },
+    {
+      "id": "tasks-cancel-not-cancelable",
+      "file": "tasks-cancel-not-cancelable-response.json",
+      "requestFile": "tasks-cancel-request.json",
+      "operation": "tasks/cancel",
+      "fixtureKind": "error",
+      "expectedValid": true,
+      "protocolError": "task-not-cancelable",
+      "mediaType": "application/json",
+      "rules": ["jsonrpc-envelope", "request-response-id", "error-only"]
+    },
+    {
+      "id": "invalid-jsonrpc-version",
+      "file": "invalid-jsonrpc-version-response.json",
+      "requestFile": "message-send-request.json",
+      "operation": "message/send",
+      "fixtureKind": "response",
+      "expectedValid": false,
+      "protocolError": "invalid-jsonrpc-version",
+      "mediaType": "application/json",
+      "rules": ["jsonrpc-envelope"]
+    },
+    {
+      "id": "invalid-response-id",
+      "file": "invalid-response-id-response.json",
+      "requestFile": "message-send-request.json",
+      "operation": "message/send",
+      "fixtureKind": "response",
+      "expectedValid": false,
+      "protocolError": "response-id-mismatch",
+      "mediaType": "application/json",
+      "rules": ["request-response-id"]
+    },
+    {
+      "id": "invalid-result-and-error",
+      "file": "invalid-result-and-error-response.json",
+      "requestFile": "message-send-request.json",
+      "operation": "message/send",
+      "fixtureKind": "response",
+      "expectedValid": false,
+      "protocolError": "result-error-exclusivity",
+      "mediaType": "application/json",
+      "rules": ["result-xor-error"]
+    },
+    {
+      "id": "invalid-missing-result-and-error",
+      "file": "invalid-missing-result-and-error-response.json",
+      "requestFile": "message-send-request.json",
+      "operation": "message/send",
+      "fixtureKind": "response",
+      "expectedValid": false,
+      "protocolError": "result-error-required",
+      "mediaType": "application/json",
+      "rules": ["result-xor-error"]
+    },
+    {
+      "id": "context-propagation-headers",
+      "file": "context-headers.json",
+      "operation": "context/propagation",
+      "fixtureKind": "headers",
+      "expectedValid": true,
+      "mediaType": "application/json",
+      "rules": ["five-context-headers"]
+    }
+  ]
+}

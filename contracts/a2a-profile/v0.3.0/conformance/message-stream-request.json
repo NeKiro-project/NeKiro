@@ -1,0 +1,16 @@
+{
+  "jsonrpc": "2.0",
+  "id": "message-stream-1",
+  "method": "message/stream",
+  "params": {
+    "message": {
+      "kind": "message",
+      "messageId": "message-user-stream-1",
+      "contextId": "context-1",
+      "role": "user",
+      "parts": [
+        { "kind": "text", "text": "Stream the contract review." }
+      ]
+    }
+  }
+}

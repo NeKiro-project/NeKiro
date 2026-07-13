@@ -1,0 +1,16 @@
+{
+  "jsonrpc": "2.0",
+  "id": "message-send-1",
+  "method": "message/send",
+  "params": {
+    "message": {
+      "kind": "message",
+      "messageId": "message-user-1",
+      "contextId": "context-1",
+      "role": "user",
+      "parts": [
+        { "kind": "text", "text": "Review the invocation contract." }
+      ]
+    }
+  }
+}

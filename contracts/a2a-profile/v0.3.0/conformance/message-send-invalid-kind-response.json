@@ -1,0 +1,11 @@
+{
+  "jsonrpc": "2.0",
+  "id": "message-send-1",
+  "result": {
+    "kind": "status-update",
+    "taskId": "task-1",
+    "contextId": "context-1",
+    "final": true,
+    "status": { "state": "completed" }
+  }
+}

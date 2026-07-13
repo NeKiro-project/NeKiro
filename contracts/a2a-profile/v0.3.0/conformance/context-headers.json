@@ -1,0 +1,7 @@
+{
+  "x-nek-trace-id": "trace-1",
+  "x-nek-invocation-id": "invocation-1",
+  "x-nek-root-task-id": "root-task-1",
+  "x-nek-parent-invocation-id": "parent-invocation-1",
+  "x-nek-workspace-id": "workspace-1"
+}

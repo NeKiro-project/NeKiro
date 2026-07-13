@@ -1,0 +1,10 @@
+{
+  "jsonrpc": "2.0",
+  "id": "tasks-get-1",
+  "result": {
+    "kind": "task",
+    "id": "",
+    "contextId": "",
+    "status": { "state": "" }
+  }
+}

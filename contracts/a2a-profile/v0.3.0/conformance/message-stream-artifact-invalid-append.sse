@@ -1,0 +1,10 @@
+id: stream-event-1
+data: {"jsonrpc":"2.0","id":"message-stream-1","result":{"kind":"task","id":"task-1","contextId":"context-1","status":{"state":"working"}}}
+
+id: stream-event-2
+data: {"jsonrpc":"2.0","id":"message-stream-1","result":{"kind":"artifact-update","taskId":"task-1","contextId":"context-1","append":true,"lastChunk":true,"artifact":{"artifactId":"artifact-1","parts":[{"kind":"text","text":"There is no base artifact for this append."}]}}}
+
+id: stream-event-3
+data: {"jsonrpc":"2.0","id":"message-stream-1","result":{"kind":"status-update","taskId":"task-1","contextId":"context-1","final":true,"status":{"state":"completed"}}}
+
+: end-of-stream

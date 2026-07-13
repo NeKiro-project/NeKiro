@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "0.2",
+  "protocolVersion": "0.3.0",
+  "sdk": {
+    "module": "github.com/a2aproject/a2a-go",
+    "version": "v0.3.15"
+  },
+  "transport": "JSONRPC",
+  "agentCardPath": "/.well-known/agent-card.json",
+  "operations": [
+    {
+      "method": "message/send",
+      "clientMethod": "SendMessage",
+      "serverMethod": "OnSendMessage",
+      "interaction": "request-response",
+      "requestType": "*a2a.MessageSendParams",
+      "acceptedResultKinds": ["message", "task"]
+    },
+    {
+      "method": "message/stream",
+      "clientMethod": "SendStreamingMessage",
+      "serverMethod": "OnSendMessageStream",
+      "interaction": "server-stream",
+      "requestType": "*a2a.MessageSendParams",
+      "acceptedEventKinds": ["message", "task", "status-update", "artifact-update"]
+    },
+    {
+      "method": "tasks/get",
+      "clientMethod": "GetTask",
+      "serverMethod": "OnGetTask",
+      "interaction": "request-response",
+      "requestType": "*a2a.TaskQueryParams",
+      "acceptedResultKinds": ["task"],
+      "expectedErrors": ["task-not-found"]
+    },
+    {
+      "method": "tasks/cancel",
+      "clientMethod": "CancelTask",
+      "serverMethod": "OnCancelTask",
+      "interaction": "request-response",
+      "requestType": "*a2a.TaskIDParams",
+      "acceptedResultKinds": ["task"],
+      "expectedErrors": ["task-not-found", "task-not-cancelable"]
+    }
+  ],
+  "taskStates": {
+    "transient": [
+      { "state": "submitted", "invocationStatus": "running" },
+      { "state": "working", "invocationStatus": "running" }
+    ],
+    "terminal": [
+      { "state": "completed", "invocationStatus": "succeeded" },
+      { "state": "failed", "invocationStatus": "failed", "errorCode": "AGENT_EXECUTION_FAILED" },
+      { "state": "canceled", "invocationStatus": "canceled", "errorCode": "CANCELED" },
+      { "state": "rejected", "invocationStatus": "failed", "errorCode": "AGENT_EXECUTION_FAILED" }
+    ],
+    "unsupported": [
+      { "state": "auth-required", "invocationStatus": "failed", "errorCode": "A2A_PROTOCOL_ERROR" },
+      { "state": "input-required", "invocationStatus": "failed", "errorCode": "A2A_PROTOCOL_ERROR" },
+      { "state": "unknown", "invocationStatus": "failed", "errorCode": "A2A_PROTOCOL_ERROR" }
+    ],
+    "unspecified": { "state": "", "invocationStatus": "failed", "errorCode": "A2A_PROTOCOL_ERROR" }
+  },
+  "contextHeaders": {
+    "traceId": "x-nek-trace-id",
+    "invocationId": "x-nek-invocation-id",
+    "rootTaskId": "x-nek-root-task-id",
+    "parentInvocationId": "x-nek-parent-invocation-id",
+    "workspaceId": "x-nek-workspace-id"
+  },
+  "conformance": {
+    "manifest": "conformance/manifest.json",
+    "fixtureAuthority": "hand-authored",
+    "jsonrpcVersion": "2.0",
+    "sseMediaType": "text/event-stream"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "jsonrpc": "2.0",
+  "id": "tasks-get-1",
+  "result": {
+    "kind": "task",
+    "id": "task-1",
+    "contextId": "context-1",
+    "status": { "state": "rejected" },
+    "history": [
+      {
+        "kind": "message",
+        "messageId": "message-user-stream-1",
+        "taskId": "task-1",
+        "contextId": "context-1",
+        "role": "user",
+        "parts": [
+          { "kind": "text", "text": "Stream the contract review." }
+        ]
+      }
+    ]
+  }
+}
