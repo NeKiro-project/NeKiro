@@ -1,0 +1,52 @@
+{
+  "cases": [
+    {
+      "id": "valid-baseline",
+      "file": "valid-baseline.json",
+      "valid": true,
+      "violatedRules": []
+    },
+    {
+      "id": "valid-shared-permission",
+      "file": "valid-shared-permission.json",
+      "valid": true,
+      "violatedRules": []
+    },
+    {
+      "id": "invalid-duplicate-skill-id",
+      "file": "invalid-duplicate-skill-id.json",
+      "valid": false,
+      "violatedRules": ["AC-SEM-001"]
+    },
+    {
+      "id": "invalid-duplicate-permission-id",
+      "file": "invalid-duplicate-permission-id.json",
+      "valid": false,
+      "violatedRules": ["AC-SEM-002"]
+    },
+    {
+      "id": "invalid-undeclared-permission",
+      "file": "invalid-undeclared-permission.json",
+      "valid": false,
+      "violatedRules": ["AC-SEM-003"]
+    },
+    {
+      "id": "invalid-cross-version-permission",
+      "file": "invalid-cross-version-permission.json",
+      "valid": false,
+      "violatedRules": ["AC-SEM-003"]
+    },
+    {
+      "id": "invalid-case-mismatched-permission",
+      "file": "invalid-case-mismatched-permission.json",
+      "valid": false,
+      "violatedRules": ["AC-SEM-003"]
+    },
+    {
+      "id": "invalid-structural-missing-name",
+      "file": "invalid-structural-missing-name.json",
+      "valid": false,
+      "violatedRules": []
+    }
+  ]
+}
