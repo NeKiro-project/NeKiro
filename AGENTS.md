@@ -148,6 +148,22 @@ agent-platform/
    └─ decisions/
 ```
 
+### 技术栈决策
+
+本项目采用 **React 前端 + Go 后端 / Router** 的混合技术栈，这是项目级硬约束：
+
+- `apps/console` 使用 React、Vite、TypeScript 和 TailwindCSS，并优先复用统一的 shadcn/ui 组件体系。
+- `apps/control-plane` 使用 Go 实现 Gateway、Catalog、Workspace 和 Invocation Dispatch。
+- `apps/a2a-router` 使用 Go 独立实现 A2A 路由、流式传输、Task Context、Policy Hooks 和 Ledger。
+- `sdks/agent-sdk` 第一阶段优先提供 Go SDK；TypeScript 等其他语言 SDK 在核心协议稳定后增量提供。
+- `contracts/` 必须以语言无关的 JSON Schema、OpenAPI 和明确的 A2A Profile 作为事实来源，再生成或映射 Go 与 TypeScript 类型。
+- PostgreSQL 是第一阶段的持久化数据库，逻辑模块即使共用数据库实例也必须保持数据所有权边界。
+- Node.js 只用于前端构建、契约生成和必要的工程工具，不得用于实现 Control Plane、A2A Router 或其他后端核心服务。
+
+当前仓库中的 TypeScript / TypeBox 契约属于技术栈确认前的过渡实现。恢复业务功能开发前，必须先将契约事实来源迁移为语言无关格式，并保证已有语义、版本规则和测试用例不丢失；不得让 Go 后端反向依赖 TypeScript 运行时代码。
+
+Go 的 HTTP Router、数据库访问、A2A SDK 和代码生成工具应通过独立 ADR 选择。可以评估 `trpc-agent-go` 及成熟 A2A Go 实现，但外部 Framework 只能作为 Agent Runtime 或协议适配器，不能取代本项目的 Control Plane / Data Plane 架构边界。
+
 `control-plane` 第一阶段是一个部署进程，内部按以下领域隔离：
 
 ```text
