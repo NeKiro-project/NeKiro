@@ -382,6 +382,12 @@ and require a fresh independent Review before convergence.
     `019f5d04-ca84-7372-993b-d055ff874608` did not use OCR and returned
     `High 0`, `Medium 1`, `Low 0`: PostgreSQL `jsonb` rejects an otherwise
     valid unbounded number such as `1e131072`, so FR-001 fails at persistence.
+  - Review round 3: fresh boundary-focused Reviewer
+    `019f5d19-b583-7083-97b6-d0c33a1b84de` did not use OCR and validated the
+    unbounded-number remediation, but returned `High 0`, `Medium 2`, `Low 0`:
+    public `migrate down` deletes an ordinary populated Catalog, and the
+    connection-level 30-second `ReadTimeout` includes header time rather than
+    providing the specified registration-body window.
 
 ### Review Round 1 Remediation
 
@@ -437,6 +443,27 @@ and require a fresh independent Review before convergence.
 - [ ] T055 [Review-R2] Run default, real PostgreSQL integration, split race,
   vet, build, Compose, migration, tidy-diff, and diff verification; report
   fallback delta and create a fresh non-OCR independent Reviewer
+
+### Review Round 3 Remediation
+
+- [ ] T056 [Review-R3] Restrict the public migration command to `up` and reject
+  `down` or any other direction before invoking tern or changing Catalog data in
+  `apps/control-plane/cmd/control-plane/main.go`,
+  `apps/control-plane/internal/catalog/postgres/migrations.go`, and tests
+- [ ] T057 [Review-R3] Replace the connection-wide registration `ReadTimeout`
+  with a separate five-second header deadline and a 30-second read deadline set
+  when registration body processing begins; fail before persistence when the
+  deadline cannot be enforced in `apps/control-plane/cmd/control-plane/main.go`,
+  `apps/control-plane/internal/gateway/catalog_handler.go`, and tests
+- [ ] T058 [Review-R3] Add real PostgreSQL acceptance proving unsupported
+  `migrate down` leaves an ordinary populated Catalog and schema v2 unchanged,
+  while isolated tern v1/v2 migration verification remains explicit in
+  `tests/integration/catalog/catalog_test.go`
+- [ ] T059 [Review-R3] Verify the body deadline is independent of header time,
+  clears after a complete body read, and never passes partial/timed-out content
+  to Catalog using production-compatible ResponseController and socket coverage
+- [ ] T060 [Review-R3] Run the complete verification matrix, report fallback
+  delta, and create another fresh non-OCR independent Reviewer
 
 ---
 

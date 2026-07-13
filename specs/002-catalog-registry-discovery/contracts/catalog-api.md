@@ -56,9 +56,10 @@ or invalid request correlation is never replaced with caller-controlled data.
   unknown envelope/Card fields, trailing JSON values, and every active Agent
   Card structural or semantic violation before persistence.
 - Registration accepts at most 16,777,216 request-body bytes and must receive
-  the complete body within the server's 30-second body-read window. An
-  oversized body returns `400 VALIDATION_ERROR`; a partial or timed-out body is
-  never passed to Registry persistence.
+  the complete body within a 30-second window beginning when registration body
+  processing starts. The separate HTTP header deadline does not reduce that
+  window. An oversized body returns `400 VALIDATION_ERROR`; a partial or
+  timed-out body is never passed to Registry persistence.
 - Go mappings preserve every active legal JSON integer exactly. In particular,
   unbounded positive `maxInputBytes` and `maxOutputBytes` values are not decoded
   through `int64` or `float64`, and persistence must not pass them through a

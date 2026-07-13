@@ -143,8 +143,11 @@ design.*
 - Trace generation is initialized before the server accepts traffic. One trace
   value appears in the response header and Platform Error body.
 - Registration uses a contract-declared 16 MiB body cap and the HTTP server
-  limits request-body reads to 30 seconds. Oversized bodies map to the existing
-  fixed validation failure; partial or timed-out bodies never reach Catalog.
+  gives headers a separate five-second deadline. When registration begins body
+  processing, the Gateway sets a new 30-second connection read deadline for the
+  body and clears it after the complete read. Oversized bodies map to the
+  existing fixed validation failure; partial or timed-out bodies never reach
+  Catalog. A connection that cannot enforce the deadline fails before Catalog.
 - Public error messages remain fixed Platform Error v2 values. Internal auth,
   Card, cursor, SQL, DSN, dependency, and stack details are never returned or
   logged.
@@ -155,7 +158,8 @@ design.*
   required and validated at startup; none has a localhost, anonymous, mock, or
   weak-secret default.
 - One command binary exposes explicit `serve`, `migrate`, and `healthcheck`
-  modes. `serve` does not run migrations.
+  modes. `serve` does not run migrations. The public `migrate` command accepts
+  only `up`; `down` and every other direction fail before schema or data changes.
 - Liveness reports only process availability. Readiness checks database/schema
   availability, including exactly one valid Publication Clock singleton row,
   and fails rather than reporting degraded success.

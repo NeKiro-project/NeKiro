@@ -159,8 +159,10 @@ public outcomes, durable state, and secret-safe diagnostics.
   skill or permission IDs, undeclared permissions, credential-bearing endpoint
   userinfo, or another active conformance failure.
 - A registration body exceeds 16,777,216 bytes or is not fully received within
-  30 seconds; the Gateway must stop reading it and must not persist a partial
-  Card.
+  30 seconds measured from the start of registration body processing; the
+  Gateway must stop reading it and must not persist a partial Card. Header read
+  time is governed by a separate server deadline and does not consume the body
+  window.
 - A valid Card uses a positive JSON integer beyond machine `int64` range for
   `maxInputBytes` or `maxOutputBytes`; the Go mapping must preserve the exact
   number rather than reject or round it. Values beyond PostgreSQL `numeric` /
@@ -177,6 +179,8 @@ public outcomes, durable state, and secret-safe diagnostics.
   version is published after traversal begins.
 - A dependency becomes unavailable during an exact read or empty-result search;
   the failure must not be represented as not found or an empty list.
+- An operator requests an unsupported reverse migration against a populated
+  Catalog; the command must fail without dropping or rewriting Catalog data.
 - Logs or fixed public errors accidentally include the Card body, endpoint
   credentials, input/output schemas, or internal dependency details.
 
@@ -249,11 +253,15 @@ public outcomes, durable state, and secret-safe diagnostics.
 - **FR-020**: All public failures MUST use fixed, versioned, secret-safe error
   semantics and MUST NOT contain Card bodies, endpoint credentials, schema
   content, stack traces, or dependency details. Registration bodies MUST be
-  limited to 16,777,216 bytes and 30 seconds of request-body read time; an
-  oversized fully handled request uses the existing `400 VALIDATION_ERROR`
-  response and no partial Card is persisted.
+  limited to 16,777,216 bytes and 30 seconds of request-body read time measured
+  from the start of registration body processing, independently of the header
+  deadline; an oversized fully handled request uses the existing
+  `400 VALIDATION_ERROR` response and no partial Card is persisted.
 - **FR-021**: Successful Catalog writes MUST survive process restart without
-  changing Card content, owner, state, or previously assigned timestamps.
+  changing Card content, owner, state, or previously assigned timestamps. The
+  public migration command MUST apply forward migrations only; unsupported
+  directions, including `down`, MUST fail before changing or deleting Catalog
+  data.
 - **FR-022**: Concurrent registration and lifecycle operations MUST be atomic:
   at most one conflicting write succeeds and no intermediate or impossible
   publication state becomes observable.

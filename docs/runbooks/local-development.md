@@ -82,7 +82,8 @@ go run ./apps/control-plane/cmd/control-plane serve
 ```
 
 `serve` verifies schema version and dependency readiness but never creates or
-upgrades schema. `migrate up` is the sole migration command. The process exposes
+upgrades schema. `migrate up` is the sole migration command; `migrate down` is
+rejected before schema or data changes. The process exposes
 `/livez` and `/readyz`; the five authenticated Catalog operations are under
 `/v2/agents`.
 

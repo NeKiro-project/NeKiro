@@ -48,6 +48,8 @@ Expected outcomes:
 
 - The command applies every pending embedded migration in order.
 - Re-running it reports no pending migration and does not rewrite Catalog data.
+- `migrate down` and every non-`up` direction fail before changing schema or
+  deleting data; destructive rollback is not a public Catalog operation.
 - Missing, blank, malformed, or unreachable database configuration fails
   explicitly; the command does not create a localhost/default connection.
 
@@ -85,6 +87,8 @@ Expected outcomes:
 - Draft and disabled versions never appear in discovery.
 - Exact reads, idempotent disablement, process reconstruction, and committed
   timestamps remain durable.
+- The integration suite proves unsupported public migration directions leave a
+  populated Catalog unchanged.
 - Cursor traversal returns a fixed 1,000-version dataset exactly once, rejects
   malformed/filter-mismatched cursors, excludes later publications, and removes
   versions disabled before a later page.

@@ -17,7 +17,9 @@ identity-provider selection is in scope.
 - Catalog owns one PostgreSQL schema accessed through pinned `pgx/v5`.
 - Ordered SQL migrations use pinned `tern/v2`, are embedded in the Control Plane
   binary, and run only through an explicit migration command. Serving verifies
-  the expected schema version and never migrates automatically.
+  the expected schema version and never migrates automatically. The public
+  command applies forward migrations only; reverse directions fail before tern
+  runs so an operator cannot silently drop a populated Catalog.
 - Agent identity, immutable canonical Card JSON text, derived name/description,
   lifecycle metadata, and capability index rows commit transactionally. Text
   storage prevents PostgreSQL `jsonb` numeric limits from rejecting valid
