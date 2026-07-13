@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path"
@@ -84,7 +85,7 @@ type A2AConformanceCaseV02 struct {
 	ExpectedValid  bool                      `json:"expectedValid"`
 	WireResultKind string                    `json:"wireResultKind,omitempty"`
 	GoConcreteType string                    `json:"goConcreteType,omitempty"`
-	ProtocolError  string                    `json:"protocolError,omitempty"`
+	ProtocolError  A2AProtocolErrorV02       `json:"protocolError,omitempty"`
 	MediaType      string                    `json:"mediaType"`
 	Rules          []A2AConformanceRuleIDV02 `json:"rules"`
 }
@@ -116,6 +117,236 @@ const (
 	A2ARuleCanceledState           A2AConformanceRuleIDV02 = "canceled-state"
 	A2ARuleFiveContextHeaders      A2AConformanceRuleIDV02 = "five-context-headers"
 )
+
+var a2aConformanceRuleExecutionOrderV02 = []A2AConformanceRuleIDV02{
+	A2ARuleSSEFraming,
+	A2ARuleJSONRPCEnvelope,
+	A2ARuleResultXORError,
+	A2ARuleRequestResponseID,
+	A2ARuleRequestParams,
+	A2ARuleResultUnion,
+	A2ARuleResultType,
+	A2ARuleMessageResult,
+	A2ARuleTaskIdentity,
+	A2ARuleTaskState,
+	A2ARuleEventKinds,
+	A2ARuleTaskContextStability,
+	A2ARuleTerminalRequired,
+	A2ARuleTerminalLast,
+	A2ARuleArtifactOrder,
+	A2ARuleArtifactLastChunk,
+	A2ARuleHistoryLength,
+	A2ARuleErrorOnly,
+	A2ARuleRejectedMapping,
+	A2ARuleUnsupportedStateMapping,
+	A2ARuleSameTask,
+	A2ARuleCanceledState,
+	A2ARuleFiveContextHeaders,
+}
+
+type A2AProtocolErrorV02 string
+
+const (
+	A2AProtocolErrorInvalidJSONRPCEnvelope    A2AProtocolErrorV02 = "invalid-jsonrpc-envelope"
+	A2AProtocolErrorInvalidJSONRPCVersion     A2AProtocolErrorV02 = "invalid-jsonrpc-version"
+	A2AProtocolErrorInvalidResponseIDType     A2AProtocolErrorV02 = "invalid-response-id-type"
+	A2AProtocolErrorResponseIDMismatch        A2AProtocolErrorV02 = "response-id-mismatch"
+	A2AProtocolErrorResultErrorExclusivity    A2AProtocolErrorV02 = "result-error-exclusivity"
+	A2AProtocolErrorResultErrorRequired       A2AProtocolErrorV02 = "result-error-required"
+	A2AProtocolErrorInvalidResultKind         A2AProtocolErrorV02 = "invalid-result-kind"
+	A2AProtocolErrorInvalidMessageResult      A2AProtocolErrorV02 = "invalid-message-result"
+	A2AProtocolErrorInvalidTask               A2AProtocolErrorV02 = "invalid-task"
+	A2AProtocolErrorUnsupportedTaskState      A2AProtocolErrorV02 = "unsupported-task-state"
+	A2AProtocolErrorTaskContextMismatch       A2AProtocolErrorV02 = "task-context-mismatch"
+	A2AProtocolErrorEventAfterTerminal        A2AProtocolErrorV02 = "event-after-terminal"
+	A2AProtocolErrorEOFWithoutTerminal        A2AProtocolErrorV02 = "eof-without-terminal"
+	A2AProtocolErrorArtifactAppendWithoutBase A2AProtocolErrorV02 = "artifact-append-without-base"
+	A2AProtocolErrorArtifactAfterLastChunk    A2AProtocolErrorV02 = "artifact-after-last-chunk"
+	A2AProtocolErrorTaskNotFound              A2AProtocolErrorV02 = "task-not-found"
+	A2AProtocolErrorTaskNotCancelable         A2AProtocolErrorV02 = "task-not-cancelable"
+	A2AProtocolErrorAssertionPrerequisite     A2AProtocolErrorV02 = "assertion-prerequisite-failed"
+)
+
+type A2AConformanceAssertionErrorV02 struct {
+	Rule           A2AConformanceRuleIDV02
+	Classification A2AProtocolErrorV02
+	Cause          error
+}
+
+func (e *A2AConformanceAssertionErrorV02) Error() string {
+	return fmt.Sprintf("A2A conformance rule %q classified failure as %q: %v", e.Rule, e.Classification, e.Cause)
+}
+
+func (e *A2AConformanceAssertionErrorV02) Unwrap() error {
+	return e.Cause
+}
+
+type a2aJSONRPCResponseV02 struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id"`
+	Result  json.RawMessage `json:"result"`
+	Error   json.RawMessage `json:"error"`
+}
+
+func newA2AConformanceAssertionErrorV02(rule A2AConformanceRuleIDV02, classification A2AProtocolErrorV02, cause error) error {
+	return &A2AConformanceAssertionErrorV02{
+		Rule:           rule,
+		Classification: classification,
+		Cause:          cause,
+	}
+}
+
+func validateA2AJSONRPCResponseEnvelopeV02(data []byte) error {
+	response, err := decodeA2AJSONRPCResponseV02(data)
+	if err != nil {
+		return err
+	}
+	if response.JSONRPC != "2.0" {
+		return newA2AConformanceAssertionErrorV02(
+			A2ARuleJSONRPCEnvelope,
+			A2AProtocolErrorInvalidJSONRPCVersion,
+			fmt.Errorf("JSON-RPC version = %q, want 2.0", response.JSONRPC),
+		)
+	}
+	if len(response.ID) == 0 {
+		return newA2AConformanceAssertionErrorV02(
+			A2ARuleJSONRPCEnvelope,
+			A2AProtocolErrorInvalidResponseIDType,
+			fmt.Errorf("JSON-RPC response id is missing"),
+		)
+	}
+	if err := validateA2AJSONRPCResponseIDV02(response.ID); err != nil {
+		return newA2AConformanceAssertionErrorV02(
+			A2ARuleJSONRPCEnvelope,
+			A2AProtocolErrorInvalidResponseIDType,
+			err,
+		)
+	}
+	return nil
+}
+
+func validateA2AJSONRPCResponseBaselineV02(data []byte) error {
+	if err := validateA2AJSONRPCResponseEnvelopeV02(data); err != nil {
+		return err
+	}
+	return validateA2AJSONRPCResultXORErrorV02(data)
+}
+
+func validateA2AJSONRPCResultXORErrorV02(data []byte) error {
+	response, err := decodeA2AJSONRPCResponseV02(data)
+	if err != nil {
+		return err
+	}
+	hasResult := len(response.Result) > 0
+	hasError := len(response.Error) > 0
+	switch {
+	case hasResult && hasError:
+		return newA2AConformanceAssertionErrorV02(
+			A2ARuleResultXORError,
+			A2AProtocolErrorResultErrorExclusivity,
+			fmt.Errorf("JSON-RPC response contains both result and error"),
+		)
+	case !hasResult && !hasError:
+		return newA2AConformanceAssertionErrorV02(
+			A2ARuleResultXORError,
+			A2AProtocolErrorResultErrorRequired,
+			fmt.Errorf("JSON-RPC response contains neither result nor error"),
+		)
+	default:
+		return nil
+	}
+}
+
+func decodeA2AJSONRPCResponseV02(data []byte) (a2aJSONRPCResponseV02, error) {
+	if err := rejectDuplicateJSONMemberNames(data); err != nil {
+		return a2aJSONRPCResponseV02{}, newA2AConformanceAssertionErrorV02(
+			A2ARuleJSONRPCEnvelope,
+			A2AProtocolErrorInvalidJSONRPCEnvelope,
+			fmt.Errorf("decode JSON-RPC response: %w", err),
+		)
+	}
+
+	var response a2aJSONRPCResponseV02
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&response); err != nil {
+		return a2aJSONRPCResponseV02{}, newA2AConformanceAssertionErrorV02(
+			A2ARuleJSONRPCEnvelope,
+			A2AProtocolErrorInvalidJSONRPCEnvelope,
+			fmt.Errorf("decode JSON-RPC response: %w", err),
+		)
+	}
+	if err := requireJSONEOF(decoder); err != nil {
+		return a2aJSONRPCResponseV02{}, newA2AConformanceAssertionErrorV02(
+			A2ARuleJSONRPCEnvelope,
+			A2AProtocolErrorInvalidJSONRPCEnvelope,
+			fmt.Errorf("decode JSON-RPC response: %w", err),
+		)
+	}
+	return response, nil
+}
+
+func validateA2AJSONRPCResponseIDV02(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return fmt.Errorf("decode JSON-RPC response id: %w", err)
+	}
+	if err := requireJSONEOF(decoder); err != nil {
+		return fmt.Errorf("decode JSON-RPC response id: %w", err)
+	}
+	switch value.(type) {
+	case nil, string, json.Number:
+		return nil
+	default:
+		return fmt.Errorf("JSON-RPC response id has unsupported JSON type %T", value)
+	}
+}
+
+func validateA2AConformanceCaseOutcomeV02(testCase A2AConformanceCaseV02, actual error) error {
+	caseLabel := fmt.Sprintf("A2A conformance case %q", testCase.ID)
+	if testCase.ExpectedValid {
+		if actual != nil {
+			return fmt.Errorf("%s expected valid: %w", caseLabel, actual)
+		}
+		return nil
+	}
+	if actual == nil {
+		return fmt.Errorf("%s declared protocolError %q but no assertion failed", caseLabel, testCase.ProtocolError)
+	}
+
+	var assertionError *A2AConformanceAssertionErrorV02
+	if !errors.As(actual, &assertionError) {
+		return fmt.Errorf("%s produced an unclassified assertion failure: %w", caseLabel, actual)
+	}
+	if assertionError.Classification != testCase.ProtocolError {
+		return fmt.Errorf(
+			"%s actual protocol failure %q does not match declared protocolError %q: %w",
+			caseLabel,
+			assertionError.Classification,
+			testCase.ProtocolError,
+			actual,
+		)
+	}
+	if !a2aProtocolErrorHasClaimedRule(
+		assertionError.Classification,
+		map[A2AConformanceRuleIDV02]struct{}{assertionError.Rule: {}},
+	) {
+		return fmt.Errorf(
+			"%s actual rule %q cannot establish protocol failure %q",
+			caseLabel,
+			assertionError.Rule,
+			assertionError.Classification,
+		)
+	}
+	for _, ruleID := range testCase.Rules {
+		if ruleID == assertionError.Rule {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s actual failure rule %q was not declared", caseLabel, assertionError.Rule)
+}
 
 type a2aManifestField[T any] struct {
 	Value   T
@@ -153,7 +384,7 @@ type a2aConformanceCaseJSON struct {
 	ExpectedValid  a2aManifestField[bool]                      `json:"expectedValid"`
 	WireResultKind a2aManifestField[string]                    `json:"wireResultKind"`
 	GoConcreteType a2aManifestField[string]                    `json:"goConcreteType"`
-	ProtocolError  a2aManifestField[string]                    `json:"protocolError"`
+	ProtocolError  a2aManifestField[A2AProtocolErrorV02]       `json:"protocolError"`
 	MediaType      a2aManifestField[string]                    `json:"mediaType"`
 	Rules          a2aManifestField[[]A2AConformanceRuleIDV02] `json:"rules"`
 }
@@ -376,11 +607,13 @@ func decodeA2AConformanceCaseV02(index int, wireCase a2aConformanceCaseJSON) (A2
 		"requestFile":    {requestFile, hasRequestFile},
 		"wireResultKind": {wireResultKind, hasWireResultKind},
 		"goConcreteType": {goConcreteType, hasGoConcreteType},
-		"protocolError":  {protocolError, hasProtocolError},
 	} {
 		if field.present && field.value == "" {
 			return A2AConformanceCaseV02{}, fmt.Errorf("%s %s must not be empty", caseLabel, fieldName)
 		}
+	}
+	if hasProtocolError && protocolError == "" {
+		return A2AConformanceCaseV02{}, fmt.Errorf("%s protocolError must not be empty", caseLabel)
 	}
 	if len(rules) == 0 {
 		return A2AConformanceCaseV02{}, fmt.Errorf("%s rules must not be empty", caseLabel)
@@ -530,18 +763,22 @@ func validateA2AConformanceCaseMetadata(manifestCase A2AConformanceCaseV02, hasR
 }
 
 func requiredA2AConformanceRules(manifestCase A2AConformanceCaseV02) []A2AConformanceRuleIDV02 {
+	rules := make([]A2AConformanceRuleIDV02, 0, 12)
+	if manifestCase.FixtureKind == "response" || manifestCase.FixtureKind == "error" || manifestCase.FixtureKind == "stream" {
+		rules = append(rules, A2ARuleJSONRPCEnvelope, A2ARuleResultXORError)
+	}
 	if !manifestCase.ExpectedValid {
-		return nil
+		return rules
 	}
 	switch manifestCase.FixtureKind {
 	case "request":
-		rules := []A2AConformanceRuleIDV02{A2ARuleJSONRPCEnvelope, A2ARuleRequestParams}
+		rules = append(rules, A2ARuleJSONRPCEnvelope, A2ARuleRequestParams)
 		if manifestCase.Operation == "tasks/get" {
 			rules = append(rules, A2ARuleHistoryLength)
 		}
 		return rules
 	case "response":
-		rules := []A2AConformanceRuleIDV02{A2ARuleJSONRPCEnvelope, A2ARuleRequestResponseID, A2ARuleResultType}
+		rules = append(rules, A2ARuleRequestResponseID, A2ARuleResultType)
 		if manifestCase.Operation == "message/send" {
 			rules = append(rules, A2ARuleResultUnion)
 		}
@@ -557,11 +794,10 @@ func requiredA2AConformanceRules(manifestCase A2AConformanceCaseV02) []A2AConfor
 		}
 		return rules
 	case "error":
-		return []A2AConformanceRuleIDV02{A2ARuleJSONRPCEnvelope, A2ARuleRequestResponseID, A2ARuleErrorOnly}
+		return append(rules, A2ARuleRequestResponseID, A2ARuleErrorOnly)
 	case "stream":
-		return []A2AConformanceRuleIDV02{
+		return append(rules,
 			A2ARuleSSEFraming,
-			A2ARuleJSONRPCEnvelope,
 			A2ARuleRequestResponseID,
 			A2ARuleEventKinds,
 			A2ARuleTaskIdentity,
@@ -571,11 +807,11 @@ func requiredA2AConformanceRules(manifestCase A2AConformanceCaseV02) []A2AConfor
 			A2ARuleTerminalLast,
 			A2ARuleArtifactOrder,
 			A2ARuleArtifactLastChunk,
-		}
+		)
 	case "headers":
 		return []A2AConformanceRuleIDV02{A2ARuleFiveContextHeaders}
 	default:
-		return nil
+		return rules
 	}
 }
 
@@ -639,58 +875,60 @@ func isKnownA2AConformanceRuleV02(ruleID A2AConformanceRuleIDV02) bool {
 	}
 }
 
-func isKnownA2AProtocolErrorClaim(protocolError string) bool {
+func isKnownA2AProtocolErrorClaim(protocolError A2AProtocolErrorV02) bool {
 	switch protocolError {
-	case "invalid-result-kind",
-		"invalid-message-result",
-		"task-context-mismatch",
-		"event-after-terminal",
-		"eof-without-terminal",
-		"artifact-append-without-base",
-		"artifact-after-last-chunk",
-		"task-not-found",
-		"task-not-cancelable",
-		"invalid-task",
-		"unsupported-task-state",
-		"invalid-jsonrpc-version",
-		"response-id-mismatch",
-		"result-error-exclusivity",
-		"result-error-required":
+	case A2AProtocolErrorInvalidJSONRPCEnvelope,
+		A2AProtocolErrorInvalidJSONRPCVersion,
+		A2AProtocolErrorInvalidResponseIDType,
+		A2AProtocolErrorResponseIDMismatch,
+		A2AProtocolErrorResultErrorExclusivity,
+		A2AProtocolErrorResultErrorRequired,
+		A2AProtocolErrorInvalidResultKind,
+		A2AProtocolErrorInvalidMessageResult,
+		A2AProtocolErrorInvalidTask,
+		A2AProtocolErrorUnsupportedTaskState,
+		A2AProtocolErrorTaskContextMismatch,
+		A2AProtocolErrorEventAfterTerminal,
+		A2AProtocolErrorEOFWithoutTerminal,
+		A2AProtocolErrorArtifactAppendWithoutBase,
+		A2AProtocolErrorArtifactAfterLastChunk,
+		A2AProtocolErrorTaskNotFound,
+		A2AProtocolErrorTaskNotCancelable:
 		return true
 	default:
 		return false
 	}
 }
 
-func a2aProtocolErrorHasClaimedRule(protocolError string, rules map[A2AConformanceRuleIDV02]struct{}) bool {
+func a2aProtocolErrorHasClaimedRule(protocolError A2AProtocolErrorV02, rules map[A2AConformanceRuleIDV02]struct{}) bool {
 	var candidates []A2AConformanceRuleIDV02
 	switch protocolError {
-	case "invalid-result-kind":
-		candidates = []A2AConformanceRuleIDV02{A2ARuleResultUnion}
-	case "invalid-message-result":
-		candidates = []A2AConformanceRuleIDV02{A2ARuleMessageResult}
-	case "task-context-mismatch":
-		candidates = []A2AConformanceRuleIDV02{A2ARuleTaskContextStability}
-	case "event-after-terminal":
-		candidates = []A2AConformanceRuleIDV02{A2ARuleTerminalLast}
-	case "eof-without-terminal":
-		candidates = []A2AConformanceRuleIDV02{A2ARuleTerminalRequired}
-	case "artifact-append-without-base":
-		candidates = []A2AConformanceRuleIDV02{A2ARuleArtifactOrder}
-	case "artifact-after-last-chunk":
-		candidates = []A2AConformanceRuleIDV02{A2ARuleArtifactOrder, A2ARuleArtifactLastChunk}
-	case "task-not-found", "task-not-cancelable":
-		candidates = []A2AConformanceRuleIDV02{A2ARuleErrorOnly}
-	case "invalid-task":
-		candidates = []A2AConformanceRuleIDV02{A2ARuleTaskIdentity, A2ARuleTaskState}
-	case "unsupported-task-state":
-		candidates = []A2AConformanceRuleIDV02{A2ARuleTaskState, A2ARuleUnsupportedStateMapping}
-	case "invalid-jsonrpc-version":
+	case A2AProtocolErrorInvalidJSONRPCEnvelope, A2AProtocolErrorInvalidJSONRPCVersion, A2AProtocolErrorInvalidResponseIDType:
 		candidates = []A2AConformanceRuleIDV02{A2ARuleJSONRPCEnvelope}
-	case "response-id-mismatch":
+	case A2AProtocolErrorResponseIDMismatch:
 		candidates = []A2AConformanceRuleIDV02{A2ARuleRequestResponseID}
-	case "result-error-exclusivity", "result-error-required":
+	case A2AProtocolErrorResultErrorExclusivity, A2AProtocolErrorResultErrorRequired:
 		candidates = []A2AConformanceRuleIDV02{A2ARuleResultXORError}
+	case A2AProtocolErrorInvalidResultKind:
+		candidates = []A2AConformanceRuleIDV02{A2ARuleResultUnion}
+	case A2AProtocolErrorInvalidMessageResult:
+		candidates = []A2AConformanceRuleIDV02{A2ARuleMessageResult}
+	case A2AProtocolErrorTaskContextMismatch:
+		candidates = []A2AConformanceRuleIDV02{A2ARuleTaskContextStability}
+	case A2AProtocolErrorEventAfterTerminal:
+		candidates = []A2AConformanceRuleIDV02{A2ARuleTerminalLast}
+	case A2AProtocolErrorEOFWithoutTerminal:
+		candidates = []A2AConformanceRuleIDV02{A2ARuleTerminalRequired}
+	case A2AProtocolErrorArtifactAppendWithoutBase:
+		candidates = []A2AConformanceRuleIDV02{A2ARuleArtifactOrder}
+	case A2AProtocolErrorArtifactAfterLastChunk:
+		candidates = []A2AConformanceRuleIDV02{A2ARuleArtifactOrder, A2ARuleArtifactLastChunk}
+	case A2AProtocolErrorTaskNotFound, A2AProtocolErrorTaskNotCancelable:
+		candidates = []A2AConformanceRuleIDV02{A2ARuleErrorOnly}
+	case A2AProtocolErrorInvalidTask:
+		candidates = []A2AConformanceRuleIDV02{A2ARuleTaskIdentity, A2ARuleTaskState}
+	case A2AProtocolErrorUnsupportedTaskState:
+		candidates = []A2AConformanceRuleIDV02{A2ARuleTaskState, A2ARuleUnsupportedStateMapping}
 	}
 	for _, candidate := range candidates {
 		if _, exists := rules[candidate]; exists {

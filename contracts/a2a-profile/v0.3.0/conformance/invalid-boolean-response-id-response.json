@@ -1,0 +1,13 @@
+{
+  "jsonrpc": "2.0",
+  "id": true,
+  "result": {
+    "kind": "message",
+    "messageId": "message-agent-boolean-id",
+    "contextId": "context-1",
+    "role": "agent",
+    "parts": [
+      { "kind": "text", "text": "Boolean JSON-RPC response IDs are outside the pinned server profile." }
+    ]
+  }
+}

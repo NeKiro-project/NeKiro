@@ -22,7 +22,7 @@
       "wireResultKind": "message",
       "goConcreteType": "*a2a.Message",
       "mediaType": "application/json",
-      "rules": ["jsonrpc-envelope", "request-response-id", "result-union", "result-type", "message-result"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "request-response-id", "result-union", "result-type", "message-result"]
     },
     {
       "id": "message-send-task-result",
@@ -34,7 +34,7 @@
       "wireResultKind": "task",
       "goConcreteType": "*a2a.Task",
       "mediaType": "application/json",
-      "rules": ["jsonrpc-envelope", "request-response-id", "result-union", "result-type", "task-identity", "task-state"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "request-response-id", "result-union", "result-type", "task-identity", "task-state"]
     },
     {
       "id": "message-send-invalid-kind",
@@ -45,7 +45,7 @@
       "expectedValid": false,
       "protocolError": "invalid-result-kind",
       "mediaType": "application/json",
-      "rules": ["result-union"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "result-union"]
     },
     {
       "id": "message-send-empty-id",
@@ -56,7 +56,7 @@
       "expectedValid": false,
       "protocolError": "invalid-message-result",
       "mediaType": "application/json",
-      "rules": ["message-result"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "message-result"]
     },
     {
       "id": "message-send-user-role",
@@ -67,7 +67,7 @@
       "expectedValid": false,
       "protocolError": "invalid-message-result",
       "mediaType": "application/json",
-      "rules": ["message-result"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "message-result"]
     },
     {
       "id": "message-send-no-parts",
@@ -78,7 +78,7 @@
       "expectedValid": false,
       "protocolError": "invalid-message-result",
       "mediaType": "application/json",
-      "rules": ["message-result"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "message-result"]
     },
     {
       "id": "message-stream-request",
@@ -97,7 +97,7 @@
       "fixtureKind": "stream",
       "expectedValid": true,
       "mediaType": "text/event-stream",
-      "rules": ["sse-framing", "jsonrpc-envelope", "request-response-id", "event-kinds", "task-identity", "task-state", "task-context-stability", "terminal-required", "terminal-last", "artifact-order", "artifact-last-chunk"]
+      "rules": ["sse-framing", "jsonrpc-envelope", "result-xor-error", "request-response-id", "event-kinds", "task-identity", "task-state", "task-context-stability", "terminal-required", "terminal-last", "artifact-order", "artifact-last-chunk"]
     },
     {
       "id": "message-stream-context-mismatch",
@@ -108,7 +108,7 @@
       "expectedValid": false,
       "protocolError": "task-context-mismatch",
       "mediaType": "text/event-stream",
-      "rules": ["task-context-stability"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "task-context-stability"]
     },
     {
       "id": "message-stream-event-after-terminal",
@@ -119,7 +119,7 @@
       "expectedValid": false,
       "protocolError": "event-after-terminal",
       "mediaType": "text/event-stream",
-      "rules": ["terminal-last"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "terminal-last"]
     },
     {
       "id": "message-stream-eof-without-terminal",
@@ -130,7 +130,7 @@
       "expectedValid": false,
       "protocolError": "eof-without-terminal",
       "mediaType": "text/event-stream",
-      "rules": ["terminal-required"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "terminal-required"]
     },
     {
       "id": "message-stream-artifact-append-without-base",
@@ -141,7 +141,7 @@
       "expectedValid": false,
       "protocolError": "artifact-append-without-base",
       "mediaType": "text/event-stream",
-      "rules": ["artifact-order"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "artifact-order"]
     },
     {
       "id": "message-stream-artifact-after-last-chunk",
@@ -152,7 +152,7 @@
       "expectedValid": false,
       "protocolError": "artifact-after-last-chunk",
       "mediaType": "text/event-stream",
-      "rules": ["artifact-order", "artifact-last-chunk"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "artifact-order", "artifact-last-chunk"]
     },
     {
       "id": "tasks-get-request",
@@ -173,7 +173,7 @@
       "wireResultKind": "task",
       "goConcreteType": "*a2a.Task",
       "mediaType": "application/json",
-      "rules": ["jsonrpc-envelope", "request-response-id", "result-type", "task-identity", "task-state", "history-length"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "request-response-id", "result-type", "task-identity", "task-state", "history-length"]
     },
     {
       "id": "tasks-get-not-found",
@@ -184,7 +184,7 @@
       "expectedValid": true,
       "protocolError": "task-not-found",
       "mediaType": "application/json",
-      "rules": ["jsonrpc-envelope", "request-response-id", "error-only"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "request-response-id", "error-only"]
     },
     {
       "id": "tasks-get-zero-task",
@@ -195,7 +195,7 @@
       "expectedValid": false,
       "protocolError": "invalid-task",
       "mediaType": "application/json",
-      "rules": ["task-identity", "task-state"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "task-identity", "task-state"]
     },
     {
       "id": "tasks-get-arbitrary-state",
@@ -206,7 +206,7 @@
       "expectedValid": false,
       "protocolError": "unsupported-task-state",
       "mediaType": "application/json",
-      "rules": ["task-state"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "task-state"]
     },
     {
       "id": "tasks-get-rejected-state",
@@ -218,7 +218,7 @@
       "wireResultKind": "task",
       "goConcreteType": "*a2a.Task",
       "mediaType": "application/json",
-      "rules": ["jsonrpc-envelope", "request-response-id", "result-type", "task-identity", "task-state", "history-length", "rejected-mapping"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "request-response-id", "result-type", "task-identity", "task-state", "history-length", "rejected-mapping"]
     },
     {
       "id": "tasks-get-auth-required-state",
@@ -229,7 +229,7 @@
       "expectedValid": false,
       "protocolError": "unsupported-task-state",
       "mediaType": "application/json",
-      "rules": ["task-state", "unsupported-state-mapping"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "task-state", "unsupported-state-mapping"]
     },
     {
       "id": "tasks-cancel-request",
@@ -250,7 +250,7 @@
       "wireResultKind": "task",
       "goConcreteType": "*a2a.Task",
       "mediaType": "application/json",
-      "rules": ["jsonrpc-envelope", "request-response-id", "result-type", "task-identity", "task-state", "same-task", "canceled-state"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "request-response-id", "result-type", "task-identity", "task-state", "same-task", "canceled-state"]
     },
     {
       "id": "tasks-cancel-not-found",
@@ -261,7 +261,7 @@
       "expectedValid": true,
       "protocolError": "task-not-found",
       "mediaType": "application/json",
-      "rules": ["jsonrpc-envelope", "request-response-id", "error-only"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "request-response-id", "error-only"]
     },
     {
       "id": "tasks-cancel-not-cancelable",
@@ -272,7 +272,7 @@
       "expectedValid": true,
       "protocolError": "task-not-cancelable",
       "mediaType": "application/json",
-      "rules": ["jsonrpc-envelope", "request-response-id", "error-only"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "request-response-id", "error-only"]
     },
     {
       "id": "invalid-jsonrpc-version",
@@ -283,7 +283,7 @@
       "expectedValid": false,
       "protocolError": "invalid-jsonrpc-version",
       "mediaType": "application/json",
-      "rules": ["jsonrpc-envelope"]
+      "rules": ["jsonrpc-envelope", "result-xor-error"]
     },
     {
       "id": "invalid-response-id",
@@ -294,7 +294,40 @@
       "expectedValid": false,
       "protocolError": "response-id-mismatch",
       "mediaType": "application/json",
-      "rules": ["request-response-id"]
+      "rules": ["jsonrpc-envelope", "result-xor-error", "request-response-id"]
+    },
+    {
+      "id": "invalid-boolean-response-id",
+      "file": "invalid-boolean-response-id-response.json",
+      "requestFile": "message-send-request.json",
+      "operation": "message/send",
+      "fixtureKind": "response",
+      "expectedValid": false,
+      "protocolError": "invalid-response-id-type",
+      "mediaType": "application/json",
+      "rules": ["jsonrpc-envelope", "result-xor-error"]
+    },
+    {
+      "id": "invalid-object-response-id",
+      "file": "invalid-object-response-id-response.json",
+      "requestFile": "message-send-request.json",
+      "operation": "message/send",
+      "fixtureKind": "response",
+      "expectedValid": false,
+      "protocolError": "invalid-response-id-type",
+      "mediaType": "application/json",
+      "rules": ["jsonrpc-envelope", "result-xor-error"]
+    },
+    {
+      "id": "invalid-array-response-id",
+      "file": "invalid-array-response-id-response.json",
+      "requestFile": "message-send-request.json",
+      "operation": "message/send",
+      "fixtureKind": "response",
+      "expectedValid": false,
+      "protocolError": "invalid-response-id-type",
+      "mediaType": "application/json",
+      "rules": ["jsonrpc-envelope", "result-xor-error"]
     },
     {
       "id": "invalid-result-and-error",
@@ -305,7 +338,7 @@
       "expectedValid": false,
       "protocolError": "result-error-exclusivity",
       "mediaType": "application/json",
-      "rules": ["result-xor-error"]
+      "rules": ["jsonrpc-envelope", "result-xor-error"]
     },
     {
       "id": "invalid-missing-result-and-error",
@@ -316,7 +349,7 @@
       "expectedValid": false,
       "protocolError": "result-error-required",
       "mediaType": "application/json",
-      "rules": ["result-xor-error"]
+      "rules": ["jsonrpc-envelope", "result-xor-error"]
     },
     {
       "id": "context-propagation-headers",

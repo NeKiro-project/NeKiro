@@ -117,25 +117,62 @@ func TestA2AProfileConformanceMetadata(t *testing.T) {
 		}
 	}
 
-	compiler := jsonschema.NewCompiler()
-	compiler.DefaultDraft(jsonschema.Draft2020)
-	schemaDocument, err := readEmbeddedJSONDocument("schemas/a2a-profile.v0.2.schema.json")
-	if err != nil {
-		t.Fatalf("read Profile Schema v0.2: %v", err)
-	}
-	if err := compiler.AddResource("https://schemas.nekiro.dev/a2a-profile/v0.2", schemaDocument); err != nil {
-		t.Fatalf("add Profile Schema v0.2: %v", err)
-	}
-	schema, err := compiler.Compile("https://schemas.nekiro.dev/a2a-profile/v0.2")
-	if err != nil {
-		t.Fatalf("compile Profile Schema v0.2: %v", err)
-	}
+	schema := mustA2AProfileSchemaV02(t)
 	profileDocument, err := readEmbeddedJSONDocument("a2a-profile/v0.3.0/profile.v0.2.json")
 	if err != nil {
 		t.Fatalf("read Profile v0.2: %v", err)
 	}
 	if err := schema.Validate(profileDocument); err != nil {
 		t.Fatalf("Profile v0.2 does not match its schema: %v", err)
+	}
+}
+
+func TestA2AProfileConformanceOperationSchemaVariants(t *testing.T) {
+	schema := mustA2AProfileSchemaV02(t)
+	profileDocument, err := readEmbeddedJSONDocument("a2a-profile/v0.3.0/profile.v0.2.json")
+	if err != nil {
+		t.Fatalf("read Profile v0.2: %v", err)
+	}
+	profile, ok := profileDocument.(map[string]any)
+	if !ok {
+		t.Fatalf("Profile v0.2 document type = %T, want map[string]any", profileDocument)
+	}
+
+	tests := []struct {
+		name   string
+		method string
+		mutate func(map[string]any)
+	}{
+		{name: "message send event kinds", method: "message/send", mutate: func(operation map[string]any) { operation["acceptedEventKinds"] = []any{"message"} }},
+		{name: "message send expected errors", method: "message/send", mutate: func(operation map[string]any) { operation["expectedErrors"] = []any{"task-not-found"} }},
+		{name: "message stream result kinds", method: "message/stream", mutate: func(operation map[string]any) { operation["acceptedResultKinds"] = []any{"task"} }},
+		{name: "message stream expected errors", method: "message/stream", mutate: func(operation map[string]any) { operation["expectedErrors"] = []any{"task-not-found"} }},
+		{name: "tasks get event kinds", method: "tasks/get", mutate: func(operation map[string]any) { operation["acceptedEventKinds"] = []any{"task"} }},
+		{name: "tasks cancel event kinds", method: "tasks/cancel", mutate: func(operation map[string]any) { operation["acceptedEventKinds"] = []any{"task"} }},
+		{name: "tasks get cancel error", method: "tasks/get", mutate: func(operation map[string]any) {
+			operation["expectedErrors"] = []any{"task-not-found", "task-not-cancelable"}
+		}},
+		{name: "message send missing result kinds", method: "message/send", mutate: func(operation map[string]any) { delete(operation, "acceptedResultKinds") }},
+		{name: "message stream missing event kinds", method: "message/stream", mutate: func(operation map[string]any) { delete(operation, "acceptedEventKinds") }},
+		{name: "tasks get missing result kinds", method: "tasks/get", mutate: func(operation map[string]any) { delete(operation, "acceptedResultKinds") }},
+		{name: "tasks cancel missing result kinds", method: "tasks/cancel", mutate: func(operation map[string]any) { delete(operation, "acceptedResultKinds") }},
+		{name: "tasks get missing expected errors", method: "tasks/get", mutate: func(operation map[string]any) { delete(operation, "expectedErrors") }},
+		{name: "tasks cancel missing expected errors", method: "tasks/cancel", mutate: func(operation map[string]any) { delete(operation, "expectedErrors") }},
+		{name: "wrong client method", method: "message/send", mutate: func(operation map[string]any) { operation["clientMethod"] = "GetTask" }},
+		{name: "wrong server method", method: "tasks/cancel", mutate: func(operation map[string]any) { operation["serverMethod"] = "OnGetTask" }},
+		{name: "wrong interaction", method: "message/stream", mutate: func(operation map[string]any) { operation["interaction"] = "request-response" }},
+		{name: "wrong request type", method: "tasks/get", mutate: func(operation map[string]any) { operation["requestType"] = "*a2a.TaskIDParams" }},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			candidate := cloneJSONMap(t, profile)
+			operation := profileOperationByMethod(t, candidate, testCase.method)
+			testCase.mutate(operation)
+			if err := schema.Validate(candidate); err == nil {
+				t.Fatalf("Profile operation %q accepted incompatible metadata", testCase.method)
+			}
+		})
 	}
 }
 
@@ -406,8 +443,8 @@ func TestA2AProfileConformanceManifestPaths(t *testing.T) {
 
 func TestA2AProfileConformanceManifestMetadata(t *testing.T) {
 	validRequest := canonicalRequestCase("request.json")
-	validMessageResponse := `{"id":"response","file":"response.json","requestFile":"request.json","operation":"message/send","fixtureKind":"response","expectedValid":true,"wireResultKind":"message","goConcreteType":"*a2a.Message","mediaType":"application/json","rules":["jsonrpc-envelope","request-response-id","result-union","result-type","message-result"]}`
-	invalidResponse := `{"id":"invalid","file":"response.json","requestFile":"request.json","operation":"message/send","fixtureKind":"response","expectedValid":false,"protocolError":"invalid-result-kind","mediaType":"application/json","rules":["result-union"]}`
+	validMessageResponse := `{"id":"response","file":"response.json","requestFile":"request.json","operation":"message/send","fixtureKind":"response","expectedValid":true,"wireResultKind":"message","goConcreteType":"*a2a.Message","mediaType":"application/json","rules":["jsonrpc-envelope","result-xor-error","request-response-id","result-union","result-type","message-result"]}`
+	invalidResponse := `{"id":"invalid","file":"response.json","requestFile":"request.json","operation":"message/send","fixtureKind":"response","expectedValid":false,"protocolError":"invalid-result-kind","mediaType":"application/json","rules":["jsonrpc-envelope","result-xor-error","result-union"]}`
 	tests := []struct {
 		name         string
 		caseDocument string
@@ -429,6 +466,9 @@ func TestA2AProfileConformanceManifestMetadata(t *testing.T) {
 		{name: "duplicate rule", caseDocument: strings.Replace(validRequest, `"request-params"]`, `"request-params","request-params"]`, 1)},
 		{name: "known but inapplicable rule", caseDocument: strings.Replace(validRequest, `"request-params"]`, `"request-params","five-context-headers"]`, 1)},
 		{name: "valid case omits required executable rule", caseDocument: strings.Replace(validRequest, `,"request-params"`, ``, 1)},
+		{name: "valid response omits result xor baseline", caseDocument: strings.Replace(validMessageResponse, `,"result-xor-error"`, ``, 1)},
+		{name: "invalid response omits envelope baseline", caseDocument: strings.Replace(invalidResponse, `"jsonrpc-envelope",`, ``, 1)},
+		{name: "invalid response omits result xor baseline", caseDocument: strings.Replace(invalidResponse, `,"result-xor-error"`, ``, 1)},
 		{name: "empty rules", caseDocument: strings.Replace(validRequest, `["jsonrpc-envelope","request-params"]`, `[]`, 1)},
 		{name: "stream extension on JSON media", caseDocument: strings.Replace(validRequest, `request.json`, `request.sse`, 1)},
 	}
@@ -471,11 +511,94 @@ func TestA2AProfileConformanceManifestClaimsMatchFixtures(t *testing.T) {
 	t.Run("protocol error must be established by execution", func(t *testing.T) {
 		manifestCase := byID["message-send-invalid-kind"]
 		manifestCase.File = "message-send-message-response.json"
-		err := validateManifestCase(t, manifestCase)
-		if manifestCaseExpectationSatisfied(manifestCase, err) {
+		if err := validateManifestCase(t, manifestCase); err == nil {
 			t.Fatal("invalid-case claim was satisfied without a corresponding rule failure")
 		}
 	})
+
+	t.Run("cross-wired classification on the same rule", func(t *testing.T) {
+		manifestCase := byID["invalid-result-and-error"]
+		manifestCase.ProtocolError = A2AProtocolErrorResultErrorRequired
+		if err := validateManifestCase(t, manifestCase); err == nil {
+			t.Fatal("result/error exclusivity satisfied a result/error required claim")
+		}
+	})
+
+	t.Run("cross-wired semantic classification", func(t *testing.T) {
+		manifestCase := byID["message-send-empty-id"]
+		manifestCase.ProtocolError = A2AProtocolErrorInvalidResultKind
+		if err := validateManifestCase(t, manifestCase); err == nil {
+			t.Fatal("invalid Message semantics satisfied an invalid result kind claim")
+		}
+	})
+
+	t.Run("prerequisite failure is not semantic evidence", func(t *testing.T) {
+		manifestCase := byID["message-send-empty-id"]
+		manifestCase.File = "message-send-invalid-kind-response.json"
+		if err := validateManifestCase(t, manifestCase); err == nil {
+			t.Fatal("result decoding prerequisite satisfied an invalid Message claim")
+		}
+	})
+}
+
+func TestA2AProfileConformanceResponseBaselineMutations(t *testing.T) {
+	baseline := mustFixtureBytes(t, "message-send-message-response.json")
+
+	for name, id := range map[string]json.RawMessage{
+		"string": json.RawMessage(`"message-send-1"`),
+		"number": json.RawMessage(`17`),
+		"null":   json.RawMessage(`null`),
+	} {
+		t.Run("accepted id "+name, func(t *testing.T) {
+			response := decodeJSONRPCMutationTarget(t, baseline)
+			response["id"] = id
+			if err := validateA2AJSONRPCResponseBaselineV02(marshalJSONRPCMutation(t, response)); err != nil {
+				t.Fatalf("supported JSON-RPC id rejected: %v", err)
+			}
+		})
+	}
+
+	tests := []struct {
+		name           string
+		classification A2AProtocolErrorV02
+		mutate         func(map[string]json.RawMessage)
+	}{
+		{
+			name:           "both result and error",
+			classification: A2AProtocolErrorResultErrorExclusivity,
+			mutate: func(response map[string]json.RawMessage) {
+				response["error"] = json.RawMessage(`{"code":-32001,"message":"Task not found"}`)
+			},
+		},
+		{
+			name:           "neither result nor error",
+			classification: A2AProtocolErrorResultErrorRequired,
+			mutate: func(response map[string]json.RawMessage) {
+				delete(response, "result")
+				delete(response, "error")
+			},
+		},
+		{name: "boolean id", classification: A2AProtocolErrorInvalidResponseIDType, mutate: func(response map[string]json.RawMessage) { response["id"] = json.RawMessage(`true`) }},
+		{name: "object id", classification: A2AProtocolErrorInvalidResponseIDType, mutate: func(response map[string]json.RawMessage) {
+			response["id"] = json.RawMessage(`{"request":"message-send-1"}`)
+		}},
+		{name: "array id", classification: A2AProtocolErrorInvalidResponseIDType, mutate: func(response map[string]json.RawMessage) { response["id"] = json.RawMessage(`["message-send-1"]`) }},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			response := decodeJSONRPCMutationTarget(t, baseline)
+			testCase.mutate(response)
+			err := validateA2AJSONRPCResponseBaselineV02(marshalJSONRPCMutation(t, response))
+			var assertionError *A2AConformanceAssertionErrorV02
+			if !errors.As(err, &assertionError) {
+				t.Fatalf("baseline mutation error = %v, want typed classification", err)
+			}
+			if assertionError.Classification != testCase.classification {
+				t.Fatalf("baseline mutation classification = %q, want %q", assertionError.Classification, testCase.classification)
+			}
+		})
+	}
 }
 
 func TestA2AProfileConformanceFixtures(t *testing.T) {
@@ -485,16 +608,11 @@ func TestA2AProfileConformanceFixtures(t *testing.T) {
 	}
 	for _, testCase := range manifest.Cases {
 		t.Run(testCase.ID, func(t *testing.T) {
-			err := validateManifestCase(t, testCase)
-			if !manifestCaseExpectationSatisfied(testCase, err) {
-				t.Fatalf("fixture validity = %t, want %t (rule error: %v)", err == nil, testCase.ExpectedValid, err)
+			if err := validateManifestCase(t, testCase); err != nil {
+				t.Fatal(err)
 			}
 		})
 	}
-}
-
-func manifestCaseExpectationSatisfied(testCase A2AConformanceCaseV02, ruleError error) bool {
-	return testCase.ExpectedValid == (ruleError == nil)
 }
 
 func TestA2AProfileConformanceClientPaths(t *testing.T) {
@@ -738,42 +856,46 @@ func validateManifestCase(t *testing.T, testCase A2AConformanceCaseV02) error {
 	if testCase.RequestFile != "" {
 		request = mustFixtureBytes(t, testCase.RequestFile)
 		if err := validateRequestEnvelope(request, testCase.Operation); err != nil {
-			return fmt.Errorf("requestFile %q does not describe %s: %w", testCase.RequestFile, testCase.Operation, err)
+			actual := newA2AConformanceAssertionErrorV02(
+				A2ARuleRequestParams,
+				A2AProtocolErrorAssertionPrerequisite,
+				fmt.Errorf("requestFile %q does not describe %s: %w", testCase.RequestFile, testCase.Operation, err),
+			)
+			return validateA2AConformanceCaseOutcomeV02(testCase, actual)
 		}
 	}
 
-	executed := make(map[A2AConformanceRuleIDV02]struct{}, len(testCase.Rules))
-	failed := make(map[A2AConformanceRuleIDV02]error)
+	declared := make(map[A2AConformanceRuleIDV02]struct{}, len(testCase.Rules))
 	for _, ruleID := range testCase.Rules {
-		if _, exists := executed[ruleID]; exists {
-			return fmt.Errorf("rule %q executed more than once", ruleID)
+		if _, exists := declared[ruleID]; exists {
+			return fmt.Errorf("rule %q is declared more than once", ruleID)
+		}
+		declared[ruleID] = struct{}{}
+	}
+
+	executed := make(map[A2AConformanceRuleIDV02]struct{}, len(testCase.Rules))
+	failed := make([]error, 0, len(testCase.Rules))
+	for _, ruleID := range a2aConformanceRuleExecutionOrderV02 {
+		if _, exists := declared[ruleID]; !exists {
+			continue
 		}
 		executed[ruleID] = struct{}{}
 		if err := assertA2AConformanceRule(testCase, fixture, request, ruleID); err != nil {
-			failed[ruleID] = err
+			var assertionError *A2AConformanceAssertionErrorV02
+			if !errors.As(err, &assertionError) {
+				err = newA2AConformanceAssertionErrorV02(ruleID, A2AProtocolErrorAssertionPrerequisite, err)
+			}
+			failed = append(failed, err)
 		}
 	}
 	if len(executed) != len(testCase.Rules) {
 		return fmt.Errorf("executed %d rules, manifest declares %d", len(executed), len(testCase.Rules))
 	}
-	if testCase.ExpectedValid {
-		for _, ruleID := range testCase.Rules {
-			if err := failed[ruleID]; err != nil {
-				return fmt.Errorf("rule %q: %w", ruleID, err)
-			}
-		}
-		return nil
+	var actual error
+	if len(failed) > 0 {
+		actual = failed[0]
 	}
-	if len(failed) == 0 {
-		return nil
-	}
-	for ruleID := range failed {
-		if a2aProtocolErrorHasClaimedRule(testCase.ProtocolError, map[A2AConformanceRuleIDV02]struct{}{ruleID: {}}) {
-			return failed[ruleID]
-		}
-	}
-	t.Fatalf("fixture failed rules %v, but none establish protocolError %q", failed, testCase.ProtocolError)
-	return nil
+	return validateA2AConformanceCaseOutcomeV02(testCase, actual)
 }
 
 func assertA2AConformanceRule(testCase A2AConformanceCaseV02, fixture, request []byte, ruleID A2AConformanceRuleIDV02) error {
@@ -785,7 +907,7 @@ func assertA2AConformanceRule(testCase A2AConformanceCaseV02, fixture, request [
 	case A2ARuleRequestResponseID:
 		return assertRequestResponseIDRule(testCase, fixture, request)
 	case A2ARuleResultXORError:
-		return assertResultXORErrorRule(fixture)
+		return assertResultXORErrorRule(testCase, fixture)
 	case A2ARuleResultUnion:
 		return assertResultUnionRule(fixture)
 	case A2ARuleResultType:
@@ -883,17 +1005,20 @@ func assertJSONRPCEnvelopeRule(testCase A2AConformanceCaseV02, fixture []byte) e
 	if testCase.FixtureKind == "stream" {
 		blocks, err := parseSSEBlocks(fixture)
 		if err != nil {
-			return err
+			return newA2AConformanceAssertionErrorV02(A2ARuleJSONRPCEnvelope, A2AProtocolErrorAssertionPrerequisite, err)
 		}
 		for index, block := range blocks {
-			if err := assertJSONRPCVersionAndID(block); err != nil {
+			if err := validateA2AJSONRPCResponseEnvelopeV02(block); err != nil {
 				return fmt.Errorf("stream event %d: %w", index, err)
 			}
 		}
 		return nil
 	}
+	if testCase.FixtureKind == "response" || testCase.FixtureKind == "error" {
+		return validateA2AJSONRPCResponseEnvelopeV02(fixture)
+	}
 	if err := assertJSONRPCVersionAndID(fixture); err != nil {
-		return err
+		return newA2AConformanceAssertionErrorV02(A2ARuleJSONRPCEnvelope, A2AProtocolErrorAssertionPrerequisite, err)
 	}
 	if testCase.FixtureKind == "request" {
 		envelope, err := decodeWireEnvelope(fixture)
@@ -901,7 +1026,11 @@ func assertJSONRPCEnvelopeRule(testCase A2AConformanceCaseV02, fixture []byte) e
 			return err
 		}
 		if envelope.Method != testCase.Operation {
-			return fmt.Errorf("request method = %q, want %q", envelope.Method, testCase.Operation)
+			return newA2AConformanceAssertionErrorV02(
+				A2ARuleJSONRPCEnvelope,
+				A2AProtocolErrorAssertionPrerequisite,
+				fmt.Errorf("request method = %q, want %q", envelope.Method, testCase.Operation),
+			)
 		}
 	}
 	return nil
@@ -943,19 +1072,32 @@ func assertRequestResponseIDRule(testCase A2AConformanceCaseV02, fixture, reques
 			return err
 		}
 		if !equal {
-			return fmt.Errorf("response %d id does not match request id", index)
+			return newA2AConformanceAssertionErrorV02(
+				A2ARuleRequestResponseID,
+				A2AProtocolErrorResponseIDMismatch,
+				fmt.Errorf("response %d id does not match request id", index),
+			)
 		}
 	}
 	return nil
 }
 
-func assertResultXORErrorRule(fixture []byte) error {
-	envelope, err := decodeWireEnvelope(fixture)
-	if err != nil {
-		return err
+func assertResultXORErrorRule(testCase A2AConformanceCaseV02, fixture []byte) error {
+	responses := [][]byte{fixture}
+	if testCase.FixtureKind == "stream" {
+		blocks, err := parseSSEBlocks(fixture)
+		if err != nil {
+			return newA2AConformanceAssertionErrorV02(A2ARuleResultXORError, A2AProtocolErrorAssertionPrerequisite, err)
+		}
+		responses = blocks
 	}
-	if (len(envelope.Result) > 0) == (len(envelope.Error) > 0) {
-		return errors.New("response must contain exactly one of result or error")
+	for index, response := range responses {
+		if err := validateA2AJSONRPCResultXORErrorV02(response); err != nil {
+			if testCase.FixtureKind == "stream" {
+				return fmt.Errorf("stream event %d: %w", index, err)
+			}
+			return err
+		}
 	}
 	return nil
 }
@@ -967,13 +1109,17 @@ func assertResultUnionRule(fixture []byte) error {
 	}
 	event, err := a2a.UnmarshalEventJSON(envelope.Result)
 	if err != nil {
-		return err
+		return newA2AConformanceAssertionErrorV02(A2ARuleResultUnion, A2AProtocolErrorInvalidResultKind, err)
 	}
 	switch event.(type) {
 	case *a2a.Message, *a2a.Task:
 		return nil
 	default:
-		return fmt.Errorf("message/send result type = %T", event)
+		return newA2AConformanceAssertionErrorV02(
+			A2ARuleResultUnion,
+			A2AProtocolErrorInvalidResultKind,
+			fmt.Errorf("message/send result type = %T", event),
+		)
 	}
 }
 
@@ -984,10 +1130,14 @@ func assertResultTypeRule(testCase A2AConformanceCaseV02, fixture []byte) error 
 	}
 	event, err := a2a.UnmarshalEventJSON(envelope.Result)
 	if err != nil {
-		return err
+		return newA2AConformanceAssertionErrorV02(A2ARuleResultType, A2AProtocolErrorInvalidResultKind, err)
 	}
 	if got := fmt.Sprintf("%T", event); got != testCase.GoConcreteType {
-		return fmt.Errorf("Go concrete type = %q, want %q", got, testCase.GoConcreteType)
+		return newA2AConformanceAssertionErrorV02(
+			A2ARuleResultType,
+			A2AProtocolErrorInvalidResultKind,
+			fmt.Errorf("Go concrete type = %q, want %q", got, testCase.GoConcreteType),
+		)
 	}
 	kind := ""
 	switch event.(type) {
@@ -997,7 +1147,11 @@ func assertResultTypeRule(testCase A2AConformanceCaseV02, fixture []byte) error 
 		kind = "task"
 	}
 	if kind != testCase.WireResultKind {
-		return fmt.Errorf("wire result kind = %q, want %q", kind, testCase.WireResultKind)
+		return newA2AConformanceAssertionErrorV02(
+			A2ARuleResultType,
+			A2AProtocolErrorInvalidResultKind,
+			fmt.Errorf("wire result kind = %q, want %q", kind, testCase.WireResultKind),
+		)
 	}
 	return nil
 }
@@ -1009,13 +1163,20 @@ func assertMessageResultRule(fixture []byte) error {
 	}
 	event, err := a2a.UnmarshalEventJSON(envelope.Result)
 	if err != nil {
-		return err
+		return newA2AConformanceAssertionErrorV02(A2ARuleMessageResult, A2AProtocolErrorInvalidResultKind, err)
 	}
 	message, ok := event.(*a2a.Message)
 	if !ok {
-		return fmt.Errorf("result type = %T, want *a2a.Message", event)
+		return newA2AConformanceAssertionErrorV02(
+			A2ARuleMessageResult,
+			A2AProtocolErrorInvalidResultKind,
+			fmt.Errorf("result type = %T, want *a2a.Message", event),
+		)
 	}
-	return ValidateA2AMessageResult(message)
+	if err := ValidateA2AMessageResult(message); err != nil {
+		return newA2AConformanceAssertionErrorV02(A2ARuleMessageResult, A2AProtocolErrorInvalidMessageResult, err)
+	}
+	return nil
 }
 
 func assertTaskIdentityRule(testCase A2AConformanceCaseV02, fixture []byte) error {
@@ -1027,17 +1188,25 @@ func assertTaskIdentityRule(testCase A2AConformanceCaseV02, fixture []byte) erro
 		for index, event := range events {
 			info := event.TaskInfo()
 			if info.TaskID == "" || info.ContextID == "" {
-				return fmt.Errorf("stream event %d has empty task or context id", index)
+				return newA2AConformanceAssertionErrorV02(
+					A2ARuleTaskIdentity,
+					A2AProtocolErrorInvalidTask,
+					fmt.Errorf("stream event %d has empty task or context id", index),
+				)
 			}
 		}
 		return nil
 	}
 	task, err := decodeTaskResult(fixture)
 	if err != nil {
-		return err
+		return newA2AConformanceAssertionErrorV02(A2ARuleTaskIdentity, A2AProtocolErrorInvalidResultKind, err)
 	}
 	if task.ID == "" || task.ContextID == "" {
-		return errors.New("task has empty task or context id")
+		return newA2AConformanceAssertionErrorV02(
+			A2ARuleTaskIdentity,
+			A2AProtocolErrorInvalidTask,
+			errors.New("task has empty task or context id"),
+		)
 	}
 	return nil
 }
@@ -1059,17 +1228,23 @@ func assertTaskStateRule(testCase A2AConformanceCaseV02, fixture []byte) error {
 				continue
 			}
 			if _, err := MapA2ATaskState(state); err != nil {
-				return fmt.Errorf("stream event %d: %w", index, err)
+				return newA2AConformanceAssertionErrorV02(
+					A2ARuleTaskState,
+					A2AProtocolErrorUnsupportedTaskState,
+					fmt.Errorf("stream event %d: %w", index, err),
+				)
 			}
 		}
 		return nil
 	}
 	task, err := decodeTaskResult(fixture)
 	if err != nil {
-		return err
+		return newA2AConformanceAssertionErrorV02(A2ARuleTaskState, A2AProtocolErrorInvalidResultKind, err)
 	}
-	_, err = MapA2ATaskState(task.Status.State)
-	return err
+	if _, err := MapA2ATaskState(task.Status.State); err != nil {
+		return newA2AConformanceAssertionErrorV02(A2ARuleTaskState, A2AProtocolErrorUnsupportedTaskState, err)
+	}
+	return nil
 }
 
 func assertTaskContextStabilityRule(fixture []byte) error {
@@ -1086,7 +1261,11 @@ func assertTaskContextStabilityRule(fixture []byte) error {
 			continue
 		}
 		if info.TaskID != taskID || info.ContextID != contextID {
-			return fmt.Errorf("stream event %d changed task/context identity", index)
+			return newA2AConformanceAssertionErrorV02(
+				A2ARuleTaskContextStability,
+				A2AProtocolErrorTaskContextMismatch,
+				fmt.Errorf("stream event %d changed task/context identity", index),
+			)
 		}
 	}
 	return nil
@@ -1106,7 +1285,11 @@ func assertTerminalRequiredRule(fixture []byte) error {
 			return nil
 		}
 	}
-	return errors.New("stream reached EOF without terminal event")
+	return newA2AConformanceAssertionErrorV02(
+		A2ARuleTerminalRequired,
+		A2AProtocolErrorEOFWithoutTerminal,
+		errors.New("stream reached EOF without terminal event"),
+	)
 }
 
 func assertTerminalLastRule(fixture []byte) error {
@@ -1122,13 +1305,21 @@ func assertTerminalLastRule(fixture []byte) error {
 		}
 		if terminal {
 			if terminalIndex >= 0 {
-				return fmt.Errorf("stream contains multiple terminal events")
+				return newA2AConformanceAssertionErrorV02(
+					A2ARuleTerminalLast,
+					A2AProtocolErrorEventAfterTerminal,
+					fmt.Errorf("stream contains multiple terminal events"),
+				)
 			}
 			terminalIndex = index
 		}
 	}
 	if terminalIndex >= 0 && terminalIndex != len(events)-1 {
-		return fmt.Errorf("event arrived after terminal event %d", terminalIndex)
+		return newA2AConformanceAssertionErrorV02(
+			A2ARuleTerminalLast,
+			A2AProtocolErrorEventAfterTerminal,
+			fmt.Errorf("event arrived after terminal event %d", terminalIndex),
+		)
 	}
 	return nil
 }
@@ -1152,10 +1343,18 @@ func assertArtifactOrderRule(fixture []byte) error {
 		}
 		state, seen := artifacts[artifactEvent.Artifact.ID]
 		if state.finished {
-			return fmt.Errorf("stream event %d updated artifact after lastChunk", index)
+			return newA2AConformanceAssertionErrorV02(
+				A2ARuleArtifactOrder,
+				A2AProtocolErrorArtifactAfterLastChunk,
+				fmt.Errorf("stream event %d updated artifact after lastChunk", index),
+			)
 		}
 		if artifactEvent.Append && !seen {
-			return fmt.Errorf("stream event %d appends before base artifact", index)
+			return newA2AConformanceAssertionErrorV02(
+				A2ARuleArtifactOrder,
+				A2AProtocolErrorArtifactAppendWithoutBase,
+				fmt.Errorf("stream event %d appends before base artifact", index),
+			)
 		}
 		if !artifactEvent.Append && seen {
 			return fmt.Errorf("stream event %d replaces an existing artifact", index)
@@ -1182,7 +1381,11 @@ func assertArtifactLastChunkRule(fixture []byte) error {
 		}
 		artifactID := artifactEvent.Artifact.ID
 		if finished[artifactID] {
-			return fmt.Errorf("stream event %d arrived after artifact lastChunk", index)
+			return newA2AConformanceAssertionErrorV02(
+				A2ARuleArtifactLastChunk,
+				A2AProtocolErrorArtifactAfterLastChunk,
+				fmt.Errorf("stream event %d arrived after artifact lastChunk", index),
+			)
 		}
 		seen[artifactID] = true
 		finished[artifactID] = artifactEvent.LastChunk
@@ -1388,15 +1591,15 @@ func validateRequestParams(data []byte, operation string) error {
 }
 
 func validateResponseEnvelope(data, requestData []byte) (wireEnvelope, error) {
+	if err := validateA2AJSONRPCResponseEnvelopeV02(data); err != nil {
+		return wireEnvelope{}, err
+	}
+	if err := validateA2AJSONRPCResultXORErrorV02(data); err != nil {
+		return wireEnvelope{}, err
+	}
 	envelope, err := decodeWireEnvelope(data)
 	if err != nil {
 		return wireEnvelope{}, err
-	}
-	if envelope.JSONRPC != "2.0" {
-		return wireEnvelope{}, fmt.Errorf("JSON-RPC version = %q", envelope.JSONRPC)
-	}
-	if len(envelope.ID) == 0 {
-		return wireEnvelope{}, errors.New("response id is missing")
 	}
 	if len(requestData) > 0 {
 		request, err := decodeWireEnvelope(requestData)
@@ -1410,11 +1613,6 @@ func validateResponseEnvelope(data, requestData []byte) (wireEnvelope, error) {
 		if !equal {
 			return wireEnvelope{}, errors.New("response id does not match request id")
 		}
-	}
-	hasResult := len(envelope.Result) > 0
-	hasError := len(envelope.Error) > 0
-	if hasResult == hasError {
-		return wireEnvelope{}, errors.New("response must contain exactly one of result or error")
 	}
 	return envelope, nil
 }
@@ -1483,20 +1681,41 @@ func validateOperationResult(operation string, result, requestData []byte) error
 	}
 }
 
-func validateExpectedWireError(data json.RawMessage, expected string) error {
+func validateExpectedWireError(data json.RawMessage, expected A2AProtocolErrorV02) error {
 	var rpcError wireError
 	if err := json.Unmarshal(data, &rpcError); err != nil {
-		return fmt.Errorf("decode JSON-RPC error: %w", err)
+		return newA2AConformanceAssertionErrorV02(
+			A2ARuleErrorOnly,
+			A2AProtocolErrorAssertionPrerequisite,
+			fmt.Errorf("decode JSON-RPC error: %w", err),
+		)
 	}
-	wantCode := map[string]int{
-		"task-not-found":      -32001,
-		"task-not-cancelable": -32002,
-	}[expected]
-	if wantCode == 0 {
-		return fmt.Errorf("unknown expected protocol error %q", expected)
+	var actual A2AProtocolErrorV02
+	switch rpcError.Code {
+	case -32001:
+		actual = A2AProtocolErrorTaskNotFound
+	case -32002:
+		actual = A2AProtocolErrorTaskNotCancelable
+	default:
+		return newA2AConformanceAssertionErrorV02(
+			A2ARuleErrorOnly,
+			A2AProtocolErrorAssertionPrerequisite,
+			fmt.Errorf("JSON-RPC error code %d is outside the Profile v0.2 task errors", rpcError.Code),
+		)
 	}
-	if rpcError.Code != wantCode || rpcError.Message == "" {
-		return fmt.Errorf("JSON-RPC error = %d %q, want code %d", rpcError.Code, rpcError.Message, wantCode)
+	if rpcError.Message == "" {
+		return newA2AConformanceAssertionErrorV02(
+			A2ARuleErrorOnly,
+			A2AProtocolErrorAssertionPrerequisite,
+			fmt.Errorf("JSON-RPC error code %d has an empty message", rpcError.Code),
+		)
+	}
+	if actual != expected {
+		return newA2AConformanceAssertionErrorV02(
+			A2ARuleErrorOnly,
+			actual,
+			fmt.Errorf("JSON-RPC error classification = %q, want %q", actual, expected),
+		)
 	}
 	return nil
 }
@@ -1694,6 +1913,43 @@ func readEmbeddedJSONDocument(path string) (any, error) {
 	return jsonschema.UnmarshalJSON(bytes.NewReader(data))
 }
 
+func mustA2AProfileSchemaV02(t *testing.T) *jsonschema.Schema {
+	t.Helper()
+	compiler := jsonschema.NewCompiler()
+	compiler.DefaultDraft(jsonschema.Draft2020)
+	schemaDocument, err := readEmbeddedJSONDocument("schemas/a2a-profile.v0.2.schema.json")
+	if err != nil {
+		t.Fatalf("read Profile Schema v0.2: %v", err)
+	}
+	if err := compiler.AddResource("https://schemas.nekiro.dev/a2a-profile/v0.2", schemaDocument); err != nil {
+		t.Fatalf("add Profile Schema v0.2: %v", err)
+	}
+	schema, err := compiler.Compile("https://schemas.nekiro.dev/a2a-profile/v0.2")
+	if err != nil {
+		t.Fatalf("compile Profile Schema v0.2: %v", err)
+	}
+	return schema
+}
+
+func profileOperationByMethod(t *testing.T, profile map[string]any, method string) map[string]any {
+	t.Helper()
+	operations, ok := profile["operations"].([]any)
+	if !ok {
+		t.Fatalf("Profile operations type = %T, want []any", profile["operations"])
+	}
+	for _, value := range operations {
+		operation, ok := value.(map[string]any)
+		if !ok {
+			t.Fatalf("Profile operation type = %T, want map[string]any", value)
+		}
+		if operation["method"] == method {
+			return operation
+		}
+	}
+	t.Fatalf("Profile operation %q is missing", method)
+	return nil
+}
+
 func mustFixtureBytes(t *testing.T, file string) []byte {
 	t.Helper()
 	data, err := ReadA2AConformanceFixtureV02(file)
@@ -1870,6 +2126,24 @@ func cloneJSONMap(t *testing.T, source map[string]any) map[string]any {
 		t.Fatalf("decode JSON map clone: %v", err)
 	}
 	return clone
+}
+
+func decodeJSONRPCMutationTarget(t *testing.T, data []byte) map[string]json.RawMessage {
+	t.Helper()
+	var response map[string]json.RawMessage
+	if err := json.Unmarshal(data, &response); err != nil {
+		t.Fatalf("decode JSON-RPC mutation target: %v", err)
+	}
+	return response
+}
+
+func marshalJSONRPCMutation(t *testing.T, response map[string]json.RawMessage) []byte {
+	t.Helper()
+	data, err := json.Marshal(response)
+	if err != nil {
+		t.Fatalf("encode JSON-RPC mutation: %v", err)
+	}
+	return data
 }
 
 func testA2AConformanceCorpus() fstest.MapFS {
