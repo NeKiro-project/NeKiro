@@ -1,0 +1,112 @@
+openapi: 3.1.0
+info:
+  title: NeKiro Control Plane Internal API
+  version: 1.0.0
+  description: >-
+    Control Plane-owned operations called by the A2A Router. This document is
+    served only by the Control Plane and contains no Router-owned operations.
+servers:
+  - url: https://control-plane.internal.nekiro.dev
+    description: Control Plane internal destination
+paths:
+  /internal/v1/resolve-agent:
+    post:
+      operationId: resolveAgent
+      summary: Resolve an authorized exact Agent version
+      description: >-
+        Resolves Registry and Workspace-owned facts without allowing the Router
+        to read Control Plane storage directly.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveAgentRequest"
+      responses:
+        "200":
+          description: Resolved exact Agent Card and enabled Installation facts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolveAgentResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+components:
+  responses:
+    BadRequest:
+      description: Invalid resolution request
+      x-platform-error-codes: [VALIDATION_ERROR]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    Forbidden:
+      description: Installation or Agent version is disabled or capability is forbidden
+      x-platform-error-codes: [FORBIDDEN, AGENT_NOT_INSTALLED, AGENT_DISABLED, CAPABILITY_NOT_ALLOWED]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    NotFound:
+      description: Requested Agent, version, or Installation was not found
+      x-platform-error-codes: [NOT_FOUND, AGENT_NOT_INSTALLED]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    DependencyUnavailable:
+      description: A required Control Plane dependency failed
+      x-platform-error-codes: [DEPENDENCY_ERROR]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+  schemas:
+    ResolveAgentRequest:
+      type: object
+      additionalProperties: false
+      required: [workspaceId, agentId, version, capability]
+      properties:
+        workspaceId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/workspaceId
+        agentId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/agentId
+        version:
+          $ref: ../schemas/common.v1.schema.json#/$defs/semver
+        capability:
+          $ref: ../schemas/common.v1.schema.json#/$defs/capabilityId
+    ResolveAgentResponse:
+      type: object
+      additionalProperties: false
+      required: [card, installation]
+      properties:
+        card:
+          $ref: ../schemas/agent-card.v0.2.schema.json
+        installation:
+          $ref: "#/components/schemas/ResolvedInstallation"
+    ResolvedInstallation:
+      type: object
+      additionalProperties: false
+      required: [installationId, workspaceId, agentId, installedVersion, acceptedPermissions, status]
+      properties:
+        installationId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/installationId
+        workspaceId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/workspaceId
+        agentId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/agentId
+        installedVersion:
+          $ref: ../schemas/common.v1.schema.json#/$defs/semver
+        acceptedPermissions:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: ../schemas/common.v1.schema.json#/$defs/permissionId
+        status:
+          const: enabled

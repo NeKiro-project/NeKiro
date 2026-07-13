@@ -33,7 +33,7 @@ Console -> Control Plane -> A2A Router -> Agents
 | Discovery | Query projection derived from published cards | A second source of truth |
 | Workspace | Installations and accepted permissions | Agent deployment |
 | Invocation Dispatch | Invocation identity and pre-dispatch authorization | A2A protocol execution |
-| A2A Router | Resolution, transport, context propagation, timeout/cancel, event emission | Permanent Agent Card ownership |
+| A2A Router | A2A transport, transient result forwarding, context propagation, timeout/cancel, event emission | Permanent Agent Card ownership, Registry or Workspace storage access |
 | Ledger | Append-only invocation events and query projection | Routing or authorization decisions |
 
 ## Contract Sources
@@ -41,42 +41,75 @@ Console -> Control Plane -> A2A Router -> Agents
 Cross-language contracts are owned by language-neutral artifacts:
 
 - `contracts/schemas/` contains versioned JSON Schema documents.
-- `contracts/openapi/control-plane.v1.yaml` defines the Northbound API.
-- `contracts/openapi/router-internal.v1.yaml` defines Control Plane / Router communication.
-- `contracts/a2a-profile/v0.3.0.json` pins the supported A2A subset and context headers.
+- `contracts/openapi/control-plane.v2.yaml` defines the active Northbound API.
+- `contracts/openapi/control-plane-internal.v1.yaml` defines Router-to-Control Plane exact Agent resolution.
+- `contracts/openapi/router-internal.v2.yaml` defines Control Plane-to-Router dispatch, result transport, Ledger reads, and trace reads.
+- `contracts/a2a-profile/v0.3.0/profile.v0.2.json` pins the active supported A2A subset and context headers.
 - `contracts/*.go` maps these contracts into Go and verifies the mapping against the source schemas.
 
 Go and TypeScript types are consumers of these artifacts, never competing sources of truth. Services must not exchange internal implementation types across a process boundary.
 
-## Northbound API v1
+Historical v1 files remain unchanged as migration evidence. The first backend
+runtime implements only the active versions and does not introduce speculative
+dual-version behavior.
+
+## Northbound API v2
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/v1/agents` | Register a draft Agent Card version |
-| `POST` | `/v1/agents/:agentId/versions/:version/publish` | Publish an immutable version |
-| `POST` | `/v1/agents/:agentId/versions/:version/disable` | Disable a version for new resolutions |
-| `GET` | `/v1/agents` | Discover published agents by query/capability/owner |
-| `GET` | `/v1/agents/:agentId/versions/:version` | Read an exact Agent Card version |
-| `POST` | `/v1/workspaces/:workspaceId/installations` | Install and accept declared permissions |
-| `PATCH` | `/v1/workspaces/:workspaceId/installations/:installationId` | Enable or disable an installation |
-| `DELETE` | `/v1/workspaces/:workspaceId/installations/:installationId` | Uninstall an agent |
-| `POST` | `/v1/workspaces/:workspaceId/invocations` | Authorize and dispatch an invocation |
-| `GET` | `/v1/invocations/:invocationId` | Read one invocation and its events |
-| `GET` | `/v1/traces/:traceId` | Read a complete parent/child invocation trace |
+| `POST` | `/v2/agents` | Register a draft Agent Card v0.2 version |
+| `POST` | `/v2/agents/:agentId/versions/:version/publish` | Publish an immutable version |
+| `POST` | `/v2/agents/:agentId/versions/:version/disable` | Disable a version for new resolutions |
+| `GET` | `/v2/agents` | Discover published agents by query/capability/owner |
+| `GET` | `/v2/agents/:agentId/versions/:version` | Read an exact Agent Card version |
+| `POST` | `/v2/workspaces/:workspaceId/installations` | Install and accept declared permissions |
+| `PATCH` | `/v2/workspaces/:workspaceId/installations/:installationId` | Enable or disable an installation |
+| `DELETE` | `/v2/workspaces/:workspaceId/installations/:installationId` | Uninstall an agent |
+| `POST` | `/v2/workspaces/:workspaceId/invocations` | Authorize, dispatch, and return a transient JSON or SSE result |
+| `GET` | `/v2/invocations/:invocationId` | Read one invocation and metadata-only Ledger events |
+| `GET` | `/v2/traces/:traceId` | Read metadata-only parent/child invocation lineage |
 
-The Gateway returns the shared `PlatformError` shape for known failures. Public messages are fixed by error code and cannot contain internal dependency errors, credentials, request payloads, or Agent output. Dependency failure must never be represented as not found, an empty list, or success.
+The Gateway returns Platform Error v2 for known failures. Public messages are
+fixed by error code and cannot contain internal dependency errors, credentials,
+request payloads, or Agent output. Trace correlation is required; Invocation
+and root Task correlation are present together after Invocation creation.
+Dependency failure must never be represented as not found, an empty list, or
+success.
 
-## Internal API v1
+## Directional Internal APIs
 
 | Method | Path | Owner | Purpose |
 | --- | --- | --- | --- |
-| `POST` | `/internal/v1/resolve-agent` | Control Plane | Resolve an installed exact Agent Card and capability |
-| `POST` | `/internal/v1/invocations` | Router | Accept an authorized invocation for A2A execution |
-| `GET` | `/internal/v1/invocations/:id` | Router | Read Router-owned invocation facts |
-| `GET` | `/internal/v1/invocations/:id/events` | Router | Stream `RouterEventEnvelope` values over SSE |
-| `GET` | `/internal/v1/traces/:traceId` | Router | Read invocation lineage |
+| `POST` | `/internal/v1/resolve-agent` | Control Plane | Resolve an authorized installed exact Agent Card v0.2 and capability |
+| `POST` | `/internal/v2/invocations` | Router | Execute an authorized invocation and return a transient JSON or SSE result |
+| `GET` | `/internal/v2/invocations/:id` | Router | Read metadata-only Router-owned Ledger facts |
+| `GET` | `/internal/v2/invocations/:id/events` | Router | Stream metadata-only `RouterEventEnvelope` values over SSE |
+| `GET` | `/internal/v2/traces/:traceId` | Router | Read metadata-only invocation lineage |
 
-The Router resolves cards through the internal Control Plane API. It must not query Registry tables directly.
+Control Plane Internal v1 is served by the Control Plane and called by the
+Router. Router Internal v2 is served by the Router and called by the Control
+Plane. Their server destinations are distinct and explicitly configured. The
+Router resolves cards through the internal Control Plane API and must not query
+Registry or Workspace tables directly.
+
+## Invocation Result Delivery
+
+`POST /v2/workspaces/:workspaceId/invocations` is the only Northbound result
+channel. `stream=false` returns one `application/json` Invocation Result v1.
+`stream=true` returns ordered `text/event-stream` Invocation Result Stream
+Event v1 values on the same response. The request mode and `Accept` header must
+agree; mismatch returns `406 NOT_ACCEPTABLE`.
+
+A clean stream begins with `accepted` and ends with exactly one `completed`,
+`failed`, `canceled`, or `timed_out` event. Event and chunk order is zero-based
+and monotonic. The first terminal outcome is immutable. EOF before a terminal
+event is interrupted delivery, and chunks before a non-success terminal event
+are incomplete output.
+
+Results and chunks are transient arbitrary JSON values constrained by the
+resolved Skill output schema. Phase 1 has no result persistence, polling,
+replay, reconnect cursor, or result query endpoint. A caller may inspect Ledger
+facts after disconnect but must create a new Invocation to receive output.
 
 ## Invocation Lifecycle
 
@@ -89,7 +122,11 @@ pending -> routing -> running -> succeeded
 
 Every invocation carries `invocation_id`, `root_task_id`, `trace_id`, and an optional `parent_invocation_id`. Agent-to-Agent calls create child invocations through the Router and preserve all lineage identifiers.
 
-Ledger writes are append-only events. A mutable read projection may be derived from events, but it cannot replace the event history.
+Ledger writes are append-only Invocation Event v0.2 facts. Terminal event type,
+status, and error code must agree: `TIMEOUT` belongs only to `timed_out`,
+`CANCELED` belongs only to `canceled`, and `failed` excludes both. Agent input,
+result, and chunk content are forbidden. A mutable read projection may be
+derived from events, but it cannot replace the event history.
 
 ## A2A Profile
 
@@ -109,7 +146,8 @@ The final E2E suite must prove:
 1. A valid card can be registered and published; invalid cards and cards containing undeclared fields are rejected.
 2. Discovery only returns eligible published versions and can filter by capability.
 3. Installation requires explicit permission acceptance and resolves an exact version.
-4. An installed agent can be invoked through the Router with streaming events.
+4. An installed agent can be invoked through the Router and returns the exact non-streaming result or ordered streaming result events through the Gateway.
 5. An uninstalled, disabled, or unauthorized agent is rejected before dispatch.
 6. Agent A can call Agent B through the Router and produce a complete parent-child trace.
-7. Timeout, cancellation, route failure, A2A failure, and agent failure remain distinguishable in Ledger.
+7. Timeout, cancellation, route failure, A2A failure, and agent failure remain distinguishable in Ledger without persisting Agent input or output.
+8. Router resolution reaches only the Control Plane destination, while dispatch and Ledger queries reach only the Router destination.

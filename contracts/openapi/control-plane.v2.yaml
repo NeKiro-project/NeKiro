@@ -1,0 +1,474 @@
+openapi: 3.1.0
+info:
+  title: NeKiro Control Plane API
+  version: 2.0.0
+  description: >-
+    Gateway-owned Northbound API. Invocation v2 returns transient Agent output
+    on the invocation request and exposes only metadata through Ledger reads.
+servers:
+  - url: https://api.nekiro.dev
+    description: NeKiro Gateway destination
+paths:
+  /v2/agents:
+    post:
+      operationId: registerAgent
+      summary: Register an immutable draft Agent Card version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [card]
+              properties:
+                card:
+                  $ref: ../schemas/agent-card.v0.2.schema.json
+      responses:
+        "201":
+          description: Agent version registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogEntry"
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+    get:
+      operationId: searchAgents
+      summary: Discover published Agents
+      parameters:
+        - in: query
+          name: query
+          schema: { type: string, minLength: 1, maxLength: 256, pattern: "\\S" }
+        - in: query
+          name: capability
+          schema:
+            $ref: ../schemas/common.v1.schema.json#/$defs/capabilityId
+        - in: query
+          name: ownerId
+          schema:
+            $ref: ../schemas/common.v1.schema.json#/$defs/ownerId
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - in: query
+          name: cursor
+          schema: { type: string, minLength: 1 }
+      responses:
+        "200":
+          description: Matching published Agents
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CatalogEntry"
+                  nextCursor:
+                    type: string
+                    minLength: 1
+  /v2/agents/{agentId}/versions/{version}:
+    get:
+      operationId: getAgentVersion
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+        - $ref: "#/components/parameters/Version"
+      responses:
+        "200":
+          description: Exact Agent version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogEntry"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v2/agents/{agentId}/versions/{version}/publish:
+    post:
+      operationId: publishAgentVersion
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+        - $ref: "#/components/parameters/Version"
+      responses:
+        "200":
+          description: Published Agent version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogEntry"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v2/agents/{agentId}/versions/{version}/disable:
+    post:
+      operationId: disableAgentVersion
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+        - $ref: "#/components/parameters/Version"
+      responses:
+        "200":
+          description: Disabled Agent version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogEntry"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v2/workspaces/{workspaceId}/installations:
+    post:
+      operationId: installAgent
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [agentId, versionConstraint, acceptedPermissions]
+              properties:
+                agentId:
+                  $ref: ../schemas/common.v1.schema.json#/$defs/agentId
+                versionConstraint:
+                  $ref: ../schemas/common.v1.schema.json#/$defs/semverRange
+                acceptedPermissions:
+                  type: array
+                  uniqueItems: true
+                  items:
+                    $ref: ../schemas/common.v1.schema.json#/$defs/permissionId
+      responses:
+        "201":
+          description: Agent installed in Workspace
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/installation.v1.schema.json
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v2/workspaces/{workspaceId}/installations/{installationId}:
+    patch:
+      operationId: updateInstallation
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/InstallationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status]
+              properties:
+                status: { enum: [enabled, disabled] }
+      responses:
+        "200":
+          description: Updated installation
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/installation.v1.schema.json
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: uninstallAgent
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/InstallationId"
+      responses:
+        "204":
+          description: Agent uninstalled
+        "404":
+          $ref: "#/components/responses/Error"
+  /v2/workspaces/{workspaceId}/invocations:
+    post:
+      operationId: invokeAgent
+      summary: Invoke an installed Agent and return its transient result
+      description: >-
+        This POST is the only Northbound result channel. The request stream
+        field and Accept header MUST agree. stream=false requires
+        application/json or a compatible wildcard and returns one Invocation
+        Result. stream=true requires text/event-stream and returns ordered
+        Invocation Result Stream Event data values. A mismatch returns 406
+        NOT_ACCEPTABLE. Once SSE is committed, failed, canceled, and timed-out
+        outcomes are in-band terminal events. EOF without a terminal event is
+        interrupted delivery. Results are not persisted or replayed.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ResultAccept"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvokeAgentRequest"
+      responses:
+        "200":
+          description: Complete JSON result or committed SSE result stream selected by request mode
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/invocation-result.v1.schema.json
+            text/event-stream:
+              schema:
+                type: string
+              x-sse-data-schema:
+                $ref: ../schemas/invocation-result-stream-event.v1.schema.json
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "406":
+          $ref: "#/components/responses/NotAcceptable"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "502":
+          $ref: "#/components/responses/AgentFailure"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "504":
+          $ref: "#/components/responses/Timeout"
+  /v2/invocations/{invocationId}:
+    get:
+      operationId: getInvocation
+      summary: Read an Invocation and metadata-only Ledger facts
+      parameters:
+        - $ref: "#/components/parameters/InvocationId"
+      responses:
+        "200":
+          description: Invocation projection and append-only facts without Agent input or result content
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [invocation, events]
+                properties:
+                  invocation:
+                    $ref: "#/components/schemas/InvocationRecord"
+                  events:
+                    type: array
+                    items:
+                      $ref: ../schemas/invocation-event.v0.2.schema.json
+        "404":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /v2/traces/{traceId}:
+    get:
+      operationId: getTrace
+      summary: Read metadata-only Invocation lineage
+      parameters:
+        - in: path
+          name: traceId
+          required: true
+          schema:
+            $ref: ../schemas/common.v1.schema.json#/$defs/traceId
+      responses:
+        "200":
+          description: Parent-child Invocation trace without Agent input or result content
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [traceId, invocations]
+                properties:
+                  traceId:
+                    $ref: ../schemas/common.v1.schema.json#/$defs/traceId
+                  invocations:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InvocationRecord"
+        "404":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+components:
+  parameters:
+    AgentId:
+      in: path
+      name: agentId
+      required: true
+      schema:
+        $ref: ../schemas/common.v1.schema.json#/$defs/agentId
+    Version:
+      in: path
+      name: version
+      required: true
+      schema:
+        $ref: ../schemas/common.v1.schema.json#/$defs/semver
+    WorkspaceId:
+      in: path
+      name: workspaceId
+      required: true
+      schema:
+        $ref: ../schemas/common.v1.schema.json#/$defs/workspaceId
+    InstallationId:
+      in: path
+      name: installationId
+      required: true
+      schema:
+        $ref: ../schemas/common.v1.schema.json#/$defs/installationId
+    InvocationId:
+      in: path
+      name: invocationId
+      required: true
+      schema:
+        $ref: ../schemas/common.v1.schema.json#/$defs/invocationId
+    ResultAccept:
+      in: header
+      name: Accept
+      required: true
+      description: >-
+        application/json or a compatible wildcard for stream=false;
+        text/event-stream for stream=true.
+      schema:
+        type: string
+        minLength: 1
+  responses:
+    Error:
+      description: Fixed, secret-safe Platform Error v2
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    BadRequest:
+      description: Invalid invocation request
+      x-platform-error-codes: [VALIDATION_ERROR]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    Unauthenticated:
+      description: Authentication is required
+      x-platform-error-codes: [UNAUTHENTICATED]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    Forbidden:
+      description: Installation or capability is not authorized
+      x-platform-error-codes: [FORBIDDEN, AGENT_NOT_INSTALLED, AGENT_DISABLED, CAPABILITY_NOT_ALLOWED]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    NotFound:
+      description: Requested Agent, Installation, or route was not found
+      x-platform-error-codes: [NOT_FOUND, AGENT_NOT_INSTALLED, ROUTE_NOT_FOUND]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    NotAcceptable:
+      description: Request result mode and Accept header do not agree
+      x-platform-error-codes: [NOT_ACCEPTABLE]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    Conflict:
+      description: Invocation was canceled or conflicts with current state before response commitment
+      x-platform-error-codes: [CONFLICT, CANCELED]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    AgentFailure:
+      description: Agent execution or A2A protocol failed before response commitment
+      x-platform-error-codes: [AGENT_EXECUTION_FAILED, A2A_PROTOCOL_ERROR]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    Unavailable:
+      description: Route, Agent, or required dependency is unavailable
+      x-platform-error-codes: [ROUTE_NOT_FOUND, AGENT_UNAVAILABLE, DEPENDENCY_ERROR]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    Timeout:
+      description: Invocation deadline expired before response commitment
+      x-platform-error-codes: [TIMEOUT]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+  schemas:
+    CatalogEntry:
+      type: object
+      additionalProperties: false
+      required: [card, publicationStatus, registeredAt]
+      properties:
+        card:
+          $ref: ../schemas/agent-card.v0.2.schema.json
+        publicationStatus:
+          enum: [draft, published, disabled]
+        registeredAt:
+          $ref: ../schemas/common.v1.schema.json#/$defs/dateTime
+        publishedAt:
+          $ref: ../schemas/common.v1.schema.json#/$defs/dateTime
+    InvokeAgentRequest:
+      type: object
+      additionalProperties: false
+      required: [agentId, capability, input, stream]
+      properties:
+        agentId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/agentId
+        capability:
+          $ref: ../schemas/common.v1.schema.json#/$defs/capabilityId
+        input:
+          $ref: ../schemas/common.v1.schema.json#/$defs/jsonObject
+        stream:
+          type: boolean
+    InvocationRecord:
+      type: object
+      additionalProperties: false
+      required: [invocationId, rootTaskId, traceId, caller, workspaceId, targetAgentId, agentCardVersion, capability, status, createdAt, updatedAt]
+      properties:
+        invocationId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/invocationId
+        rootTaskId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/taskId
+        parentInvocationId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/invocationId
+        traceId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/traceId
+        caller:
+          $ref: ../schemas/common.v1.schema.json#/$defs/caller
+        workspaceId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/workspaceId
+        targetAgentId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/agentId
+        agentCardVersion:
+          $ref: ../schemas/common.v1.schema.json#/$defs/semver
+        capability:
+          $ref: ../schemas/common.v1.schema.json#/$defs/capabilityId
+        status:
+          enum: [pending, routing, running, succeeded, failed, canceled, timed_out]
+        latencyMs:
+          type: integer
+          minimum: 0
+        errorCode:
+          $ref: ../schemas/platform-error.v2.schema.json#/properties/code
+        createdAt:
+          $ref: ../schemas/common.v1.schema.json#/$defs/dateTime
+        updatedAt:
+          $ref: ../schemas/common.v1.schema.json#/$defs/dateTime

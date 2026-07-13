@@ -1,0 +1,233 @@
+openapi: 3.1.0
+info:
+  title: NeKiro Router Internal API
+  version: 2.0.0
+  description: >-
+    A2A Router-owned dispatch, transient result delivery, Ledger fact reads,
+    and trace reads called by the Control Plane. This document contains no
+    Control Plane-owned Agent resolution operation.
+servers:
+  - url: https://a2a-router.internal.nekiro.dev
+    description: A2A Router internal destination
+paths:
+  /internal/v2/invocations:
+    post:
+      operationId: dispatchInvocation
+      summary: Dispatch an authorized invocation and return its transient result
+      description: >-
+        The request stream field and Accept header MUST agree. stream=false
+        requires application/json or a compatible wildcard and returns one
+        Invocation Result. stream=true requires text/event-stream and returns
+        ordered Invocation Result Stream Event data values. A mismatch returns
+        406 NOT_ACCEPTABLE. Results are not persisted or replayed.
+      parameters:
+        - $ref: "#/components/parameters/ResultAccept"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DispatchInvocationRequest"
+      responses:
+        "200":
+          description: Complete JSON result or committed SSE result stream selected by request mode
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/invocation-result.v1.schema.json
+            text/event-stream:
+              schema:
+                type: string
+              x-sse-data-schema:
+                $ref: ../schemas/invocation-result-stream-event.v1.schema.json
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "406":
+          $ref: "#/components/responses/NotAcceptable"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "502":
+          $ref: "#/components/responses/AgentFailure"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "504":
+          $ref: "#/components/responses/Timeout"
+  /internal/v2/invocations/{invocationId}:
+    get:
+      operationId: getRouterInvocation
+      summary: Read metadata-only Ledger facts for one Invocation
+      parameters:
+        - $ref: "#/components/parameters/InvocationId"
+      responses:
+        "200":
+          description: Append-only Invocation Event v0.2 facts without input or result content
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: ../schemas/invocation-event.v0.2.schema.json
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /internal/v2/invocations/{invocationId}/events:
+    get:
+      operationId: streamRouterInvocationEvents
+      summary: Stream metadata-only Ledger events
+      description: >-
+        Each SSE data field contains one RouterEventEnvelope with an Invocation
+        Event v0.2. This is an internal Ledger fact stream, not an Invocation
+        Result stream, and it never contains Agent input, result, or chunk data.
+      parameters:
+        - $ref: "#/components/parameters/InvocationId"
+      responses:
+        "200":
+          description: Append-only Invocation Event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              x-sse-data-schema:
+                $ref: "#/components/schemas/RouterEventEnvelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /internal/v2/traces/{traceId}:
+    get:
+      operationId: getRouterTrace
+      summary: Read metadata-only Ledger facts for a trace
+      parameters:
+        - in: path
+          name: traceId
+          required: true
+          schema:
+            $ref: ../schemas/common.v1.schema.json#/$defs/traceId
+      responses:
+        "200":
+          description: Invocation Event v0.2 facts for all Invocations in the trace
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: ../schemas/invocation-event.v0.2.schema.json
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+components:
+  parameters:
+    ResultAccept:
+      in: header
+      name: Accept
+      required: true
+      description: >-
+        application/json or a compatible wildcard for stream=false;
+        text/event-stream for stream=true.
+      schema:
+        type: string
+        minLength: 1
+    InvocationId:
+      in: path
+      name: invocationId
+      required: true
+      schema:
+        $ref: ../schemas/common.v1.schema.json#/$defs/invocationId
+  responses:
+    BadRequest:
+      description: Invalid dispatch request
+      x-platform-error-codes: [VALIDATION_ERROR]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    Forbidden:
+      description: Invocation is not authorized
+      x-platform-error-codes: [FORBIDDEN, CAPABILITY_NOT_ALLOWED]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    NotFound:
+      description: Invocation or route was not found
+      x-platform-error-codes: [NOT_FOUND, ROUTE_NOT_FOUND]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    NotAcceptable:
+      description: Request result mode and Accept header do not agree
+      x-platform-error-codes: [NOT_ACCEPTABLE]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    Conflict:
+      description: Invocation was canceled or conflicts with current state before response commitment
+      x-platform-error-codes: [CONFLICT, CANCELED]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    AgentFailure:
+      description: Agent execution or A2A protocol failed before response commitment
+      x-platform-error-codes: [AGENT_EXECUTION_FAILED, A2A_PROTOCOL_ERROR]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    Unavailable:
+      description: Route, Agent, or required dependency is unavailable
+      x-platform-error-codes: [ROUTE_NOT_FOUND, AGENT_UNAVAILABLE, DEPENDENCY_ERROR]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    Timeout:
+      description: Invocation deadline expired before response commitment
+      x-platform-error-codes: [TIMEOUT]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+  schemas:
+    DispatchInvocationRequest:
+      type: object
+      additionalProperties: false
+      required: [invocationId, rootTaskId, traceId, caller, workspaceId, targetAgentId, agentCardVersion, capability, input, stream]
+      properties:
+        invocationId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/invocationId
+        rootTaskId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/taskId
+        parentInvocationId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/invocationId
+        traceId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/traceId
+        caller:
+          $ref: ../schemas/common.v1.schema.json#/$defs/caller
+        workspaceId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/workspaceId
+        targetAgentId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/agentId
+        agentCardVersion:
+          $ref: ../schemas/common.v1.schema.json#/$defs/semver
+        capability:
+          $ref: ../schemas/common.v1.schema.json#/$defs/capabilityId
+        input:
+          $ref: ../schemas/common.v1.schema.json#/$defs/jsonObject
+        stream:
+          type: boolean
+    RouterEventEnvelope:
+      type: object
+      additionalProperties: false
+      required: [event]
+      properties:
+        event:
+          $ref: ../schemas/invocation-event.v0.2.schema.json

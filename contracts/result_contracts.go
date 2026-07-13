@@ -1,0 +1,336 @@
+package contracts
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	semver "github.com/Masterminds/semver/v3"
+	"github.com/santhosh-tekuri/jsonschema/v6"
+)
+
+const (
+	InvocationResultSchemaVersion            = "1"
+	InvocationResultStreamEventSchemaVersion = "1"
+	InvocationEventV02SchemaVersion          = "0.2"
+
+	ErrorCodeNotAcceptable PlatformErrorCode = "NOT_ACCEPTABLE"
+)
+
+type ResultStreamEventType string
+
+const (
+	ResultStreamEventAccepted  ResultStreamEventType = "accepted"
+	ResultStreamEventChunk     ResultStreamEventType = "chunk"
+	ResultStreamEventCompleted ResultStreamEventType = "completed"
+	ResultStreamEventFailed    ResultStreamEventType = "failed"
+	ResultStreamEventCanceled  ResultStreamEventType = "canceled"
+	ResultStreamEventTimedOut  ResultStreamEventType = "timed_out"
+)
+
+var platformErrorV2Messages = map[PlatformErrorCode]string{
+	ErrorCodeValidationError:      "The request is invalid.",
+	ErrorCodeUnauthenticated:      "Authentication is required.",
+	ErrorCodeForbidden:            "The requested operation is not allowed.",
+	ErrorCodeNotFound:             "The requested resource was not found.",
+	ErrorCodeConflict:             "The requested operation conflicts with current state.",
+	ErrorCodeNotAcceptable:        "The requested result mode is not acceptable.",
+	ErrorCodeAgentNotInstalled:    "The Agent is not installed in this Workspace.",
+	ErrorCodeAgentDisabled:        "The Agent version is disabled.",
+	ErrorCodeCapabilityNotAllowed: "The requested capability is not allowed.",
+	ErrorCodeRouteNotFound:        "No route is available for the Agent.",
+	ErrorCodeA2AProtocol:          "The Agent returned an invalid A2A response.",
+	ErrorCodeAgentUnavailable:     "The Agent is unavailable.",
+	ErrorCodeAgentExecutionFailed: "The Agent failed to complete the invocation.",
+	ErrorCodeDependency:           "A required platform dependency failed.",
+	ErrorCodeTimeout:              "The invocation timed out.",
+	ErrorCodeCanceled:             "The invocation was canceled.",
+	ErrorCodeInternal:             "The platform could not complete the request.",
+}
+
+type PlatformErrorV2 struct {
+	Code         PlatformErrorCode `json:"code"`
+	Message      string            `json:"message"`
+	TraceID      TraceID           `json:"traceId"`
+	InvocationID string            `json:"invocationId,omitempty"`
+	RootTaskID   string            `json:"rootTaskId,omitempty"`
+}
+
+func NewPlatformErrorV2(code PlatformErrorCode, traceID TraceID) (PlatformErrorV2, error) {
+	if _, err := ParseTraceID(string(traceID)); err != nil {
+		return PlatformErrorV2{}, fmt.Errorf("invalid trace id")
+	}
+	message, exists := platformErrorV2Messages[code]
+	if !exists {
+		return PlatformErrorV2{}, fmt.Errorf("unknown platform error code %q", code)
+	}
+	return PlatformErrorV2{Code: code, Message: message, TraceID: traceID}, nil
+}
+
+func NewCorrelatedPlatformErrorV2(
+	code PlatformErrorCode,
+	traceID TraceID,
+	invocationID string,
+	rootTaskID string,
+) (PlatformErrorV2, error) {
+	platformError, err := NewPlatformErrorV2(code, traceID)
+	if err != nil {
+		return PlatformErrorV2{}, err
+	}
+	if err := validateSafeContractIdentifier("invocation id", invocationID); err != nil {
+		return PlatformErrorV2{}, err
+	}
+	if err := validateSafeContractIdentifier("root task id", rootTaskID); err != nil {
+		return PlatformErrorV2{}, err
+	}
+	platformError.InvocationID = invocationID
+	platformError.RootTaskID = rootTaskID
+	return platformError, nil
+}
+
+type InvocationResult struct {
+	SchemaVersion string          `json:"schemaVersion"`
+	InvocationID  string          `json:"invocationId"`
+	RootTaskID    string          `json:"rootTaskId"`
+	TraceID       TraceID         `json:"traceId"`
+	Status        string          `json:"status"`
+	Result        json.RawMessage `json:"result"`
+}
+
+type InvocationResultStreamEvent struct {
+	SchemaVersion string                `json:"schemaVersion"`
+	Sequence      int64                 `json:"sequence"`
+	Type          ResultStreamEventType `json:"type"`
+	Status        string                `json:"status"`
+	InvocationID  string                `json:"invocationId"`
+	RootTaskID    string                `json:"rootTaskId"`
+	TraceID       TraceID               `json:"traceId"`
+	ChunkIndex    *int64                `json:"chunkIndex,omitempty"`
+	Chunk         json.RawMessage       `json:"chunk,omitempty"`
+	Error         *PlatformErrorV2      `json:"error,omitempty"`
+}
+
+type InvocationEventV02 struct {
+	SchemaVersion      string           `json:"schemaVersion"`
+	EventID            string           `json:"eventId"`
+	Sequence           int64            `json:"sequence"`
+	OccurredAt         time.Time        `json:"occurredAt"`
+	Type               string           `json:"type"`
+	Status             string           `json:"status"`
+	InvocationID       string           `json:"invocationId"`
+	RootTaskID         string           `json:"rootTaskId"`
+	ParentInvocationID string           `json:"parentInvocationId,omitempty"`
+	TraceID            TraceID          `json:"traceId"`
+	Caller             Caller           `json:"caller"`
+	WorkspaceID        string           `json:"workspaceId"`
+	TargetAgentID      string           `json:"targetAgentId"`
+	AgentCardVersion   string           `json:"agentCardVersion"`
+	Capability         string           `json:"capability"`
+	ChunkIndex         *int64           `json:"chunkIndex,omitempty"`
+	ChunkBytes         *int64           `json:"chunkBytes,omitempty"`
+	LatencyMS          *int64           `json:"latencyMs,omitempty"`
+	Error              *PlatformErrorV2 `json:"error,omitempty"`
+}
+
+type RouterEventEnvelopeV02 struct {
+	Event InvocationEventV02 `json:"event"`
+}
+
+const (
+	invocationResultSchemaID            = "https://schemas.nekiro.dev/invocation-result/v1"
+	invocationResultStreamEventSchemaID = "https://schemas.nekiro.dev/invocation-result-stream-event/v1"
+	invocationEventV02SchemaID          = "https://schemas.nekiro.dev/invocation-event/v0.2"
+	platformErrorV2SchemaID             = "https://schemas.nekiro.dev/platform-error/v2"
+)
+
+type ResultContractValidator struct {
+	invocationResult            *jsonschema.Schema
+	invocationResultStreamEvent *jsonschema.Schema
+	invocationEvent             *jsonschema.Schema
+	platformError               *jsonschema.Schema
+}
+
+func NewResultContractValidator() (*ResultContractValidator, error) {
+	compiler := jsonschema.NewCompiler()
+	compiler.DefaultDraft(jsonschema.Draft2020)
+	compiler.AssertFormat()
+	compiler.RegisterFormat(&jsonschema.Format{
+		Name: "semver-range",
+		Validate: func(value any) error {
+			text, ok := value.(string)
+			if !ok {
+				return nil
+			}
+			if _, err := semver.NewConstraint(text); err != nil {
+				return errors.New("invalid semantic version range")
+			}
+			return nil
+		},
+	})
+
+	resources := []struct {
+		id   string
+		path string
+	}{
+		{commonSchemaID, "schemas/common.v1.schema.json"},
+		{platformErrorV2SchemaID, "schemas/platform-error.v2.schema.json"},
+		{invocationResultSchemaID, "schemas/invocation-result.v1.schema.json"},
+		{invocationResultStreamEventSchemaID, "schemas/invocation-result-stream-event.v1.schema.json"},
+		{invocationEventV02SchemaID, "schemas/invocation-event.v0.2.schema.json"},
+	}
+
+	for _, resource := range resources {
+		document, err := readJSONDocument(resource.path)
+		if err != nil {
+			return nil, err
+		}
+		if err := compiler.AddResource(resource.id, document); err != nil {
+			return nil, fmt.Errorf("add schema resource %s: %w", resource.id, err)
+		}
+	}
+
+	invocationResult, err := compiler.Compile(invocationResultSchemaID)
+	if err != nil {
+		return nil, fmt.Errorf("compile Invocation Result schema: %w", err)
+	}
+	invocationResultStreamEvent, err := compiler.Compile(invocationResultStreamEventSchemaID)
+	if err != nil {
+		return nil, fmt.Errorf("compile Invocation Result Stream Event schema: %w", err)
+	}
+	invocationEvent, err := compiler.Compile(invocationEventV02SchemaID)
+	if err != nil {
+		return nil, fmt.Errorf("compile Invocation Event v0.2 schema: %w", err)
+	}
+	platformError, err := compiler.Compile(platformErrorV2SchemaID)
+	if err != nil {
+		return nil, fmt.Errorf("compile Platform Error v2 schema: %w", err)
+	}
+
+	return &ResultContractValidator{
+		invocationResult:            invocationResult,
+		invocationResultStreamEvent: invocationResultStreamEvent,
+		invocationEvent:             invocationEvent,
+		platformError:               platformError,
+	}, nil
+}
+
+func (v *ResultContractValidator) ValidateInvocationResult(result InvocationResult) error {
+	return validateMappedValue(v.invocationResult, result)
+}
+
+func (v *ResultContractValidator) ValidateInvocationResultStreamEvent(event InvocationResultStreamEvent) error {
+	return validateMappedValue(v.invocationResultStreamEvent, event)
+}
+
+func (v *ResultContractValidator) ValidateInvocationEvent(event InvocationEventV02) error {
+	return validateMappedValue(v.invocationEvent, event)
+}
+
+func (v *ResultContractValidator) ValidatePlatformError(platformError PlatformErrorV2) error {
+	return validateMappedValue(v.platformError, platformError)
+}
+
+var (
+	ErrResultStreamInterrupted = errors.New("result stream ended before a terminal event")
+	ErrResultStreamTerminated  = errors.New("result stream already has a terminal event")
+)
+
+type ResultStreamSequenceValidator struct {
+	contracts      *ResultContractValidator
+	invocationID   string
+	rootTaskID     string
+	traceID        TraceID
+	nextSequence   int64
+	nextChunkIndex int64
+	terminal       ResultStreamEventType
+}
+
+func NewResultStreamSequenceValidator(
+	contracts *ResultContractValidator,
+	invocationID string,
+	rootTaskID string,
+	traceID TraceID,
+) (*ResultStreamSequenceValidator, error) {
+	if contracts == nil {
+		return nil, errors.New("result contract validator is required")
+	}
+	if err := validateSafeContractIdentifier("invocation id", invocationID); err != nil {
+		return nil, err
+	}
+	if err := validateSafeContractIdentifier("root task id", rootTaskID); err != nil {
+		return nil, err
+	}
+	if _, err := ParseTraceID(string(traceID)); err != nil {
+		return nil, fmt.Errorf("invalid trace id")
+	}
+	return &ResultStreamSequenceValidator{
+		contracts:    contracts,
+		invocationID: invocationID,
+		rootTaskID:   rootTaskID,
+		traceID:      traceID,
+	}, nil
+}
+
+func (v *ResultStreamSequenceValidator) Accept(event InvocationResultStreamEvent) error {
+	if v.terminal != "" {
+		return ErrResultStreamTerminated
+	}
+	if err := v.contracts.ValidateInvocationResultStreamEvent(event); err != nil {
+		return fmt.Errorf("validate result stream event: %w", err)
+	}
+	if event.InvocationID != v.invocationID || event.RootTaskID != v.rootTaskID || event.TraceID != v.traceID {
+		return errors.New("result stream correlation changed")
+	}
+	if event.Sequence != v.nextSequence {
+		return fmt.Errorf("result stream sequence must be %d", v.nextSequence)
+	}
+	if v.nextSequence == 0 && event.Type != ResultStreamEventAccepted {
+		return errors.New("result stream must begin with an accepted event")
+	}
+	if v.nextSequence > 0 && event.Type == ResultStreamEventAccepted {
+		return errors.New("result stream accepted event must be first")
+	}
+	if event.Type == ResultStreamEventChunk {
+		if event.ChunkIndex == nil || *event.ChunkIndex != v.nextChunkIndex {
+			return fmt.Errorf("result stream chunk index must be %d", v.nextChunkIndex)
+		}
+		v.nextChunkIndex++
+	}
+	if event.Error != nil && (event.Error.TraceID != v.traceID || event.Error.InvocationID != v.invocationID || event.Error.RootTaskID != v.rootTaskID) {
+		return errors.New("result stream error correlation changed")
+	}
+
+	v.nextSequence++
+	if isResultStreamTerminal(event.Type) {
+		v.terminal = event.Type
+	}
+	return nil
+}
+
+func (v *ResultStreamSequenceValidator) Finish() error {
+	if v.terminal == "" {
+		return ErrResultStreamInterrupted
+	}
+	return nil
+}
+
+func (v *ResultStreamSequenceValidator) TerminalType() ResultStreamEventType {
+	return v.terminal
+}
+
+func isResultStreamTerminal(eventType ResultStreamEventType) bool {
+	switch eventType {
+	case ResultStreamEventCompleted, ResultStreamEventFailed, ResultStreamEventCanceled, ResultStreamEventTimedOut:
+		return true
+	default:
+		return false
+	}
+}
+
+func validateSafeContractIdentifier(name string, value string) error {
+	if !safeIdentifierPattern.MatchString(value) {
+		return fmt.Errorf("invalid %s", name)
+	}
+	return nil
+}

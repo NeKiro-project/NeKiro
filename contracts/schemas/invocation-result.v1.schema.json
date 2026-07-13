@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.nekiro.dev/invocation-result/v1",
+  "title": "NeKiro Invocation Result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "invocationId",
+    "rootTaskId",
+    "traceId",
+    "status",
+    "result"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1" },
+    "invocationId": { "$ref": "https://schemas.nekiro.dev/common/v1#/$defs/invocationId" },
+    "rootTaskId": { "$ref": "https://schemas.nekiro.dev/common/v1#/$defs/taskId" },
+    "traceId": { "$ref": "https://schemas.nekiro.dev/common/v1#/$defs/traceId" },
+    "status": { "const": "succeeded" },
+    "result": {}
+  }
+}
