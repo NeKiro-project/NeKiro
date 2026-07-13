@@ -99,6 +99,38 @@ func TestCatalogPostgreSQLAndHTTPAcceptance(t *testing.T) {
 		}
 		assertPlatformError(t, request(t, http.MethodPost, server.baseURL+"/v2/agents", ownerAToken, registrationEnvelope(t, runtimeA)), http.StatusConflict, contracts.ErrorCodeConflict)
 
+		var originalCard, originalOwner string
+		if err := pool.QueryRow(ctx, `
+SELECT v.card, i.owner_id
+FROM catalog.agent_versions v
+JOIN catalog.agent_identities i ON i.agent_id = v.agent_id
+WHERE v.agent_id = 'runtime-a' AND v.version = '1.0.0'`).Scan(&originalCard, &originalOwner); err != nil {
+			t.Fatal(err)
+		}
+		crossOwnerExact := decodeCard(t, runtimeA)
+		crossOwnerExact.Name = "Cross-owner replacement attempt"
+		crossOwnerExact.Description = "This structurally valid Card must not replace the immutable version."
+		crossOwnerExact.Owner.ID = "catalog-owner-b"
+		crossOwnerExact.Owner.DisplayName = "Catalog Owner B"
+		crossOwnerConflict := request(t, http.MethodPost, server.baseURL+"/v2/agents", ownerBToken, registrationEnvelope(t, mustJSON(t, crossOwnerExact)))
+		assertPlatformError(t, crossOwnerConflict, http.StatusConflict, contracts.ErrorCodeConflict)
+		for _, forbiddenDetail := range []string{originalOwner, crossOwnerExact.Name, "draft"} {
+			if bytes.Contains(crossOwnerConflict.body, []byte(forbiddenDetail)) {
+				t.Fatalf("exact duplicate conflict exposed stored or submitted metadata %q: %s", forbiddenDetail, crossOwnerConflict.body)
+			}
+		}
+		var retainedCard, retainedOwner string
+		if err := pool.QueryRow(ctx, `
+SELECT v.card, i.owner_id
+FROM catalog.agent_versions v
+JOIN catalog.agent_identities i ON i.agent_id = v.agent_id
+WHERE v.agent_id = 'runtime-a' AND v.version = '1.0.0'`).Scan(&retainedCard, &retainedOwner); err != nil {
+			t.Fatal(err)
+		}
+		if retainedCard != originalCard || retainedOwner != originalOwner {
+			t.Fatalf("cross-owner exact duplicate changed immutable facts: owner %q -> %q, Card equal = %t", originalOwner, retainedOwner, retainedCard == originalCard)
+		}
+
 		boundaryCard := decodeCard(t, runtimeA)
 		boundaryCard.AgentID = "unbounded-number-agent"
 		boundaryCard.Name = "Unbounded Number Agent"

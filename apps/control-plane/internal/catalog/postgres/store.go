@@ -48,6 +48,18 @@ WHERE agent_id = $1
 FOR UPDATE`, version.Card.AgentID).Scan(&ownerID); err != nil {
 		return catalog.AgentVersion{}, dependencyError("read Agent owner", err)
 	}
+	var exactVersionExists bool
+	if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1
+    FROM catalog.agent_versions
+    WHERE agent_id = $1 AND version = $2
+)`, version.Card.AgentID, version.Card.Version).Scan(&exactVersionExists); err != nil {
+		return catalog.AgentVersion{}, dependencyError("check exact Agent version", err)
+	}
+	if exactVersionExists {
+		return catalog.AgentVersion{}, catalog.ErrConflict
+	}
 	if ownerID != version.Card.Owner.ID {
 		return catalog.AgentVersion{}, catalog.ErrForbidden
 	}
