@@ -101,7 +101,8 @@ design.*
 
 - Database uniqueness and row locks enforce immutable registration and legal
   `draft -> published -> disabled` or `draft -> disabled` transitions.
-- Publish succeeds only from draft. Disable is explicitly idempotent.
+- Publish succeeds only from draft and assigns an immutable monotonic
+  publication sequence. Disable is explicitly idempotent.
 - Publication success means discovery eligibility committed in the same source
   of truth. No event queue, repair worker, or eventual-success response exists.
 
@@ -112,7 +113,7 @@ design.*
 - Free text uses escaped literal case-insensitive matching; `%` and `_` are not
   caller-controlled SQL wildcards.
 - A base64url strict JSON cursor carries format version, normalized-filter hash,
-  first-page snapshot time, and last ordering tuple.
+  first-page monotonic publication-sequence boundary, and last ordering tuple.
 - Keyset order is `published_at DESC, agent_id ASC, version ASC`. This is stable
   traversal order, not semantic-version recommendation.
 - Cursor values grant no authority, contain no secrets, and are not signed. All
@@ -124,7 +125,8 @@ design.*
   database adapter types.
 - A replaceable `Authenticator` maps Bearer credentials to caller IDs. The
   local binary supports only explicitly selected `development-static` mode with
-  required strict principal configuration. Raw caller-ID headers are rejected.
+  required strict caller-ID/SHA-256-digest principal configuration and
+  constant-time token comparison. Raw caller-ID headers are rejected.
 - Trace generation is initialized before the server accepts traffic. One trace
   value appears in the response header and Platform Error body.
 - Public error messages remain fixed Platform Error v2 values. Internal auth,
@@ -215,6 +217,7 @@ deploy/compose.yaml                # Add Control Plane local service
 .env.example                       # Document required local server inputs
 .github/workflows/ci.yml           # PostgreSQL integration test service
 docs/decisions/0004-catalog-persistence-and-consistency.md
+docs/contracts/compatibility.md
 docs/runbooks/local-development.md
 README.md
 AGENTS.md                           # Managed Spec Kit plan reference only

@@ -165,11 +165,14 @@ Dependency failure is never represented as empty discovery or not found.
 
 The runnable local adapter is selected only by explicit mode
 `development-static`. Its required configuration is a strict JSON array of
-objects containing exactly `id` and `token` strings.
+objects containing exactly `id` and `tokenSha256` strings. `tokenSha256` is the
+64-character lowercase hexadecimal SHA-256 digest of the local bearer token;
+the raw token is never stored in process configuration.
 
-- Missing, blank, duplicate, or unknown fields and duplicate IDs/tokens fail
-  startup.
-- Tokens must be non-empty and are compared without logging them.
+- Missing, blank, duplicate, or unknown fields, malformed digests, and duplicate
+  IDs/digests fail startup.
+- Incoming bearer tokens are hashed and compared in constant time without
+  logging token or digest values.
 - The configuration has no built-in principal, token, file, or mode default.
 - The adapter is not enabled under another mode and is not described as a
   production authentication mechanism.

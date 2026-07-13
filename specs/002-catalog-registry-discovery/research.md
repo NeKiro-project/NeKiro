@@ -117,9 +117,11 @@ the Control Plane is later replicated.
 
 **Decision**: Encode a strict versioned cursor as base64url JSON containing a
 hash of normalized filters and page size, the first-page publication boundary,
-and the last `(published_at, agent_id, version)` ordering tuple. Search uses
-keyset predicates ordered by publication time descending, Agent ID ascending,
-and exact version string ascending.
+and the last `(published_at, agent_id, version)` ordering tuple. The boundary is
+an internal monotonic `publication_sequence` allocated on first publication, so
+a later publication with an equal timestamp cannot enter an existing traversal.
+Search uses keyset predicates ordered by publication time descending, Agent ID
+ascending, and exact version string ascending.
 
 **Rationale**: Keyset pagination remains stable at the expected scale and does
 not degrade with deep offsets. A filter hash prevents accidental cursor reuse
@@ -147,8 +149,9 @@ validation.
 an HTTP Bearer credential to one trusted caller ID. Integration tests inject a
 deterministic authenticator. The runnable local binary may enable only an
 explicit `development-static` adapter configured with a non-empty principal
-list; absent, empty, malformed, or unsupported authentication configuration
-fails startup. Raw caller-ID headers are never trusted.
+list containing caller IDs and SHA-256 token digests; absent, empty, malformed,
+or unsupported authentication configuration fails startup. Incoming tokens are
+hashed and compared in constant time. Raw caller-ID headers are never trusted.
 
 **Rationale**: The Catalog must prove owner authorization now, while enterprise
 OIDC and RBAC remain out of scope. An interface prevents the temporary local

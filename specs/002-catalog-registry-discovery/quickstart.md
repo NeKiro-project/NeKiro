@@ -92,9 +92,10 @@ explicitly. The development authentication mode has no built-in caller or token.
 
 ```powershell
 $token = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()
+$tokenHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($token))).ToLowerInvariant()
 $env:NEKIRO_LISTEN_ADDRESS = '127.0.0.1:18080'
 $env:NEKIRO_AUTH_MODE = 'development-static'
-$env:NEKIRO_DEV_AUTH_PRINCIPALS_JSON = @(@{id='catalog-dev'; token=$token}) | ConvertTo-Json -Compress
+$env:NEKIRO_DEV_AUTH_PRINCIPALS_JSON = @(@{id='catalog-dev'; tokenSha256=$tokenHash}) | ConvertTo-Json -Compress
 $binary = Join-Path $env:TEMP "nekiro-control-plane-$PID.exe"
 go build -o $binary ./apps/control-plane/cmd/control-plane
 $server = Start-Process -FilePath $binary -ArgumentList 'serve' -PassThru -WindowStyle Hidden
@@ -118,7 +119,7 @@ Stop-Process -Id $server.Id
 Remove-Item -LiteralPath $binary
 ```
 
-Never commit or emit the generated token. The process must expose
+Never commit or emit the generated token or digest. The process must expose
 liveness/readiness separately, reject a missing bearer credential, and return
 one trace ID consistently in the response header and Platform Error body.
 

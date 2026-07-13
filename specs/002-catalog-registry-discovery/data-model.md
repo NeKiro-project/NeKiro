@@ -46,6 +46,7 @@ metadata.
 | `publication_status` | enum | `draft`, `published`, or `disabled` |
 | `registered_at` | timestamp | Required; server assigned once |
 | `published_at` | optional timestamp | Assigned on first publication; never rewritten |
+| `publication_sequence` | optional integer | Monotonic internal value assigned on first publication; never reused or rewritten |
 | `disabled_at` | optional timestamp | Assigned on first disablement; never rewritten |
 
 Primary key: `(agent_id, version)`.
@@ -64,12 +65,12 @@ Primary key: `(agent_id, version)`.
 
 ### State/Timestamp Constraints
 
-| State | `published_at` | `disabled_at` |
-|---|---|---|
-| `draft` | null | null |
-| `published` | non-null | null |
-| `disabled` after draft | null | non-null |
-| `disabled` after publication | non-null | non-null |
+| State | `published_at` | `publication_sequence` | `disabled_at` |
+|---|---|---|---|
+| `draft` | null | null | null |
+| `published` | non-null | non-null | null |
+| `disabled` after draft | null | null | non-null |
+| `disabled` after publication | non-null | non-null | non-null |
 
 Database checks reject every other combination.
 
@@ -123,6 +124,8 @@ compatibility precedence.
 
 - Partial published-order index on
   `(published_at DESC, agent_id ASC, version ASC)`.
+- Unique partial index on non-null `publication_sequence` for snapshot boundary
+  filtering and one-time allocation integrity.
 - Capability lookup index on `(capability_id, agent_id, version)`.
 - Owner lookup index on `(owner_id, agent_id)`.
 
@@ -152,7 +155,7 @@ internal versioned value:
 |---|---|---|
 | `v` | integer | Cursor format version; exactly `1` |
 | `filter_hash` | lowercase hex digest | SHA-256 of canonical query/capability/owner/limit values |
-| `snapshot_published_at` | timestamp | Excludes versions published after the first page began |
+| `snapshot_publication_sequence` | integer | Inclusive monotonic upper bound allocated before the first page query |
 | `last_published_at` | timestamp | First key of the last returned item |
 | `last_agent_id` | safe identifier | Second key of the last returned item |
 | `last_version` | semantic-version string | Third key of the last returned item |
@@ -164,8 +167,10 @@ internal versioned value:
   filter hash that differs from the current request.
 - A cursor grants no authorization and contains no Card, owner secret, bearer
   credential, database offset, or internal error.
-- The first page records a snapshot publication boundary. Later pages retain it
-  and use the last ordering tuple as a keyset continuation.
+- The first page records the highest committed publication sequence as its
+  snapshot boundary. Later pages retain it, require
+  `publication_sequence <= snapshot_publication_sequence`, and use the last
+  public ordering tuple as a keyset continuation.
 - New publications after the snapshot are excluded. A version disabled before a
   later page is read is excluded, so a page may contain fewer than `limit`
   items.
@@ -197,7 +202,8 @@ draft -> published -> disabled
 2. Return not found when no exact version exists.
 3. Require caller ID to equal immutable owner.
 4. Require current state `draft`; otherwise return conflict.
-5. Set state `published` and assign `published_at` in one commit.
+5. Set state `published` and assign `published_at` plus a new monotonic
+   `publication_sequence` in one commit.
 
 ### Disable
 
