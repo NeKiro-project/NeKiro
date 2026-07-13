@@ -266,6 +266,30 @@ func decodeA2AJSONRPCResponseV02(data []byte) (a2aJSONRPCResponseV02, error) {
 		)
 	}
 
+	var object map[string]json.RawMessage
+	objectDecoder := json.NewDecoder(bytes.NewReader(data))
+	if err := objectDecoder.Decode(&object); err != nil {
+		return a2aJSONRPCResponseV02{}, newA2AConformanceAssertionErrorV02(
+			A2ARuleJSONRPCEnvelope,
+			A2AProtocolErrorInvalidJSONRPCEnvelope,
+			fmt.Errorf("decode JSON-RPC response object: %w", err),
+		)
+	}
+	if object == nil {
+		return a2aJSONRPCResponseV02{}, newA2AConformanceAssertionErrorV02(
+			A2ARuleJSONRPCEnvelope,
+			A2AProtocolErrorInvalidJSONRPCEnvelope,
+			fmt.Errorf("decode JSON-RPC response object: top-level value is not an object"),
+		)
+	}
+	if err := requireJSONEOF(objectDecoder); err != nil {
+		return a2aJSONRPCResponseV02{}, newA2AConformanceAssertionErrorV02(
+			A2ARuleJSONRPCEnvelope,
+			A2AProtocolErrorInvalidJSONRPCEnvelope,
+			fmt.Errorf("decode JSON-RPC response object: %w", err),
+		)
+	}
+
 	var response a2aJSONRPCResponseV02
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()

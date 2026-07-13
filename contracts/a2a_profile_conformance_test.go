@@ -544,6 +544,28 @@ func TestA2AProfileConformanceManifestClaimsMatchFixtures(t *testing.T) {
 func TestA2AProfileConformanceResponseBaselineMutations(t *testing.T) {
 	baseline := mustFixtureBytes(t, "message-send-message-response.json")
 
+	for _, testCase := range []struct {
+		name     string
+		response []byte
+	}{
+		{name: "top-level null", response: []byte(`null`)},
+		{name: "top-level array", response: []byte(`[{"jsonrpc":"2.0","id":"message-send-1","result":{}}]`)},
+		{name: "top-level string", response: []byte(`"response"`)},
+		{name: "top-level number", response: []byte(`17`)},
+		{name: "top-level boolean", response: []byte(`true`)},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := validateA2AJSONRPCResponseBaselineV02(testCase.response)
+			var assertionError *A2AConformanceAssertionErrorV02
+			if !errors.As(err, &assertionError) {
+				t.Fatalf("baseline mutation error = %v, want typed classification", err)
+			}
+			if assertionError.Classification != A2AProtocolErrorInvalidJSONRPCEnvelope {
+				t.Fatalf("baseline mutation classification = %q, want %q", assertionError.Classification, A2AProtocolErrorInvalidJSONRPCEnvelope)
+			}
+		})
+	}
+
 	for name, id := range map[string]json.RawMessage{
 		"string": json.RawMessage(`"message-send-1"`),
 		"number": json.RawMessage(`17`),
