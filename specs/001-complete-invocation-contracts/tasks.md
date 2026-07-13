@@ -59,14 +59,18 @@ artifacts.
   `contracts/schemas/invocation-result-stream-event.v1.schema.json`
 - [ ] T004 [P] [US2] Add coherent metadata-only event schema at
   `contracts/schemas/invocation-event.v0.2.schema.json` and safe correlated
-  error schema at `contracts/schemas/platform-error.v2.schema.json`
+  error schema at `contracts/schemas/platform-error.v2.schema.json`; add
+  normative `INV-CORR-001` plus a raw positive/negative manifest corpus under
+  `contracts/invocation/v1/`
 - [ ] T005 [US1] Add Go result/error DTO mappings and stream sequence validation
-  in `contracts/result_contracts.go`
+  in `contracts/result_contracts.go`, including corpus-driven enforcement that
+  nested error correlation equals its enclosing event
 - [ ] T006 [US1] [US4] Add active API documents
   `contracts/openapi/control-plane.v2.yaml`,
   `contracts/openapi/control-plane-internal.v1.yaml`, and
   `contracts/openapi/router-internal.v2.yaml` without changing historical v1
-  documents
+  documents; require existing invocation/root-task/trace correlation on resolve
+  requests and errors, and give Ledger reads dependency-only `503` semantics
 - [ ] T007 [US1] [US4] Record migration and ownership decisions in
   `docs/decisions/0002-invocation-result-transport-and-internal-api-direction.md`,
   `docs/contracts/compatibility.md`, and
@@ -76,9 +80,12 @@ artifacts.
 
 - [ ] T008 [P] [US1] Add non-streaming/streaming result, first-terminal-wins,
   interrupted-stream, no-result-in-Ledger, and Platform Error v2 tests in
-  `contracts/result_contracts_test.go`
+  `contracts/result_contracts_test.go`, including every raw `INV-CORR-001`
+  positive and negative fixture
 - [ ] T009 [P] [US2] [US4] Add terminal coherence and directional OpenAPI/media
-  negotiation mapping tests in `contracts/result_api_contracts_test.go`
+  negotiation mapping tests in `contracts/result_api_contracts_test.go`,
+  including resolve correlation fields and exact Router Ledger/trace read error
+  mappings
 - [ ] T010 [US1] Run Module A tests, `go vet ./...`, and `git diff --check`,
   report Module A fallback delta/evidence, then commit all Module A-owned files
 

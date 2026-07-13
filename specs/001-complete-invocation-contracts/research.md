@@ -44,6 +44,14 @@ Streaming has these rules:
 - Chunks before a non-success terminal event are incomplete output.
 - Success, timeout, and cancellation use first-terminal-wins semantics. Output
   arriving after another terminal outcome is discarded and cannot rewrite it.
+- Terminal errors repeat invocation, root-task, and trace identifiers for use as
+  standalone Platform Error values, and semantic rule `INV-CORR-001` requires
+  those identifiers to equal the enclosing stream or Ledger event.
+
+Raw positive and negative JSON fixtures plus a versioned manifest make
+`INV-CORR-001` portable. JSON Schema remains responsible for field shape and
+presence; the semantic profile is responsible for equality between instance
+locations, which standard JSON Schema cannot express.
 
 **Rationale**: The user can consume output while operators retain a secret-safe,
 append-only lifecycle history.
@@ -54,6 +62,8 @@ append-only lifecycle history.
   a result store.
 - Buffer the full stream at Gateway: rejected because it defeats streaming and
   adds memory pressure not required by the contract.
+- Go-only correlation equality checks: rejected because non-Go consumers could
+  accept contradictory Invocation lineage while still passing JSON Schema.
 
 ## Decision 3: Publish Directional Internal APIs
 
@@ -68,6 +78,14 @@ append-only lifecycle history.
 Both documents identify caller, owner, and destination. The mixed
 `router-internal.v1.yaml` remains historical and is not the active runtime
 contract.
+
+The resolve request carries the invocation, root-task, and trace identifiers
+already created by the Gateway and received by the Router. Control Plane
+resolution errors return Platform Error v2 with those exact identifiers; the
+Control Plane does not invent correlation. Router Ledger and trace reads use a
+read-specific dependency-unavailable response whose only code is
+`DEPENDENCY_ERROR`; dispatch retains its distinct route, Agent, and dependency
+availability codes.
 
 **Rationale**: One global Router server URL cannot correctly describe an
 operation owned by the Control Plane. Splitting documents also prevents

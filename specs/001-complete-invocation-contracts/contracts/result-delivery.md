@@ -30,6 +30,16 @@ correlation IDs and fixed errors. Neither process creates a result store.
 The result schema permits any JSON value in `result`/`chunk`; the resolved Agent
 Skill output schema supplies capability-specific validation.
 
+## Correlation Semantics
+
+`contracts/invocation/v1/semantic-rules.md` defines `INV-CORR-001`: a Platform
+Error v2 nested in Invocation Event `0.2` or Invocation Result Stream Event `1`
+MUST repeat the enclosing `invocationId`, `rootTaskId`, and `traceId` exactly.
+Standard JSON Schema validates shape and presence but cannot compare instance
+locations, so raw JSON cases and their manifest live under
+`contracts/invocation/v1/conformance/`. All language implementations MUST make
+the same decision for that corpus.
+
 ## Failure Matrix
 
 Before an SSE response is committed:

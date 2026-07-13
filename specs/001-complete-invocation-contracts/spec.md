@@ -132,7 +132,13 @@ dispatch and invocation queries target the Router.
   referenced fixture, operation, media type, result type, or asserted rules.
 - `message/send` returns a syntactically decodable but semantically empty Agent
   Message.
-- Agent resolution is unavailable after an invocation has been accepted.
+- Agent resolution is unavailable after an invocation has been accepted and
+  its failure must remain correlated to the existing invocation, root task, and
+  trace.
+- A Router Ledger or trace read encounters dependency failure, which must not
+  be reported as Agent or route unavailability.
+- A nested terminal Platform Error carries identifiers that differ from its
+  enclosing Invocation Event or result-stream event.
 
 ## Requirements *(mandatory)*
 
@@ -185,6 +191,18 @@ dispatch and invocation queries target the Router.
   concrete Agent-authored Message with at least one part. Each required A2A
   operation MUST be exercised through its pinned SDK client method and server
   handler path; raw transport checks MAY only supplement those paths.
+- **FR-018**: Agent resolution performed after invocation creation MUST receive
+  the existing `invocation_id`, `root_task_id`, and `trace_id`. Every resolution
+  failure MUST preserve those exact identifiers in its fixed public error and
+  related Ledger facts; neither side may generate replacement correlation.
+- **FR-019**: Each active API operation MUST declare only error codes that can
+  arise from that operation. Router Ledger and trace reads MUST distinguish
+  dependency failure from dispatch-only route or Agent availability failures.
+- **FR-020**: The language-neutral Invocation contracts MUST normatively require
+  a nested terminal Platform Error's invocation, root-task, and trace identifiers
+  to equal the enclosing Invocation Event or result-stream event identifiers.
+  Portable positive and negative conformance cases MUST produce the same
+  decision in every supported implementation.
 
 ### Key Entities
 
@@ -200,6 +218,9 @@ dispatch and invocation queries target the Router.
 - **A2A Conformance Case**: A portable example whose manifest metadata is an
   executable assertion of one declared profile interaction or lifecycle
   expectation.
+- **Invocation Correlation Rule**: A language-neutral semantic invariant that
+  binds duplicated correlation identifiers across an Invocation envelope and
+  its nested Platform Error.
 
 ## Success Criteria *(mandatory)*
 
@@ -229,6 +250,14 @@ dispatch and invocation queries target the Router.
 - **SC-011**: All four required A2A operations pass through the pinned SDK
   client method and server handler in conformance tests, and all semantically
   empty `message/send` Message results are rejected.
+- **SC-012**: 100% of accepted invocations that fail during Agent resolution
+  return and record the same invocation, root-task, and trace identifiers that
+  the Gateway created.
+- **SC-013**: 100% of active API operations pass exact status-to-error mapping
+  checks, including Router Ledger and trace reads that expose dependency failure
+  without dispatch-only error codes.
+- **SC-014**: Every published Invocation correlation conformance case produces
+  the same valid or invalid decision in each supported language implementation.
 
 ## Assumptions
 

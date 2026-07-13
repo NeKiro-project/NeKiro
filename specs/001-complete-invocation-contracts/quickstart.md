@@ -36,6 +36,10 @@ Expected outcomes:
 - Streaming accepted/chunk/terminal sequences validate in order.
 - Event after terminal, duplicate terminal, EOF-without-terminal fixture, and
   contradictory terminal error codes are rejected.
+- Raw `INV-CORR-001` fixtures reject any nested error whose invocation,
+  root-task, or trace identifier differs from the enclosing event.
+- Resolution requests and errors preserve existing correlation, while Router
+  Ledger/trace reads expose dependency-only unavailable semantics.
 - Invocation Event fixtures cannot contain result or chunk content.
 
 ## 3. Validate Agent Card Portability

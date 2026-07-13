@@ -94,6 +94,22 @@ Platform Error v2 adds a distinct `NOT_ACCEPTABLE` code for request result-mode
 and `Accept` header mismatch. It never contains Agent input/output, endpoint,
 credential, raw dependency error, or stack detail.
 
+### Invocation Correlation Semantic Profile v1
+
+`INV-CORR-001`: When Platform Error v2 is nested in Invocation Event `0.2` or
+Invocation Result Stream Event `1`, its `invocationId`, `rootTaskId`, and
+`traceId` values MUST exactly equal the corresponding enclosing values.
+
+The rule is case-sensitive and has no replacement-ID fallback. Raw JSON
+conformance cases cover matching values and each mismatched identifier for both
+event families. Their manifest records case ID, contract kind, fixture path,
+expected validity, and violated rule IDs so non-Go validators can execute the
+same corpus.
+
+After Gateway creation, `ResolveAgentRequest` also carries these three required
+identifiers. They are correlation context, not new identity, and resolution
+failures return them unchanged in Platform Error v2.
+
 ## Invocation Event v0.2
 
 Remains an append-only, metadata-only Ledger fact. Its existing identity,

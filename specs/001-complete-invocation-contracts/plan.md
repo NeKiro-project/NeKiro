@@ -80,6 +80,11 @@ profile conformance
   negotiation returns `406` and is covered by contract tests.
 - Pre-dispatch failures return a fixed Platform Error. Post-dispatch failures
   include invocation context without Agent output or dependency details.
+- Once the Gateway creates invocation, root-task, and trace identifiers, every
+  downstream resolution request and failure preserves those exact values.
+- Nested terminal errors repeat correlation for standalone error compatibility,
+  so a versioned semantic rule and raw JSON corpus enforce equality with their
+  enclosing event across language implementations.
 - Results and chunks are transient. Disconnect does not create a result replay
   or polling store; Ledger remains available for lifecycle diagnosis.
 - Exactly one terminal event ends a clean stream. EOF without one is interrupted
@@ -92,6 +97,9 @@ profile conformance
   Ledger event reads, and trace reads.
 - The Control Plane and Router use different server destinations. The Router
   cannot resolve through its own API or query Registry storage directly.
+- Every operation declares an exact error set. Ledger and trace reads expose
+  `DEPENDENCY_ERROR` for read dependency failure, never dispatch-only route or
+  Agent availability errors.
 
 ### Version Strategy
 
