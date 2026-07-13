@@ -185,22 +185,25 @@ reviewed module commits.
   `specs/001-complete-invocation-contracts/quickstart.md`, including
   `go test -count=1 ./...`, `go vet ./...`, and `git diff --check`, report the
   Integration fallback delta/evidence, then commit the shared integration files
+- [ ] T031 With a clean worktree, fetch `origin`, resolve the current upstream
+  branch, rebase the current branch onto the latest origin HEAD, and rerun the
+  full quickstart verification after any conflict resolution
 
 ### Independent Review Gate
 
-- [ ] T031 Create a new Review Agent for the integrated Spec 001 diff against
-  the pre-feature commit; fix every High or Medium finding and create a fresh
-  Review Agent after each fix until it explicitly passes
+- [ ] T032 Create a new Review Agent for the rebased integrated Spec 001 diff
+  against the current origin base; fix every High or Medium finding and create
+  a fresh Review Agent after each fix until it explicitly passes
 
 ---
 
 ## Phase 6: Convergence
 
-- [ ] T032 Map every Spec requirement and acceptance scenario to implemented
+- [ ] T033 Map every Spec requirement and acceptance scenario to implemented
   artifacts and passing tests in `specs/001-complete-invocation-contracts/tasks.md`
-- [ ] T033 Confirm fallback delta is reported for every implementation module
+- [ ] T034 Confirm fallback delta is reported for every implementation module
   and total added fallback count is zero
-- [ ] T034 Update the Spec status to complete only after all module and
+- [ ] T035 Update the Spec status to complete only after all module and
   integration Review gates pass, then commit the finalized SDD artifacts
 
 ---
@@ -214,7 +217,9 @@ reviewed module commits.
 - Module A's Northbound v2 OpenAPI mapping check requires the Agent Card `0.2`
   schema from T012; Module A may implement its other files while T012 completes.
 - Shared Integration starts only after all three module Review gates pass.
-- Convergence starts only after integrated Review passes.
+- Rebase starts only after the shared integration commit and a clean worktree.
+- Convergence starts only after post-rebase verification and integrated Review
+  pass.
 
 ### Parallel Write Sets
 
@@ -237,5 +242,6 @@ for the integration phase instead of crossing ownership.
    T012 if the new Schema reference is not yet present.
 3. Review and close each module independently.
 4. Integrate shared Go mappings only from reviewed module commits.
-5. Run full contract validation and independent integrated Review.
-6. Converge the Spec and then proceed to the next backend feature Spec.
+5. Rebase the clean branch onto the latest origin HEAD and rerun validation.
+6. Run independent integrated Review against the rebased diff.
+7. Converge the Spec and then proceed to the next backend feature Spec.
