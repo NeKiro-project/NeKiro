@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"fmt"
+	"regexp"
 	"time"
 )
 
@@ -10,6 +11,17 @@ const (
 	InvocationEventSchemaVersion = "0.1"
 	A2AProtocolVersion           = "0.3.0"
 )
+
+var safeIdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,127})$`)
+
+type TraceID string
+
+func ParseTraceID(value string) (TraceID, error) {
+	if !safeIdentifierPattern.MatchString(value) {
+		return "", fmt.Errorf("invalid trace id")
+	}
+	return TraceID(value), nil
+}
 
 type JSONSchema map[string]any
 
@@ -158,10 +170,13 @@ var publicErrorMessages = map[PlatformErrorCode]string{
 type PlatformError struct {
 	Code    PlatformErrorCode `json:"code"`
 	Message string            `json:"message"`
-	TraceID string            `json:"traceId,omitempty"`
+	TraceID TraceID           `json:"traceId,omitempty"`
 }
 
-func NewPlatformError(code PlatformErrorCode, traceID string) (PlatformError, error) {
+func NewPlatformError(code PlatformErrorCode, traceID TraceID) (PlatformError, error) {
+	if !safeIdentifierPattern.MatchString(string(traceID)) {
+		return PlatformError{}, fmt.Errorf("invalid trace id")
+	}
 	message, exists := publicErrorMessages[code]
 	if !exists {
 		return PlatformError{}, fmt.Errorf("unknown platform error code %q", code)
@@ -179,7 +194,7 @@ type InvocationEvent struct {
 	InvocationID       string         `json:"invocationId"`
 	RootTaskID         string         `json:"rootTaskId"`
 	ParentInvocationID string         `json:"parentInvocationId,omitempty"`
-	TraceID            string         `json:"traceId"`
+	TraceID            TraceID        `json:"traceId"`
 	Caller             Caller         `json:"caller"`
 	WorkspaceID        string         `json:"workspaceId"`
 	TargetAgentID      string         `json:"targetAgentId"`
@@ -199,17 +214,17 @@ type InvokeAgentRequest struct {
 }
 
 type InvocationAccepted struct {
-	InvocationID string `json:"invocationId"`
-	RootTaskID   string `json:"rootTaskId"`
-	TraceID      string `json:"traceId"`
-	Status       string `json:"status"`
+	InvocationID string  `json:"invocationId"`
+	RootTaskID   string  `json:"rootTaskId"`
+	TraceID      TraceID `json:"traceId"`
+	Status       string  `json:"status"`
 }
 
 type InvocationRecord struct {
 	InvocationID       string            `json:"invocationId"`
 	RootTaskID         string            `json:"rootTaskId"`
 	ParentInvocationID string            `json:"parentInvocationId,omitempty"`
-	TraceID            string            `json:"traceId"`
+	TraceID            TraceID           `json:"traceId"`
 	Caller             Caller            `json:"caller"`
 	WorkspaceID        string            `json:"workspaceId"`
 	TargetAgentID      string            `json:"targetAgentId"`
@@ -228,7 +243,7 @@ type InvocationDetailResponse struct {
 }
 
 type TraceResponse struct {
-	TraceID     string             `json:"traceId"`
+	TraceID     TraceID            `json:"traceId"`
 	Invocations []InvocationRecord `json:"invocations"`
 }
 
@@ -284,7 +299,7 @@ type DispatchInvocationRequest struct {
 	InvocationID       string         `json:"invocationId"`
 	RootTaskID         string         `json:"rootTaskId"`
 	ParentInvocationID string         `json:"parentInvocationId,omitempty"`
-	TraceID            string         `json:"traceId"`
+	TraceID            TraceID        `json:"traceId"`
 	Caller             Caller         `json:"caller"`
 	WorkspaceID        string         `json:"workspaceId"`
 	TargetAgentID      string         `json:"targetAgentId"`

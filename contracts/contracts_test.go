@@ -183,6 +183,12 @@ func TestPlatformErrorRejectsArbitraryDetails(t *testing.T) {
 	if _, err := NewPlatformError(PlatformErrorCode("UNKNOWN"), "trace-1"); err == nil {
 		t.Fatal("unknown platform error code was accepted")
 	}
+	if _, err := ParseTraceID("token=secret"); err == nil {
+		t.Fatal("unsafe trace id was accepted")
+	}
+	if _, err := NewPlatformError(ErrorCodeInternal, TraceID("token=secret")); err == nil {
+		t.Fatal("public error accepted an unsafe trace id")
+	}
 
 	if len(publicErrorMessages) != 16 {
 		t.Fatalf("public error policy contains %d codes, want 16", len(publicErrorMessages))
@@ -402,6 +408,45 @@ func TestGoDTOsMatchOpenAPI(t *testing.T) {
 	}
 }
 
+func TestSearchAgentsQueryMatchesOpenAPI(t *testing.T) {
+	document := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v1.yaml"))
+	operation := document.Paths.Find("/v1/agents").Get
+	query := SearchAgentsQuery{
+		Query:      stringPointer("contract"),
+		Capability: stringPointer("contract.review"),
+		OwnerID:    stringPointer("nene7ko"),
+		Limit:      intPointer(25),
+		Cursor:     stringPointer("cursor-1"),
+	}
+	data, err := json.Marshal(query)
+	if err != nil {
+		t.Fatalf("marshal search query: %v", err)
+	}
+	var values map[string]any
+	if err := json.Unmarshal(data, &values); err != nil {
+		t.Fatalf("decode search query: %v", err)
+	}
+	if len(operation.Parameters) != len(values) {
+		t.Fatalf("OpenAPI has %d search parameters, Go DTO has %d", len(operation.Parameters), len(values))
+	}
+	for _, parameterRef := range operation.Parameters {
+		parameter := parameterRef.Value
+		value, exists := values[parameter.Name]
+		if !exists {
+			t.Fatalf("Go search DTO is missing parameter %s", parameter.Name)
+		}
+		validateOpenAPIValue(t, parameter.Schema, value)
+	}
+
+	queryParameter := operation.Parameters.GetByInAndName("query", "query")
+	if queryParameter == nil {
+		t.Fatal("OpenAPI query parameter is missing")
+	}
+	if err := queryParameter.Schema.Value.VisitJSON("   ", openapi3.EnableJSONSchema2020()); err == nil {
+		t.Fatal("whitespace-only search query was accepted")
+	}
+}
+
 func loadOpenAPIDocument(t *testing.T, path string) *openapi3.T {
 	t.Helper()
 	loader := openapi3.NewLoader()
@@ -452,6 +497,14 @@ func validateOpenAPIValue(t *testing.T, schemaRef *openapi3.SchemaRef, value any
 	if err := schemaRef.Value.VisitJSON(document, openapi3.EnableJSONSchema2020()); err != nil {
 		t.Fatalf("DTO does not match OpenAPI: %v", err)
 	}
+}
+
+func stringPointer(value string) *string {
+	return &value
+}
+
+func intPointer(value int) *int {
+	return &value
 }
 
 func mustValidator(t *testing.T) *Validator {

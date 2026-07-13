@@ -37,7 +37,7 @@ paths:
       parameters:
         - in: query
           name: query
-          schema: { type: string, minLength: 1, maxLength: 256 }
+          schema: { type: string, minLength: 1, maxLength: 256, pattern: "\\S" }
         - in: query
           name: capability
           schema:
