@@ -4,7 +4,15 @@
 
 **Created**: 2026-07-13
 
-**Status**: Ready for Implementation
+**Status**: Complete
+
+**Completion Scope**: Complete as a contract-foundation feature. The active
+language-neutral contracts, Go mappings, validators, portable conformance
+corpora, compatibility evidence, and mapped tests are implemented and have
+passed independent integrated Review. This status does not claim that the
+Control Plane, A2A Router, Frontend, sample Agents, two-process routing E2E, or
+cross-Runtime E2E exist; those runtime deliverables remain assigned to later
+feature Specs by this Spec's Non-Goals and implementation Plan.
 
 **Input**: Complete the Phase 1 contract foundation so platform users receive
 Agent results through the Gateway, platform modules communicate through

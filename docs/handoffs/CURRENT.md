@@ -1,184 +1,104 @@
-# Current Handoff: Spec 001 Contract Closure
+# Current Handoff: Spec 001 Complete
 
-**Updated**: 2026-07-13 (Asia/Shanghai)  
-**Pause reason**: The user requested a repository-local checkpoint before
-switching devices. Do not continue implementation automatically from this
-checkpoint.
+**Updated**: 2026-07-14 (Asia/Hong_Kong)
+**State**: Spec 001 contract-foundation scope is complete.
 
-**Direction amendment**: After this implementation checkpoint, the project
-adopted the runtime-agnostic platform boundary in Constitution `1.1.0` and ADR
-0003. This amendment does not resume Spec 001 implementation; all module gates
-and the resume order below still apply.
+## Repository State
 
-## Resume Point
-
-- Repository: `E:\NeKiro`
+- Repository: `E:\Progarms\NeKiro`
 - Branch: `main`
-- HEAD: `46ca271` (`fix(contracts): tighten A2A conformance checks`)
-- Worktree: clean when this handoff was written
-- Push status: no push was performed
+- Remote base: `origin/main` at `bc4efc8`
+- Shared integration commit: `7ecc13b` (`feat(contracts): activate invocation contract set`)
+- Closure commit subject: `docs(spec): complete invocation contract closure`
 - Local Git identity: `Nene7ko_ <1604009816@qq.com>`
-- `origin` and `upstream` currently both point to
-  `https://github.com/XnLemon/NeKiro.git`
+- Push status: no push was performed
+- Expected worktree after the closure commit: clean
 
-The branch was locally rebased while parallel module commits were reconciled.
-The user explicitly accepted that rebase. It does not replace the required
-post-integration fetch/rebase onto the latest remote HEAD.
+The closure commit hash is intentionally not recorded here because this file is
+part of that commit.
 
-## Authoritative Sources
+## Completion Summary
 
-Read these before changing code:
+Spec 001 now provides the active contract set for the invocation foundation:
 
-- `AGENTS.md`
-- `.specify/memory/constitution.md`
-- `docs/architecture/platform-direction.md`
-- `docs/decisions/0003-runtime-agnostic-platform-boundary.md`
-- `specs/001-complete-invocation-contracts/spec.md`
-- `specs/001-complete-invocation-contracts/plan.md`
-- `specs/001-complete-invocation-contracts/data-model.md`
-- `specs/001-complete-invocation-contracts/tasks.md`
-- `specs/001-complete-invocation-contracts/contracts/`
-- `specs/001-complete-invocation-contracts/quickstart.md`
+- Agent Card Schema `0.2`
+- Northbound API `v2`
+- Control Plane Internal API `v1`
+- Router Internal API `v2`
+- Invocation Event Schema `0.2`
+- Platform Error `v2`
+- Invocation Result and Result Stream Event `v1`
+- A2A Profile Schema `0.2` over protocol `0.3.0`
 
-The task checkboxes have not yet been converged to the implementation state.
-Use commits, tests, and fresh Reviews as evidence; do not mark tasks complete
-solely from this handoff.
+Historical v1/0.1 artifacts remain readable migration evidence. The active Go
+mappings and Validator do not add a runtime dual-read compatibility path.
 
-## Required Workflow
+`specs/001-complete-invocation-contracts/tasks.md` maps FR-001 through FR-027
+and every US1/US2/US3/US4 acceptance scenario to concrete contract artifacts,
+implementation files, and passing tests. Spec Kit convergence found no
+actionable gaps and appended no tasks.
 
-- Continue Spec Kit SDD: observe/specify/clarify/plan/tasks/analyze before code.
-- Keep full Agent Runtime frameworks out of Control Plane and Router core;
-  framework-specific behavior belongs in adapters or sample Agents.
-- Features touching Agent integration must preserve the Phase 1 cross-runtime
-  acceptance proof defined by the platform direction.
-- The project intentionally implements approved behavior before mapped tests;
-  do not introduce TDD as the required workflow.
-- Every implementation Agent reads
-  `C:\Users\16040\.codex\skills\implement\SKILL.md`.
-- Every fresh Reviewer reads
-  `C:\Users\16040\.codex\skills\code-review\SKILL.md`.
-- A failed Review returns findings to Spec/Tasks before code fixes and requires
-  a new independent Reviewer after the fix.
-- Fallback-sensitive work follows
-  `C:\Users\16040\.codex\skills\ai-fallback-disable\SKILL.md`.
-- Frontend work remains paused.
+## Review Gates
 
-## Module Status
+- Module A, Result and Directional API Contracts: **PASS**
+- Module B, Agent Card Semantic Conformance: **PASS**
+- Module C, A2A Profile Conformance: **PASS**
+- Integrated Spec 001 Review: **PASS** (`High 0`, `Medium 0`, `Low 1`)
 
-### Module B: Agent Card Semantics - PASS
+The one non-blocking Low is in `contracts/a2a_profile_v02.go`: the active
+embedded Profile loader does not reject duplicate JSON members. The active
+Profile is a repository-owned embedded artifact, not external input. Address
+this before any future feature permits externally supplied Profile documents;
+do not add a speculative compatibility decoder or fallback now.
 
-Independent Review passed. The implemented contract covers Agent Card `0.2`,
-semantic rule IDs, credential-free endpoints, strict manifests, portable
-corpus-confined paths, and cross-version fixtures.
+## Verification
 
-Relevant branch commits by subject:
+The complete quickstart passed with checksum verification enabled in the
+current Go environment:
 
-- `1827f7f` `feat(contracts): add agent card semantic conformance`
-- `7dfa71d` `fix(contracts): tighten agent card conformance manifest`
-- `5ee03d3` `fix(contracts): harden agent card conformance inputs`
-- `62c8f56` `fix(contracts): reject nonportable fixture names`
-
-Do not reopen Module B without concrete evidence from the remaining shared
-scanner issue below or a new Review finding.
-
-### Module A: Result and API Contracts - REVIEW FAIL
-
-Latest implementation commit: `debeef1` (`fix(contracts): bind invocation
-responses`). The latest fresh Review confirmed all previous findings were fixed,
-including correlated post-creation errors, request-bound non-streaming results,
-recursive duplicate-member rejection, directional error precision,
-`INV-CORR-001`, stream interruption, explicit JSON null, and Ledger/result
-separation.
-
-One Medium finding remains:
-
-- `contracts/agent_card_semantics.go` uses `json.Decoder.Token` in the shared
-  duplicate-member scanner without `UseNumber`.
-- Module A calls this scanner from `contracts/result_contracts.go`.
-- A valid unconstrained result/chunk number such as `1e400` is rejected during
-  duplicate scanning because Go attempts `float64` conversion.
-- This violates arbitrary JSON preservation and creates cross-language drift.
-
-Do not patch this directly. First amend Spec 001, design artifacts, and Tasks to
-require valid large JSON number preservation at strict DTO boundaries and assign
-ownership of the shared scanner change. Then implement `UseNumber` at the shared
-scanner boundary, add result and chunk decode cases for `1e400`, run both Agent
-Card and result regressions, commit, and create a fresh Module A Reviewer.
-
-### Module C: A2A Profile - AWAITING FRESH REVIEW
-
-Latest implementation commit: `46ca271` (`fix(contracts): tighten A2A
-conformance checks`). It addresses the previous Review findings:
-
-- mandatory JSON-RPC response baseline, result/error exclusivity, and supported
-  string/number/null ID types;
-- exact stable failure classification matching manifest `protocolError`;
-- closed per-method A2A Profile operation variants;
-- mutation fixtures for boolean, object, and array response IDs.
-
-The implementation Agent reported these passing on the latest combined tree:
-
-```text
-go test -count=1 ./contracts -run TestA2AProfileConformance
+```powershell
+go test -count=1 ./contracts
+go test -count=1 ./contracts -run 'TestInvocationResult|TestInvocationResultStream|TestInvocationEvent'
+go test -count=1 ./contracts -run 'TestAgentCardConformance'
+go test -count=1 ./contracts -run 'TestA2AProfileConformance'
 go test -count=1 ./...
+go test -race -count=1 ./...
 go vet ./...
 git diff --check
 ```
 
-Fallback delta was `removed 0, retained 0, added 0, net +0`. There is no fresh
-independent Review after `46ca271`, so Module C is not yet PASS. The next action
-for Module C is review only; do not modify it before a fresh Reviewer reports a
-finding.
+The race-enabled full suite passed on `windows/amd64` with `CGO_ENABLED=1` and
+`CC=gcc` resolved to `E:\Software\Develop\msys64\mingw64\bin\gcc.exe`. Its
+result was `ok github.com/Nene7ko/NeKiro/contracts 7.991s`.
 
-## Shared Integration - NOT STARTED
+Fallback results for Module A, Module B, Module C, and Shared Integration were
+each `removed 0, retained 0, added 0, net 0`. Total added fallback count is
+zero. Added fallback evidence: none.
 
-Do not begin shared integration until Module A and Module C both explicitly
-PASS fresh independent Review.
+## Scope Boundary
 
-Remaining integration work is T025-T032 in
-`specs/001-complete-invocation-contracts/tasks.md`:
+This completion covers contract facts, mappings, validators, compatibility
+evidence, and conformance tests. It does not claim that the Frontend, Control
+Plane, A2A Router, SDKs, sample Agents, PostgreSQL-backed service domains, or
+the complete `Register -> Discover -> Install -> Invoke -> Record` runtime loop
+are implemented.
 
-- update active aliases/constants in `contracts/contracts.go`;
-- update active schemas/resources/validators in `contracts/validate.go`;
-- preserve historical parse checks in `contracts/contracts_test.go`;
-- add `contracts/active_contracts_integration_test.go`;
-- update current status references in `AGENTS.md` and `README.md`;
-- run every command in the Spec quickstart and commit the integration;
-- with a clean worktree, fetch `origin`, resolve its HEAD, rebase onto the latest
-  remote HEAD, and rerun all verification;
-- run a fresh integrated Review against that rebased remote base.
+Frontend work remains paused. The two-process routing demonstration and the
+cross-Runtime nested Agent E2E proof remain future feature work, as stated by
+Spec 001 Non-Goals and Plan.
 
-No remote push is authorized unless the user explicitly requests it.
+## Next Work
 
-## Resume Order
+Do not reopen Spec 001 unless a concrete contract defect or approved
+compatibility change requires it. Start the next backend capability with a new
+feature directory under `specs/` and run the full SDD sequence before service
+code:
 
-1. Verify `git status --short --branch` and confirm HEAD includes `46ca271`.
-2. Amend/analyze Spec 001 for Module A's large-number finding, then commit docs.
-3. Fix Module A through its implementation Agent, run A+B regressions, and
-   obtain a fresh independent Module A PASS.
-4. Independently review Module C commit `46ca271`; fix and re-review only if it
-   fails.
-5. Start shared integration only after both gates pass.
-6. Fetch/rebase onto the latest `origin/HEAD`, rerun the full quickstart, and run
-   the final integrated Review.
-7. Run Spec Kit convergence, update task/status artifacts, and produce the final
-   Spec 001 report.
+```text
+observe -> constitution -> specify -> clarify -> plan -> tasks -> analyze
+-> implement -> tests -> review -> converge
+```
 
-## Verification Notes
-
-- Checksum verification stays enabled. Recommended environment on this machine:
-  `GOPROXY=https://goproxy.cn,direct` and
-  `GOSUMDB=sum.golang.google.cn`.
-- `go test -race` has not been claimed because Windows currently has
-  `CGO_ENABLED=0` and no GCC toolchain.
-- Legacy Node artifacts and all `node_modules` directories were removed earlier;
-  package manifests and lockfiles were intentionally retained.
-
-## Suggested Skills
-
-- `speckit-specify` for the Module A requirement amendment
-- `speckit-analyze` after updating Spec/Plan/Tasks
-- `implement` for approved code changes
-- `code-review` for every fresh module and integrated Review
-- `ai-fallback-disable` for all failure/default/compatibility decisions
-- `speckit-converge` only after the final integrated Review passes
+The next feature should choose one owned backend slice that advances the Phase
+1 loop while preserving the Control Plane/Data Plane boundary. Frontend remains
+paused until separately resumed.
