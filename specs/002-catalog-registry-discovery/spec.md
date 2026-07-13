@@ -163,7 +163,10 @@ public outcomes, durable state, and secret-safe diagnostics.
   Card.
 - A valid Card uses a positive JSON integer beyond machine `int64` range for
   `maxInputBytes` or `maxOutputBytes`; the Go mapping must preserve the exact
-  number rather than reject or round it.
+  number rather than reject or round it. Values beyond PostgreSQL `numeric` /
+  `jsonb` range, such as `1e131072`, remain valid and must survive registration,
+  persistence, restart, exact reads, and Discovery without database numeric
+  coercion.
 - A publication state is committed but the derived discovery update fails
   before the operation can report success.
 - Search text is blank or over its declared length, a page size is outside its
@@ -184,7 +187,9 @@ public outcomes, durable state, and secret-safe diagnostics.
 - **FR-001**: The platform MUST accept registrations only for the active Agent
   Card contract and MUST apply both its structural and semantic validation.
   Active unbounded JSON integer fields MUST retain their exact number values
-  even when they exceed a machine integer range.
+  even when they exceed a machine integer or PostgreSQL `numeric` / `jsonb`
+  range. The durable Card fact MUST use a representation that does not parse or
+  coerce those number tokens at the database boundary.
 - **FR-002**: A successful registration MUST create one durable immutable draft
   identified by the exact `(agent_id, version)` pair and MUST assign its
   registration time at the platform boundary.

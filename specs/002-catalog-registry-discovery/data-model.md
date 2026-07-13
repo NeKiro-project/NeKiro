@@ -64,7 +64,9 @@ metadata.
 | `agent_id` | safe identifier | Foreign key to Agent Identity; part of primary key |
 | `version` | semantic-version string | Part of primary key; immutable |
 | `schema_version` | string | Required; active value is `0.2` |
-| `card` | JSON document | Required validated Agent Card; immutable |
+| `card` | JSON text | Required validated canonical Agent Card; immutable; database never coerces number tokens |
+| `card_name` | string | Required; transactionally derived from validated Card `name`; immutable |
+| `card_description` | string | Required; transactionally derived from validated Card `description`; immutable |
 | `card_digest` | 32-byte digest | Required SHA-256 of canonical mapped Card; immutable |
 | `publication_status` | enum | `draft`, `published`, or `disabled` |
 | `registered_at` | timestamp | Required; server assigned once |
@@ -82,11 +84,15 @@ Primary key: `(agent_id, version)`.
   transaction writes any row.
 - Re-registration never replaces or merges `card`, even when the new document
   has the same digest.
-- JSON storage may normalize insignificant whitespace and object member order;
-  logical JSON values, number values, and all contract fields remain unchanged.
+- Application canonicalization may normalize insignificant whitespace and
+  object member order before registration. The resulting JSON text is stored
+  byte-for-byte and returned without PostgreSQL JSON or numeric coercion.
 - Active Card integer fields without a Schema maximum, including
   `maxInputBytes` and `maxOutputBytes`, use arbitrary-precision JSON number
-  mappings rather than machine-range integer DTOs.
+  mappings rather than machine-range integer DTOs. Values beyond PostgreSQL
+  `numeric` / `jsonb` range remain valid and durable.
+- `card_name`, `card_description`, ownership, and capability rows are derived
+  only from the already validated mapped Card and commit with the Card fact.
 - Publication metadata is not inserted into the Card document.
 
 ### State/Timestamp Constraints
@@ -127,13 +133,14 @@ Primary key: `(agent_id, version, capability_id)`.
 Discovery reads a Registry-owned relational projection joining:
 
 - Agent Identity for immutable owner;
-- Agent Version for Card, status, and timestamps;
+- Agent Version for Card text, derived name/description, status, and timestamps;
 - Agent Version Capability when capability filtering is requested.
 
 It includes only `publication_status = published`. It is a query model, not a
 separately writable table. Free text compares the supplied literal substring
-case-insensitively against Card `name` and `description`; `%`, `_`, and escape
-characters in user text are literals rather than query wildcards.
+case-insensitively against the derived `card_name` and `card_description`
+columns; `%`, `_`, and escape characters in user text are literals rather than
+query wildcards. The immutable Card text remains the only full Card fact.
 
 ### Ordering
 

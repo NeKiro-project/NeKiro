@@ -18,8 +18,10 @@ identity-provider selection is in scope.
 - Ordered SQL migrations use pinned `tern/v2`, are embedded in the Control Plane
   binary, and run only through an explicit migration command. Serving verifies
   the expected schema version and never migrates automatically.
-- Agent identity, immutable Card version, lifecycle metadata, and capability
-  index rows commit transactionally. Discovery reads those Registry-owned facts
+- Agent identity, immutable canonical Card JSON text, derived name/description,
+  lifecycle metadata, and capability index rows commit transactionally. Text
+  storage prevents PostgreSQL `jsonb` numeric limits from rejecting valid
+  unbounded active Card numbers. Discovery reads those Registry-owned facts
   directly and stores no second Card copy.
 - Publication and disablement use row locking and database constraints.
   Publication additionally increments one Catalog-owned transactional clock
@@ -50,6 +52,9 @@ only; no runtime decoder, route, upgrade, or dual-read window is introduced.
 ## Consequences
 
 - Catalog writes and Discovery eligibility have one durable transactional truth.
+- Legal active JSON numbers beyond PostgreSQL `numeric` range remain durable;
+  database queryability comes from validated derived columns, not reparsing or
+  duplicating the full Card fact.
 - PostgreSQL/schema failure is visible as startup, readiness, or dependency
   failure rather than degraded success.
 - Deep pagination avoids offsets and excludes publications after traversal

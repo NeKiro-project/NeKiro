@@ -28,8 +28,9 @@ OpenAPI 3.1 and JSON Schema 2020-12 remain contract facts
 `github.com/jackc/pgx/v5 v5.10.0`;
 `github.com/jackc/tern/v2 v2.4.1`; existing contract validator packages
 
-**Storage**: PostgreSQL 17, Catalog-owned schema, immutable Agent Card `jsonb`,
-normalized owner/capability indexes, explicit embedded SQL migrations
+**Storage**: PostgreSQL 17, Catalog-owned schema, immutable Agent Card JSON text
+that preserves arbitrary legal JSON numbers, normalized owner/capability and
+name/description query columns, explicit embedded SQL migrations
 
 **Testing**: Go `testing` and `httptest`; existing contract tests; unit tests
 after implementation; real PostgreSQL integration/HTTP acceptance under an
@@ -90,10 +91,16 @@ design.*
 
 - PostgreSQL schema `catalog` is the sole durable Catalog data owner.
 - Agent identity and owner are immutable after first registration.
-- One `(agent_id, version)` row stores the validated Card as `jsonb`, its active
-  Schema version, canonical digest, state, and server timestamps.
-- Capability rows are derived from the Card and commit in the same registration
-  transaction. Discovery never writes or stores another full Card.
+- One `(agent_id, version)` row stores the validated canonical Card as JSON
+  `text`, its active Schema version, canonical digest, state, and server
+  timestamps. PostgreSQL must not parse the immutable Card fact as `jsonb`
+  because active unbounded numbers can exceed PostgreSQL `numeric` range.
+- Name and description columns plus capability rows are derived from the
+  validated Card and commit in the same registration transaction. Discovery
+  never writes or stores another full Card.
+- An ordered schema-v2 migration converts existing schema-v1 `jsonb` Cards to
+  text and backfills name/description before serving requires schema v2. This
+  is a forward migration, not runtime dual-read behavior.
 - SQL migrations are embedded and applied only through an explicit `migrate`
   command. Request-serving startup verifies schema but does not migrate it.
 
@@ -161,7 +168,8 @@ design.*
 - Unit tests cover policy and adapters without PostgreSQL.
 - Contract tests verify exact active OpenAPI mappings and historical artifacts.
 - Integration-tagged tests apply real migrations to a dedicated `_test`
-  database and exercise pgx transactions and HTTP acceptance.
+  database and exercise pgx transactions and HTTP acceptance, including a
+  legal positive number beyond PostgreSQL `jsonb` range.
 - CI provisions PostgreSQL and runs integration tests explicitly. Default
   `go test ./...` remains usable without Docker.
 

@@ -61,7 +61,9 @@ or invalid request correlation is never replaced with caller-controlled data.
   never passed to Registry persistence.
 - Go mappings preserve every active legal JSON integer exactly. In particular,
   unbounded positive `maxInputBytes` and `maxOutputBytes` values are not decoded
-  through `int64` or `float64`.
+  through `int64` or `float64`, and persistence must not pass them through a
+  bounded database numeric representation such as PostgreSQL `jsonb`. A value
+  such as `1e131072` is accepted and round-trips as the same JSON number value.
 - Path and query identifiers use the active common contract primitives.
 - Blank free text, explicit limits outside 1-100, malformed cursors, and cursors
   bound to different filters are validation failures.

@@ -76,6 +76,9 @@ Expected outcomes:
 
 - A valid Runtime-A Card registers as immutable draft, publishes, and appears in
   capability discovery.
+- A conforming Card with a positive number beyond PostgreSQL `jsonb` numeric
+  range registers, survives process reconstruction, and round-trips through
+  exact read and Discovery without coercion.
 - A valid Runtime-B Card follows the same path without loading either Runtime.
 - Invalid, duplicate, cross-owner, unauthenticated, forbidden, not-found, and
   illegal-state cases produce their distinct fixed outcomes.

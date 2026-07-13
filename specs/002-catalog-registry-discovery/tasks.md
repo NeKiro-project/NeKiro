@@ -378,6 +378,10 @@ and require a fresh independent Review before convergence.
     validated Medium findings make the round FAIL: unbounded body reads,
     machine-range Agent limits, incomplete Publication Clock readiness, and
     insufficiently synchronized concurrency coverage.
+  - Review round 2: fresh boundary-focused Reviewer
+    `019f5d04-ca84-7372-993b-d055ff874608` did not use OCR and returned
+    `High 0`, `Medium 1`, `Low 0`: PostgreSQL `jsonb` rejects an otherwise
+    valid unbounded number such as `1e131072`, so FR-001 fails at persistence.
 
 ### Review Round 1 Remediation
 
@@ -403,6 +407,27 @@ and require a fresh independent Review before convergence.
     Default, integration, split race, vet, build, and diff checks pass.
   - Review remediation fallback delta: removed `0`, retained `3`, added `0`,
     net `0`. Added fallback evidence: none.
+
+### Review Round 2 Remediation
+
+- [ ] T052 [Review-R2] Add an ordered Catalog schema-v2 migration that converts
+  the immutable Card fact from PostgreSQL `jsonb` to JSON `text`, backfills
+  transactionally derived `card_name` and `card_description`, and makes
+  readiness require schema v2 in `apps/control-plane/migrations/`,
+  `apps/control-plane/internal/catalog/postgres/migrations.go`, and migration
+  tests
+- [ ] T053 [Review-R2] Persist canonical Card text and derived free-text query
+  columns without PostgreSQL numeric coercion, while preserving immutable
+  digest, owner/capability transactionality, exact reads, and Discovery in
+  `apps/control-plane/internal/catalog/postgres/store.go`
+- [ ] T054 [Review-R2] Prove a conforming Card containing `1e131072` registers,
+  survives PostgreSQL storage and process reconstruction, and round-trips
+  through exact read and Discovery; retain the existing `1e400` contract
+  coverage in `tests/integration/catalog/catalog_test.go` and relevant migration
+  tests
+- [ ] T055 [Review-R2] Run default, real PostgreSQL integration, split race,
+  vet, build, Compose, migration, tidy-diff, and diff verification; report
+  fallback delta and create a fresh non-OCR independent Reviewer
 
 ---
 

@@ -47,24 +47,28 @@ visible at deployment boundaries.
 
 ## Decision 3: Store One Immutable Card Fact Plus Derived Index Rows
 
-**Decision**: Store each validated Agent Card as PostgreSQL `jsonb` in the
-Registry-owned version row, accompanied by its active Card Schema version and a
-SHA-256 digest of the canonical mapped Card. Keep Agent ownership in a stable
-Agent identity row. Store capability IDs in a transactionally maintained child
-table for exact filtering. Do not duplicate the full Card into Discovery.
+**Decision**: Store each validated canonical Agent Card as PostgreSQL `text` in
+the Registry-owned version row, accompanied by its active Card Schema version
+and a SHA-256 digest. Keep Agent ownership in a stable Agent identity row.
+Store name and description as transactionally derived columns and capability
+IDs in a transactionally maintained child table for filtering. Do not duplicate
+the full Card into Discovery.
 
-**Rationale**: `jsonb` preserves language-neutral Card data and supports exact
-version reads without normalizing every embedded input/output schema into
-business tables. Owner and capability rows enforce the cross-version and query
-rules efficiently while remaining derived from the validated Card in the same
-Registry transaction.
+**Rationale**: The active contract permits legal JSON number tokens beyond both
+machine integer range and PostgreSQL `numeric` range. PostgreSQL `jsonb` parses
+numbers through `numeric` and rejects values such as `1e131072`; JSON text
+preserves the validated canonical document without database coercion. Derived
+name, description, owner, and capability data enforce query rules efficiently
+while remaining transactionally tied to the single Registry Card fact.
 
 **Alternatives considered**:
 
 - Normalize every Agent Card field: rejected because arbitrary JSON Schemas
   would become a second, lossy contract model.
-- Store only raw text: rejected because queryable metadata and structural
-  integrity would depend entirely on application scans.
+- Store text without derived query columns: rejected because free-text and
+  capability queries would depend on reparsing every Card or application scans.
+- Store the Card as `jsonb`: rejected because PostgreSQL numeric limits reject
+  otherwise valid active Cards and therefore violate the DTO boundary.
 - Put historical Cards in object storage now: rejected because the current
   scale has no cold-storage requirement and would add another dependency.
 - Copy full Cards into a separate Discovery database: rejected because that
