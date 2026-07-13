@@ -1,8 +1,8 @@
 # Local development
 
-This runbook covers the repository's current local infrastructure baseline:
-the Go backend workspace, frontend tooling, and one PostgreSQL container. It
-is not a production deployment configuration.
+This runbook covers the runnable Catalog slice in the Go Control Plane, the
+frontend tooling baseline, and local PostgreSQL. It is not a production
+deployment configuration.
 
 ## Requirements
 
@@ -29,11 +29,17 @@ Every current variable is required:
 | `POSTGRES_PASSWORD` | Explicit credential for the bootstrap role |
 | `POSTGRES_DB` | Database created during first initialization |
 | `POSTGRES_PORT` | Available host port bound to container port 5432 |
+| `NEKIRO_COMPOSE_DATABASE_URL` | Explicit PostgreSQL URL used inside Compose; its host is normally `postgres` |
+| `NEKIRO_DEV_AUTH_PRINCIPALS_JSON` | Strict local principal array containing `id` and lowercase SHA-256 `tokenSha256` only |
+| `CONTROL_PLANE_PORT` | Available host loopback port for the Control Plane |
 
 Choose non-empty values locally. Do not commit `.env`, reuse these credentials
 for production, or place production credentials in this Compose deployment.
 Missing and empty values fail during Compose interpolation; there are no
-credential, database, host, or port defaults.
+credential, database, host, principal, token, or port defaults. URL-encode
+credential characters in `NEKIRO_COMPOSE_DATABASE_URL`. Generate each local
+bearer token outside `.env`, place only its SHA-256 digest in the principal
+JSON, and retain the raw token only in the invoking shell.
 
 Validate the configuration without rendering secrets to the terminal:
 
@@ -61,6 +67,49 @@ PostgreSQL is bound only to `127.0.0.1` on `POSTGRES_PORT`. The container also
 joins the isolated `platform-internal` network for future platform processes.
 The project-scoped `local-access` bridge exists only to make the loopback port
 binding reachable from the host.
+
+## Migrate and run the Catalog
+
+For a host process, set every required application variable explicitly:
+
+```powershell
+$env:NEKIRO_DATABASE_URL = 'postgresql://<user>:<url-encoded-password>@127.0.0.1:<port>/<database>?sslmode=disable'
+$env:NEKIRO_LISTEN_ADDRESS = '127.0.0.1:18080'
+$env:NEKIRO_AUTH_MODE = 'development-static'
+$env:NEKIRO_DEV_AUTH_PRINCIPALS_JSON = '<strict principal JSON from .env>'
+go run ./apps/control-plane/cmd/control-plane migrate up
+go run ./apps/control-plane/cmd/control-plane serve
+```
+
+`serve` verifies schema version and dependency readiness but never creates or
+upgrades schema. `migrate up` is the sole migration command. The process exposes
+`/livez` and `/readyz`; the five authenticated Catalog operations are under
+`/v2/agents`.
+
+To run the containerized local deployment, Compose executes the distinct
+`control-plane-migrate` one-shot service before `control-plane`:
+
+```powershell
+docker compose --env-file .env --file deploy/compose.yaml up --detach --wait
+docker compose --env-file .env --file deploy/compose.yaml ps
+```
+
+Committed Catalog rows remain in the PostgreSQL volume across process and
+container restarts. Logs and fixed errors omit bearer credentials, principal
+digests, Card bodies, schemas, SQL, DSNs, and raw dependency details.
+
+## Integration acceptance
+
+Use only a dedicated database whose name ends in `_test`. The suite drops the
+Catalog schema, applies migrations, and owns all data in that database:
+
+```powershell
+$env:NEKIRO_TEST_DATABASE_URL = 'postgresql://<user>:<url-encoded-password>@127.0.0.1:<port>/<database>_test?sslmode=disable'
+go test -tags=integration -count=1 ./tests/integration/catalog
+```
+
+The suffix guard is mandatory and prevents accidental execution against a
+shared, staging, or production database.
 
 ## Install and verify the workspace
 
@@ -100,6 +149,6 @@ This reset is destructive. For startup diagnosis, inspect the service state
 and logs directly:
 
 ```powershell
-docker compose --env-file .env --file deploy/compose.yaml ps postgres
-docker compose --env-file .env --file deploy/compose.yaml logs postgres
+docker compose --env-file .env --file deploy/compose.yaml ps
+docker compose --env-file .env --file deploy/compose.yaml logs postgres control-plane-migrate control-plane
 ```

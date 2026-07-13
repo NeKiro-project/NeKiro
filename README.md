@@ -27,18 +27,24 @@ different Runtime implementations. See
 
 ## Current status
 
-The repository currently has an active language-neutral contract set and its
-tested Go mappings: Agent Card `0.2`, Northbound API `v2`, Control Plane
+The repository has an active language-neutral contract set and its tested Go
+mappings: Agent Card `0.2`, Northbound API `v2`, Control Plane
 Internal API `v1`, Router Internal API `v2`, Invocation Event `0.2`, Platform
 Error `v2`, Invocation Result and Result Stream Event `v1`, and A2A Profile
 Schema `0.2` for protocol `0.3.0`. Historical `v1` and `0.1` artifacts remain
-readable migration evidence; the future runtime will not add speculative
-dual-read behavior for them.
+readable migration evidence; the runtime does not add speculative dual-read
+behavior for them.
 
-Frontend work remains paused. The Console, Control Plane, A2A Router, SDKs,
-sample Agents, and the complete end-to-end loop are not implemented in the
-current tree. A local PostgreSQL infrastructure baseline is available for later
-service work.
+The first runnable Control Plane slice now implements durable, authenticated
+`Register -> Publish -> Discover` Catalog behavior with PostgreSQL, immutable
+Agent Card versions, exact reads, disablement, stable cursor pagination,
+readiness, fixed errors, container wiring, and real HTTP/PostgreSQL acceptance.
+The cross-Runtime fixtures prove metadata portability only; no Agent endpoint
+is invoked.
+
+Frontend work remains paused. Workspace Installation, Invocation Dispatch, the
+A2A Router, Ledger, SDKs, live sample Agents, and the complete end-to-end loop
+remain unimplemented.
 
 The first-stage architecture keeps these boundaries:
 
@@ -76,12 +82,15 @@ pnpm install --frozen-lockfile
 Copy-Item .env.example .env
 ```
 
-Set all four required values in `.env`: `POSTGRES_USER`,
-`POSTGRES_PASSWORD`, `POSTGRES_DB`, and `POSTGRES_PORT`. No credential or port
-fallback is provided.
+Set every required value in `.env`: PostgreSQL bootstrap values, the explicit
+Compose database URL, a development principal digest array, and the Control
+Plane host port. Raw bearer tokens do not belong in `.env`; no credential,
+identity, database, address, or port fallback is provided.
 
 Validate the rendered Compose model without printing its environment, then
-start PostgreSQL and wait for its health check:
+start PostgreSQL and wait for its health check. The second command intentionally
+starts only the database; see the runbook for migration and Control Plane
+commands:
 
 ```powershell
 docker compose --env-file .env --file deploy/compose.yaml config --quiet
@@ -105,4 +114,5 @@ docker compose --env-file .env --file deploy/compose.yaml down
 ```
 
 See [Local development](docs/runbooks/local-development.md) for health,
-persistence, and reset procedures.
+persistence, migration, dedicated integration-database safeguards, and reset
+procedures.

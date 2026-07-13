@@ -84,34 +84,46 @@ identity, trace, and process foundations that block every user story.
 
 **CRITICAL**: Complete this phase before story-specific handlers or tests.
 
-- [ ] T007 Create the `catalog` schema, Agent identity/version/capability tables,
-  monotonic publication sequence, constraints, state/timestamp checks, indexes,
-  and tern sections in
+- [x] T007 Create the `catalog` schema, Agent identity/version/capability tables,
+  transactional publication clock, constraints, state/timestamp checks,
+  indexes, and tern sections in
   `apps/control-plane/migrations/001_catalog.sql`
-- [ ] T008 Add strict embedded tern migration loading and explicit schema
+  - Evidence: migration 001 owns the Catalog schema, immutable identity/version
+    facts, transactional capability index, legal state/timestamp matrix,
+    commit-ordered publication clock, deterministic lookup indexes, and
+    explicit tern down.
+- [x] T008 Add strict embedded tern migration loading and explicit schema
   version/readiness checks in
   `apps/control-plane/internal/catalog/postgres/migrations.go`
-- [ ] T009 Define Agent identity, immutable version, publication state,
+  - Evidence: migration content is compiled into the binary, tern accepts only
+    explicit up/down commands, and readiness verifies exact version 1 plus all
+    four required Catalog relations without creating or upgrading schema.
+- [x] T009 Define Agent identity, immutable version, publication state,
   discovery filter/result, domain errors, and the narrow Catalog Store port in
   `apps/control-plane/internal/catalog/model.go` and
   `apps/control-plane/internal/catalog/store.go`
-- [ ] T010 Implement required configuration parsing with no database, listen,
+- [x] T010 Implement required configuration parsing with no database, listen,
   auth-mode, principal, or credential defaults in
   `apps/control-plane/internal/config/config.go`
-- [ ] T011 Implement the replaceable Bearer `Authenticator` and strict explicit
+- [x] T011 Implement the replaceable Bearer `Authenticator` and strict explicit
   `development-static` principal-digest adapter with SHA-256 and constant-time
   comparison, without trusting caller-ID headers, in
   `apps/control-plane/internal/gateway/auth.go`
-- [ ] T012 [P] Implement startup-initialized trace generation and fixed Platform
+- [x] T012 [P] Implement startup-initialized trace generation and fixed Platform
   Error v2 HTTP mapping without secret/internal detail fields in
   `apps/control-plane/internal/gateway/trace.go` and
   `apps/control-plane/internal/gateway/errors.go`
-- [ ] T013 Create the standard-library route scaffold, JSON/media/path/query
+- [x] T013 Create the standard-library route scaffold, JSON/media/path/query
   boundary helpers, liveness, and readiness handlers in
   `apps/control-plane/internal/gateway/catalog_handler.go`
-- [ ] T014 Add explicit `serve`, `migrate`, and `healthcheck` command wiring,
+- [x] T014 Add explicit `serve`, `migrate`, and `healthcheck` command wiring,
   dependency construction, graceful shutdown, and no startup auto-migration in
   `apps/control-plane/cmd/control-plane/main.go`
+
+  - Evidence T009-T014: the domain/store port, strict URL/listen/auth config,
+    digest-only Bearer adapter, startup-seeded trace generator, fixed Platform
+    Error mapper, health routes, and explicit commands compile without defaults
+    or serve-time migration.
 
 **Checkpoint**: The process can be constructed only from explicit valid config,
 the Catalog schema has one migration owner, and no story behavior is yet
@@ -131,34 +143,39 @@ replacement or partial rows.
 
 ### Implementation for User Story 1
 
-- [ ] T015 [US1] Implement transactional Agent identity claim, immutable version
+- [x] T015 [US1] Implement transactional Agent identity claim, immutable version
   insert, capability index insert, exact read, and database error classification
   in `apps/control-plane/internal/catalog/postgres/store.go`
-- [ ] T016 [US1] Implement active Card validation, exact owner enforcement,
+- [x] T016 [US1] Implement active Card validation, exact owner enforcement,
   canonical digest, immutable duplicate semantics, and exact read visibility in
   `apps/control-plane/internal/catalog/service.go`
-- [ ] T017 [US1] Implement strict register and exact-version Northbound handlers,
+- [x] T017 [US1] Implement strict register and exact-version Northbound handlers,
   status/error mapping, authentication, and trace correlation in
   `apps/control-plane/internal/gateway/catalog_handler.go`
-- [ ] T018 [US1] Wire the registration/exact-read service and routes into the
+- [x] T018 [US1] Wire the registration/exact-read service and routes into the
   runnable process in `apps/control-plane/cmd/control-plane/main.go`
 
 ### Tests After User Story 1 Implementation
 
-- [ ] T019 [P] [US1] Add contract mapping tests for registration, exact read,
+- [x] T019 [P] [US1] Add contract mapping tests for registration, exact read,
   strict Card decoding, security, trace header, and `400/401/403/404/409/503`
   declarations plus historical v1 readability in
   `contracts/catalog_api_contracts_test.go`
-- [ ] T020 [P] [US1] Add post-implementation service tests for valid, invalid,
+- [x] T020 [P] [US1] Add post-implementation service tests for valid, invalid,
   duplicate, byte-equal duplicate, cross-owner, exact-read visibility, and
   immutable Card behavior in `apps/control-plane/internal/catalog/service_test.go`
-- [ ] T021 [P] [US1] Add strict configuration, authenticator, trace, fixed-error,
+- [x] T021 [P] [US1] Add strict configuration, authenticator, trace, fixed-error,
   registration HTTP, and exact-read HTTP tests in
   `apps/control-plane/internal/config/config_test.go` and
   `apps/control-plane/internal/gateway/catalog_handler_test.go`
-- [ ] T022 [US1] Add real migration/register/read/reconstruction and rollback
+- [x] T022 [US1] Add real migration/register/read/reconstruction and rollback
   acceptance cases using a guarded dedicated test database in
   `tests/integration/catalog/catalog_test.go`
+
+  - Evidence T015-T022: contract/unit tests and the dedicated PostgreSQL HTTP
+    suite prove strict active Card registration, `1e400` number preservation,
+    immutable duplicates, owner visibility, rollback, committed timestamp
+    equality, and restart reconstruction.
 
 **Checkpoint**: User Story 1 independently proves a durable immutable Registry
 fact through the Gateway boundary.
@@ -175,29 +192,35 @@ immediate exclusion and historical exact read, then repeat/compete transitions.
 
 ### Implementation for User Story 2
 
-- [ ] T023 [US2] Implement row-locked publish and idempotent disable transactions,
-  first timestamp/sequence preservation, and legal race outcomes in
+- [x] T023 [US2] Implement row-locked publish, the commit-ordered transactional
+  publication clock, idempotent disable transactions, first timestamp/sequence
+  preservation, and legal race outcomes in
   `apps/control-plane/internal/catalog/postgres/store.go`
-- [ ] T024 [US2] Implement owner-authorized publication/disable state policy and
+- [x] T024 [US2] Implement owner-authorized publication/disable state policy and
   exact conflict/not-found/forbidden/dependency classification in
   `apps/control-plane/internal/catalog/service.go`
-- [ ] T025 [US2] Implement publish and disable Northbound handlers and route
+- [x] T025 [US2] Implement publish and disable Northbound handlers and route
   bindings in `apps/control-plane/internal/gateway/catalog_handler.go` and
   `apps/control-plane/cmd/control-plane/main.go`
 
 ### Tests After User Story 2 Implementation
 
-- [ ] T026 [P] [US2] Add post-implementation lifecycle unit cases for first
+- [x] T026 [P] [US2] Add post-implementation lifecycle unit cases for first
   publication time, illegal publish, draft/published disable, repeated disable,
   disabled exact visibility, and owner rejection in
   `apps/control-plane/internal/catalog/service_test.go`
-- [ ] T027 [P] [US2] Add publish/disable OpenAPI contract mappings plus HTTP
+- [x] T027 [P] [US2] Add publish/disable OpenAPI contract mappings plus HTTP
   status, fixed-error, and trace cases in
   `contracts/catalog_api_contracts_test.go` and
   `apps/control-plane/internal/gateway/catalog_handler_test.go`
-- [ ] T028 [US2] Add real PostgreSQL publish/disable, timestamp, concurrent race,
+- [x] T028 [US2] Add real PostgreSQL publish/disable, timestamp, concurrent race,
   immediate eligibility/exclusion, and restart durability cases in
   `tests/integration/catalog/catalog_test.go`
+
+  - Evidence T023-T028: exact-row locks and the transactional clock enforce
+    legal publication order; service/HTTP/integration cases cover conflict,
+    forbidden, draft/published disable, idempotency, races, immediate
+    eligibility/exclusion, and durable first timestamps.
 
 **Checkpoint**: User Stories 1 and 2 independently prove immutable version and
 publication lifecycle behavior.
@@ -215,33 +238,41 @@ cursor semantics.
 
 ### Implementation for User Story 3
 
-- [ ] T029 [US3] Implement strict filter normalization, explicit default limit,
+- [x] T029 [US3] Implement strict filter normalization, explicit default limit,
   cursor v1 encode/decode, duplicate-member rejection, filter hashing, monotonic
   snapshot sequence, and keyset predicates in
   `apps/control-plane/internal/catalog/cursor.go`
-- [ ] T030 [US3] Implement published-only literal text, exact owner/capability,
-  AND filtering, snapshot boundary, ordering, look-ahead cursor, and concurrent
-  disable exclusion SQL in `apps/control-plane/internal/catalog/postgres/store.go`
-- [ ] T031 [US3] Implement discovery service validation and the authenticated
+- [x] T030 [US3] Implement published-only literal text, exact owner/capability,
+  AND filtering, repeatable-read first-page snapshot boundary, ordering,
+  look-ahead cursor, and concurrent disable exclusion SQL in
+  `apps/control-plane/internal/catalog/postgres/store.go`
+- [x] T031 [US3] Implement discovery service validation and the authenticated
   search handler with explicit empty success and dependency failure in
   `apps/control-plane/internal/catalog/service.go` and
   `apps/control-plane/internal/gateway/catalog_handler.go`
 
 ### Tests After User Story 3 Implementation
 
-- [ ] T032 [P] [US3] Add cursor/filter unit tests for default `25`, explicit
+- [x] T032 [P] [US3] Add cursor/filter unit tests for default `25`, explicit
   bounds, literal wildcard escaping, strict payload decoding, filter mismatch,
   ordering tuple, and no silent restart in
   `apps/control-plane/internal/catalog/cursor_test.go`
-- [ ] T033 [P] [US3] Add search OpenAPI mappings and HTTP tests for
+- [x] T033 [P] [US3] Add search OpenAPI mappings and HTTP tests for
   published-only visibility, free-text/capability/owner/AND filters, empty
   items, default/explicit limit, malformed inputs, authentication, cursor
   errors, and dependency errors in `contracts/catalog_api_contracts_test.go` and
   `apps/control-plane/internal/gateway/catalog_handler_test.go`
-- [ ] T034 [US3] Add real PostgreSQL 1,000-result traversal, tie ordering, new
-  publication exclusion, between-page disablement, no duplicate/missing result,
+- [x] T034 [US3] Add real PostgreSQL 1,000-result traversal, tie ordering, new
+  publication exclusion including a lower-sequence transaction delayed past the
+  first-page snapshot, between-page disablement, no duplicate/missing result,
   and 10,000-version first-page latency cases in
   `tests/integration/catalog/catalog_test.go`
+
+  - Evidence T029-T034: strict cursor/filter tests and the PostgreSQL suite
+    prove literal `%`/`_`, exact AND filters, malformed/filter-mismatched cursor
+    rejection, repeatable-read first pages, commit-ordered delayed publication
+    exclusion, between-page disablement, 999 expected stable results after one
+    disable, and the 10,000-version latency target.
 
 **Checkpoint**: `Register -> Publish -> Discover` is runnable without Workspace,
 Router, Agent endpoint, Runtime, or Frontend.
@@ -259,34 +290,40 @@ exclusions through the actual HTTP and PostgreSQL boundaries.
 
 ### Implementation for User Story 4
 
-- [ ] T035 [US4] Complete dependency failure, readiness/schema mismatch,
+- [x] T035 [US4] Complete dependency failure, readiness/schema mismatch,
   secret-safe structured logging, response header/body trace equality, and
   request-body exclusion behavior in
   `apps/control-plane/internal/gateway/catalog_handler.go`,
   `apps/control-plane/internal/gateway/errors.go`, and
   `apps/control-plane/cmd/control-plane/main.go`
-- [ ] T036 [US4] Add the runnable Control Plane container and explicit local
+- [x] T036 [US4] Add the runnable Control Plane container and explicit local
   configuration with no application defaults in
   `apps/control-plane/Dockerfile`, `deploy/compose.yaml`, and `.env.example`
-- [ ] T037 [US4] Document migration, readiness, generated development auth,
+- [x] T037 [US4] Document migration, readiness, generated development auth,
   process startup/shutdown, data persistence, and destructive test-database
   guard in `docs/runbooks/local-development.md` and `README.md`
 
 ### Tests After User Story 4 Implementation
 
-- [ ] T038 [P] [US4] Add post-implementation missing/blank/invalid config,
+- [x] T038 [P] [US4] Add post-implementation missing/blank/invalid config,
   unsupported auth mode, malformed/duplicate principal digests, constant-time
   token authentication, token/digest redaction,
   dependency failure, readiness, and trace equality tests in
   `apps/control-plane/internal/config/config_test.go` and
   `apps/control-plane/internal/gateway/catalog_handler_test.go`
-- [ ] T039 [US4] Add Runtime-A/Runtime-B Card fixtures plus complete HTTP
+- [x] T039 [US4] Add Runtime-A/Runtime-B Card fixtures plus complete HTTP
   Register -> Publish -> Discover -> Disable, migration idempotency, restart,
   under-two-minute primary workflow, failure injection, no-fallback, secret
   exclusion, and dedicated-database guard acceptance in
   `tests/fixtures/catalog/runtime-a-card.json`,
   `tests/fixtures/catalog/runtime-b-card.json`, and
   `tests/integration/catalog/catalog_test.go`
+
+  - Evidence T035-T039: schema rename/version mismatch and dependency tests stay
+    explicit, response/header traces match, captured logs exclude credentials
+    and Card content, strict config rejects libpq defaults, migration down/up is
+    verified, two Runtime-independent fixtures complete the Catalog workflow,
+    and the `_test` database suffix guard protects destructive acceptance.
 
 **Checkpoint**: All four user stories and explicit failure semantics are
 implemented and independently testable.
@@ -298,20 +335,33 @@ implemented and independently testable.
 **Purpose**: Integrate repository automation, execute every acceptance command,
 and require a fresh independent Review before convergence.
 
-- [ ] T040 Update CI to provision a dedicated PostgreSQL service, run migrations
+- [x] T040 Update CI to provision a dedicated PostgreSQL service, run migrations
   and integration-tagged Catalog tests, and leave pnpm lockfile and
   `minimumReleaseAge` policy unchanged in `.github/workflows/ci.yml`
-- [ ] T041 Run `gofmt` on all changed Go files and execute every command in
+- [x] T041 Run `gofmt` on all changed Go files and execute every command in
   `specs/002-catalog-registry-discovery/quickstart.md`, including default,
   integration, race, vet, build, Compose config, and diff checks; record the
   implementation fallback delta/evidence and verify dependency/scope scans show
   no Agent Runtime, Workspace, Router, Ledger, Frontend, historical runtime, or
   deployment implementation in
   `specs/002-catalog-registry-discovery/tasks.md`
-- [ ] T042 Commit runtime and post-implementation test work with repository-local
+  - Evidence: contract, Control Plane, integration, full repository, split race,
+    vet, binary build, Compose config, pinned Docker image build, module tidy,
+    and `git diff --check` passed on 2026-07-14. Scope scans found no Runtime
+    framework, Workspace, Router, Ledger, Frontend, historical runtime,
+    in-memory store, cache, or retry implementation; pnpm policy files and
+    historical v1/0.1 artifacts are unchanged.
+  - Fallback delta: removed `0`, retained `3`, added `0`, net `0`.
+    Added fallback evidence: none. Retained policies remain omitted limit `25`,
+    genuine empty discovery, and idempotent disablement.
+- [x] T042 Commit runtime and post-implementation test work with repository-local
   identity using logical Catalog commits, leaving the worktree clean and without
   push; record commit subjects in
   `specs/002-catalog-registry-discovery/tasks.md`
+  - Evidence: repository-local identity created `docs(spec): serialize catalog
+    publication order`, `feat(control-plane): implement catalog registration
+    and discovery`, and `test(catalog): verify postgres and http workflows`;
+    the final status-document commit completes the clean no-push checkpoint.
 - [ ] T043 Fetch `origin`, resolve its current HEAD, rebase the clean feature
   branch without force onto that remote base, rerun the full quickstart, and
   record the exact base in `specs/002-catalog-registry-discovery/tasks.md`

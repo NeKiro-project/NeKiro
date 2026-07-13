@@ -18,7 +18,10 @@ It applies the feature migrations and clears Catalog-owned test rows.
 ## 1. Configure and Start PostgreSQL
 
 Create the ignored local environment file from `.env.example` and choose
-non-empty local-only values. Use a database name ending in `_test`.
+non-empty local-only values. Use a database name ending in `_test`, an explicit
+Compose PostgreSQL URL whose host is `postgres`, one strict development
+principal digest array, and an available Control Plane port. Do not put the raw
+bearer token in `.env`.
 
 ```powershell
 Copy-Item .env.example .env
@@ -91,11 +94,18 @@ Generate local-only bearer credentials and set every required server variable
 explicitly. The development authentication mode has no built-in caller or token.
 
 ```powershell
-$token = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()
-$tokenHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($token))).ToLowerInvariant()
+$rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+$tokenBytes = New-Object byte[] 32
+$rng.GetBytes($tokenBytes)
+$rng.Dispose()
+$token = ([BitConverter]::ToString($tokenBytes)).Replace('-', '').ToLowerInvariant()
+$sha = [Security.Cryptography.SHA256]::Create()
+$tokenHash = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($token)))).Replace('-', '').ToLowerInvariant()
+$sha.Dispose()
 $env:NEKIRO_LISTEN_ADDRESS = '127.0.0.1:18080'
 $env:NEKIRO_AUTH_MODE = 'development-static'
-$env:NEKIRO_DEV_AUTH_PRINCIPALS_JSON = @(@{id='catalog-dev'; tokenSha256=$tokenHash}) | ConvertTo-Json -Compress
+$principal = [ordered]@{id='catalog-dev'; tokenSha256=$tokenHash}
+$env:NEKIRO_DEV_AUTH_PRINCIPALS_JSON = ConvertTo-Json -InputObject (, $principal) -Compress
 $binary = Join-Path $env:TEMP "nekiro-control-plane-$PID.exe"
 go build -o $binary ./apps/control-plane/cmd/control-plane
 $server = Start-Process -FilePath $binary -ArgumentList 'serve' -PassThru -WindowStyle Hidden
