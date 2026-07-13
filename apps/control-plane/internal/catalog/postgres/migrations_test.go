@@ -7,14 +7,26 @@ import (
 	"testing"
 )
 
-func TestEmbeddedMigrationMatchesOwnedSQLFile(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "migrations", "001_catalog.sql"))
-	if err != nil {
-		t.Fatalf("read owned migration: %v", err)
+func TestEmbeddedMigrationsMatchOwnedSQLFiles(t *testing.T) {
+	tests := []struct {
+		name     string
+		filename string
+		embedded string
+	}{
+		{name: "schema v1", filename: "001_catalog.sql", embedded: migration001},
+		{name: "schema v2", filename: "002_card_text.sql", embedded: migration002},
 	}
-	want := strings.ReplaceAll(string(data), "\r\n", "\n")
-	got := strings.ReplaceAll(migration001, "\r\n", "\n")
-	if got != want {
-		t.Fatal("embedded migration differs from apps/control-plane/migrations/001_catalog.sql")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join("..", "..", "..", "migrations", test.filename))
+			if err != nil {
+				t.Fatalf("read owned migration: %v", err)
+			}
+			want := strings.ReplaceAll(string(data), "\r\n", "\n")
+			got := strings.ReplaceAll(test.embedded, "\r\n", "\n")
+			if got != want {
+				t.Fatalf("embedded migration differs from apps/control-plane/migrations/%s", test.filename)
+			}
+		})
 	}
 }

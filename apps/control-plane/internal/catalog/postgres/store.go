@@ -55,14 +55,16 @@ FOR UPDATE`, version.Card.AgentID).Scan(&ownerID); err != nil {
 	var storedRegisteredAt time.Time
 	err = tx.QueryRow(ctx, `
 INSERT INTO catalog.agent_versions (
-    agent_id, version, schema_version, card, card_digest,
-    publication_status, registered_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7)
+    agent_id, version, schema_version, card, card_name, card_description,
+    card_digest, publication_status, registered_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING registered_at`,
 		version.Card.AgentID,
 		version.Card.Version,
 		version.Card.SchemaVersion,
 		string(version.CardJSON),
+		version.Card.Name,
+		version.Card.Description,
 		version.CardDigest[:],
 		version.Status,
 		version.RegisteredAt,
@@ -226,7 +228,7 @@ func discover(ctx context.Context, database rowQuerier, query catalog.DiscoveryQ
 	rows, err := database.Query(ctx, selectVersionSQL+`
 WHERE v.publication_status = 'published'
   AND v.publication_sequence <= $1
-  AND ($2::text IS NULL OR strpos(lower(v.card->>'name'), lower($2)) > 0 OR strpos(lower(v.card->>'description'), lower($2)) > 0)
+  AND ($2::text IS NULL OR strpos(lower(v.card_name), lower($2)) > 0 OR strpos(lower(v.card_description), lower($2)) > 0)
   AND ($3::text IS NULL OR EXISTS (
       SELECT 1 FROM catalog.agent_version_capabilities c
       WHERE c.agent_id = v.agent_id AND c.version = v.version AND c.capability_id = $3

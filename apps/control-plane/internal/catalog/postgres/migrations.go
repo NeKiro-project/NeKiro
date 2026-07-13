@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/tern/v2/migrate"
 )
 
-const ExpectedSchemaVersion int32 = 1
+const ExpectedSchemaVersion int32 = 2
 
 var ErrSchemaVersionMismatch = errors.New("catalog schema version mismatch")
 
@@ -105,8 +105,31 @@ DROP TABLE catalog.agent_identities;
 DROP TABLE catalog.publication_clock;
 `
 
+// migration002 is generated from apps/control-plane/migrations/002_card_text.sql.
+const migration002 = `ALTER TABLE catalog.agent_versions
+    ADD COLUMN card_name text,
+    ADD COLUMN card_description text;
+
+UPDATE catalog.agent_versions
+SET card_name = card->>'name',
+    card_description = card->>'description';
+
+ALTER TABLE catalog.agent_versions
+    ALTER COLUMN card_name SET NOT NULL,
+    ALTER COLUMN card_description SET NOT NULL,
+    ALTER COLUMN card TYPE text USING card::text;
+
+---- create above / drop below ----
+
+ALTER TABLE catalog.agent_versions
+    ALTER COLUMN card TYPE jsonb USING card::jsonb,
+    DROP COLUMN card_description,
+    DROP COLUMN card_name;
+`
+
 var migrationFiles = fstest.MapFS{
-	"001_catalog.sql": &fstest.MapFile{Data: []byte(migration001), Mode: 0o444},
+	"001_catalog.sql":   &fstest.MapFile{Data: []byte(migration001), Mode: 0o444},
+	"002_card_text.sql": &fstest.MapFile{Data: []byte(migration002), Mode: 0o444},
 }
 
 type RowQuerier interface {

@@ -21,11 +21,13 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/Nene7ko/NeKiro/contracts"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/tern/v2/migrate"
 )
 
 const (
@@ -61,10 +63,13 @@ func TestCatalogPostgreSQLAndHTTPAcceptance(t *testing.T) {
 	resetCatalog(t, pool)
 
 	binary := buildControlPlane(t, root)
+	assertV1ToV2Migration(t, databaseURL, root, pool)
 	runCommand(t, root, databaseURL, binary, "migrate", "up")
+	assertCatalogSchemaV2(t, pool)
 	runCommand(t, root, databaseURL, binary, "migrate", "up")
 	runCommand(t, root, databaseURL, binary, "migrate", "down")
 	runCommand(t, root, databaseURL, binary, "migrate", "up")
+	assertCatalogSchemaV2(t, pool)
 
 	server := startServer(t, root, databaseURL, binary)
 	defer func() {
@@ -95,6 +100,48 @@ func TestCatalogPostgreSQLAndHTTPAcceptance(t *testing.T) {
 			t.Fatalf("registration response time = %s, stored = %s, err = %v", draftEntry.RegisteredAt, storedRegisteredAt, err)
 		}
 		assertPlatformError(t, request(t, http.MethodPost, server.baseURL+"/v2/agents", ownerAToken, registrationEnvelope(t, runtimeA)), http.StatusConflict, contracts.ErrorCodeConflict)
+
+		boundaryCard := decodeCard(t, runtimeA)
+		boundaryCard.AgentID = "unbounded-number-agent"
+		boundaryCard.Name = "Unbounded Number Agent"
+		boundaryCard.Description = "Preserves JSON numbers beyond PostgreSQL numeric range."
+		boundaryCard.Skills[0].ID = "number.boundary"
+		boundaryCard.Skills[0].Name = "Number boundary"
+		boundaryCard.Limits.MaxInputBytes = json.Number("1e131072")
+		boundary := request(t, http.MethodPost, server.baseURL+"/v2/agents", ownerAToken, registrationEnvelope(t, mustJSON(t, boundaryCard)))
+		boundaryEntry := decodeEntry(t, boundary)
+		if boundary.status != http.StatusCreated {
+			t.Fatalf("unbounded number registration = %d %s", boundary.status, boundary.body)
+		}
+		if got := boundaryEntry.Card.Limits.MaxInputBytes.String(); got != "1e131072" {
+			t.Fatalf("unbounded response number = %s, want 1e131072", got)
+		}
+		var storedCard, cardType, storedName, storedDescription string
+		if err := pool.QueryRow(ctx, `
+SELECT card, pg_typeof(card)::text, card_name, card_description
+FROM catalog.agent_versions
+WHERE agent_id = 'unbounded-number-agent' AND version = '1.0.0'`).Scan(
+			&storedCard,
+			&cardType,
+			&storedName,
+			&storedDescription,
+		); err != nil {
+			t.Fatal(err)
+		}
+		storedBoundaryCard := decodeCard(t, []byte(storedCard))
+		if cardType != "text" || storedBoundaryCard.Limits.MaxInputBytes.String() != "1e131072" {
+			t.Fatalf("stored Card type/number = %s/%s", cardType, storedBoundaryCard.Limits.MaxInputBytes)
+		}
+		if storedName != boundaryCard.Name || storedDescription != boundaryCard.Description {
+			t.Fatalf("derived text = %q/%q", storedName, storedDescription)
+		}
+		if result := request(t, http.MethodPost, server.baseURL+"/v2/agents/unbounded-number-agent/versions/1.0.0/publish", ownerAToken, nil); result.status != http.StatusOK {
+			t.Fatalf("publish unbounded number Card = %d %s", result.status, result.body)
+		}
+		boundaryDiscovery := decodeSearch(t, request(t, http.MethodGet, server.baseURL+"/v2/agents?query=PostgreSQL&capability=number.boundary", userToken, nil))
+		if len(boundaryDiscovery.Items) != 1 || boundaryDiscovery.Items[0].Card.Limits.MaxInputBytes.String() != "1e131072" {
+			t.Fatalf("unbounded number Discovery = %#v", boundaryDiscovery)
+		}
 
 		invalid := append([]byte(nil), runtimeA...)
 		invalid = bytes.Replace(invalid, []byte(`"schemaVersion": "0.2"`), []byte(`"schemaVersion": "0.1"`), 1)
@@ -241,6 +288,14 @@ func TestCatalogPostgreSQLAndHTTPAcceptance(t *testing.T) {
 		if result := request(t, http.MethodGet, server.baseURL+"/v2/agents/runtime-b/versions/1.0.0", userToken, nil); result.status != http.StatusOK {
 			t.Fatalf("durable read after restart = %d %s", result.status, result.body)
 		}
+		boundaryRead := decodeEntry(t, request(t, http.MethodGet, server.baseURL+"/v2/agents/unbounded-number-agent/versions/1.0.0", userToken, nil))
+		if got := boundaryRead.Card.Limits.MaxInputBytes.String(); got != "1e131072" {
+			t.Fatalf("unbounded number after restart = %s", got)
+		}
+		boundaryDiscovery := decodeSearch(t, request(t, http.MethodGet, server.baseURL+"/v2/agents?capability=number.boundary", userToken, nil))
+		if len(boundaryDiscovery.Items) != 1 || boundaryDiscovery.Items[0].Card.AgentID != "unbounded-number-agent" || boundaryDiscovery.Items[0].Card.Limits.MaxInputBytes.String() != "1e131072" {
+			t.Fatalf("unbounded Discovery after restart = %#v", boundaryDiscovery)
+		}
 
 		if _, err := pool.Exec(ctx, `ALTER SCHEMA catalog RENAME TO catalog_unavailable`); err != nil {
 			t.Fatal(err)
@@ -250,13 +305,13 @@ func TestCatalogPostgreSQLAndHTTPAcceptance(t *testing.T) {
 		if _, err := pool.Exec(ctx, `ALTER SCHEMA catalog_unavailable RENAME TO catalog`); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := pool.Exec(ctx, `UPDATE catalog.schema_version SET version = 2`); err != nil {
+		if _, err := pool.Exec(ctx, `UPDATE catalog.schema_version SET version = 3`); err != nil {
 			t.Fatal(err)
 		}
 		if ready := request(t, http.MethodGet, server.baseURL+"/readyz", "", nil); ready.status != http.StatusServiceUnavailable {
 			t.Fatalf("schema mismatch readiness = %d", ready.status)
 		}
-		if _, err := pool.Exec(ctx, `UPDATE catalog.schema_version SET version = 1`); err != nil {
+		if _, err := pool.Exec(ctx, `UPDATE catalog.schema_version SET version = 2`); err != nil {
 			t.Fatal(err)
 		}
 		var lastSequence int64
@@ -392,6 +447,100 @@ func resetCatalog(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(), `DROP SCHEMA IF EXISTS catalog CASCADE`); err != nil {
 		t.Fatalf("reset dedicated Catalog schema: %v", err)
+	}
+}
+
+func assertCatalogSchemaV2(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	var version int
+	var cardType string
+	var nameRequired, descriptionRequired bool
+	err := pool.QueryRow(context.Background(), `
+SELECT sv.version,
+       format_type(card.atttypid, card.atttypmod),
+       name.attnotnull,
+       description.attnotnull
+FROM catalog.schema_version sv
+JOIN pg_attribute card
+  ON card.attrelid = 'catalog.agent_versions'::regclass
+ AND card.attname = 'card'
+ AND NOT card.attisdropped
+JOIN pg_attribute name
+  ON name.attrelid = card.attrelid
+ AND name.attname = 'card_name'
+ AND NOT name.attisdropped
+JOIN pg_attribute description
+  ON description.attrelid = card.attrelid
+ AND description.attname = 'card_description'
+ AND NOT description.attisdropped`).Scan(&version, &cardType, &nameRequired, &descriptionRequired)
+	if err != nil {
+		t.Fatalf("inspect Catalog schema v2: %v", err)
+	}
+	if version != 2 || cardType != "text" || !nameRequired || !descriptionRequired {
+		t.Fatalf("Catalog schema = version %d, Card %s, name required %t, description required %t", version, cardType, nameRequired, descriptionRequired)
+	}
+}
+
+func assertV1ToV2Migration(t *testing.T, databaseURL, root string, pool *pgxpool.Pool) {
+	t.Helper()
+	ctx := context.Background()
+	connection, err := pgx.Connect(ctx, databaseURL)
+	if err != nil {
+		t.Fatalf("connect migration assertion database: %v", err)
+	}
+	defer connection.Close(ctx)
+	if _, err := connection.Exec(ctx, `CREATE SCHEMA catalog`); err != nil {
+		t.Fatalf("create migration assertion schema: %v", err)
+	}
+	migrationFS := fstest.MapFS{}
+	for _, filename := range []string{"001_catalog.sql", "002_card_text.sql"} {
+		data, err := os.ReadFile(filepath.Join(root, "apps", "control-plane", "migrations", filename))
+		if err != nil {
+			t.Fatalf("read %s: %v", filename, err)
+		}
+		migrationFS[filename] = &fstest.MapFile{Data: data, Mode: 0o444}
+	}
+	migrator, err := migrate.NewMigrator(ctx, connection, "catalog.schema_version")
+	if err != nil {
+		t.Fatalf("initialize migration assertion: %v", err)
+	}
+	if err := migrator.LoadMigrations(migrationFS); err != nil {
+		t.Fatalf("load migration assertion files: %v", err)
+	}
+	if err := migrator.MigrateTo(ctx, 1); err != nil {
+		t.Fatalf("migrate assertion schema to v1: %v", err)
+	}
+	registeredAt := time.Date(2026, 7, 14, 0, 0, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO catalog.agent_identities (agent_id, owner_id, created_at)
+VALUES ('migration-agent', 'catalog-owner-a', $1)`, registeredAt); err != nil {
+		t.Fatalf("seed v1 identity: %v", err)
+	}
+	card := `{"schemaVersion":"0.2","agentId":"migration-agent","name":"Migration Agent","description":"Existing v1 Card","owner":{"id":"catalog-owner-a"},"version":"1.0.0"}`
+	cardDigest := sha256.Sum256([]byte(card))
+	if _, err := pool.Exec(ctx, `
+INSERT INTO catalog.agent_versions (
+    agent_id, version, schema_version, card, card_digest,
+    publication_status, registered_at
+) VALUES ('migration-agent', '1.0.0', '0.2', $1, $2, 'draft', $3)`, card, cardDigest[:], registeredAt); err != nil {
+		t.Fatalf("seed v1 Card: %v", err)
+	}
+	if err := migrator.MigrateTo(ctx, 2); err != nil {
+		t.Fatalf("migrate assertion schema to v2: %v", err)
+	}
+	assertCatalogSchemaV2(t, pool)
+	var storedCard, name, description string
+	if err := pool.QueryRow(ctx, `
+SELECT card, card_name, card_description
+FROM catalog.agent_versions
+WHERE agent_id = 'migration-agent' AND version = '1.0.0'`).Scan(&storedCard, &name, &description); err != nil {
+		t.Fatalf("read migrated v1 Card: %v", err)
+	}
+	if name != "Migration Agent" || description != "Existing v1 Card" || !strings.Contains(storedCard, `"agentId": "migration-agent"`) {
+		t.Fatalf("migrated v1 Card = %q, %q, %s", name, description, storedCard)
+	}
+	if err := migrator.MigrateTo(ctx, 0); err != nil {
+		t.Fatalf("roll back migration assertion schema: %v", err)
 	}
 }
 
@@ -671,10 +820,10 @@ func seedPublishedVersions(t *testing.T, pool *pgxpool.Pool, start, count int) {
 		cardJSON := mustJSON(t, card)
 		cardDigest := sha256.Sum256(cardJSON)
 		sequence++
-		versionRows = append(versionRows, []any{"scale-agent", version, "0.2", string(cardJSON), cardDigest[:], "published", registeredAt, registeredAt, sequence, nil})
+		versionRows = append(versionRows, []any{"scale-agent", version, "0.2", string(cardJSON), card.Name, card.Description, cardDigest[:], "published", registeredAt, registeredAt, sequence, nil})
 		capabilityRows = append(capabilityRows, []any{"scale-agent", version, "scale.test"})
 	}
-	if _, err := tx.CopyFrom(ctx, pgx.Identifier{"catalog", "agent_versions"}, []string{"agent_id", "version", "schema_version", "card", "card_digest", "publication_status", "registered_at", "published_at", "publication_sequence", "disabled_at"}, pgx.CopyFromRows(versionRows)); err != nil {
+	if _, err := tx.CopyFrom(ctx, pgx.Identifier{"catalog", "agent_versions"}, []string{"agent_id", "version", "schema_version", "card", "card_name", "card_description", "card_digest", "publication_status", "registered_at", "published_at", "publication_sequence", "disabled_at"}, pgx.CopyFromRows(versionRows)); err != nil {
 		t.Fatalf("seed scale versions: %v", err)
 	}
 	if _, err := tx.CopyFrom(ctx, pgx.Identifier{"catalog", "agent_version_capabilities"}, []string{"agent_id", "version", "capability_id"}, pgx.CopyFromRows(capabilityRows)); err != nil {
@@ -704,8 +853,8 @@ func seedLatePublication(t *testing.T, pool *pgxpool.Pool) {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(ctx, `
-INSERT INTO catalog.agent_versions (agent_id, version, schema_version, card, card_digest, publication_status, registered_at, published_at, publication_sequence)
-VALUES ('scale-agent', '2.0.0', '0.2', $1, $2, 'published', now(), now(), $3)`, string(cardJSON), cardDigest[:], sequence); err != nil {
+INSERT INTO catalog.agent_versions (agent_id, version, schema_version, card, card_name, card_description, card_digest, publication_status, registered_at, published_at, publication_sequence)
+VALUES ('scale-agent', '2.0.0', '0.2', $1, $2, $3, $4, 'published', now(), now(), $5)`, string(cardJSON), card.Name, card.Description, cardDigest[:], sequence); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO catalog.agent_version_capabilities (agent_id, version, capability_id) VALUES ('scale-agent', '2.0.0', 'scale.test')`); err != nil {
