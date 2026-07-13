@@ -37,20 +37,33 @@ contract, and establish dependencies before runtime code.
   placeholder absence, fallback inventory, and Constitution compliance; record
   the pre-implementation analyze result in
   `specs/002-catalog-registry-discovery/tasks.md`
-- [ ] T002 Add pinned `pgx/v5 v5.10.0` and `tern/v2 v2.4.1` dependencies without
+- [x] T002 Add pinned `pgx/v5 v5.10.0` and `tern/v2 v2.4.1` dependencies without
   unrelated module upgrades in `go.mod` and `go.sum`
-- [ ] T003 Complete Northbound v2 Catalog Bearer security, trace response
+  - Evidence: exact direct requirements and only their module checksum pairs
+    were added; no existing requirement changed.
+- [x] T003 Complete Northbound v2 Catalog Bearer security, trace response
   header, default limit `25`, cursor/filter descriptions, visibility rules, and
   exact operation error responses in `contracts/openapi/control-plane.v2.yaml`
-- [ ] T004 Update only required active Catalog DTO mappings or strict public
+  - Evidence: all five active Catalog operations now declare Bearer security,
+    trace headers, visibility/pagination rules, and operation-specific Platform
+    Error v2 response sets; the existing OpenAPI regression suite passes.
+- [x] T004 Update only required active Catalog DTO mappings or strict public
   request decoders while preserving historical aliases in
   `contracts/contracts.go` and `contracts/validate.go`
-- [ ] T005 [P] Record Catalog persistence, strong discovery consistency,
+  - Evidence: active discovery bounds are mapped once and registration gains a
+    duplicate/unknown/trailing-member rejecting envelope decoder; historical
+    aliases and artifacts are unchanged and contract tests pass.
+- [x] T005 [P] Record Catalog persistence, strong discovery consistency,
   replaceable authentication, migration, compatibility, and deferred deployment
   decisions in `docs/decisions/0004-catalog-persistence-and-consistency.md` and
   `docs/contracts/compatibility.md`
-- [ ] T006 Run existing contract regression tests and `git diff --check`, then
+  - Evidence: ADR 0004 records PostgreSQL/pgx/tern ownership, transactional
+    Discovery, strict development auth and explicit migration; compatibility
+    documents additive v2 completion and no historical runtime path.
+- [x] T006 Run existing contract regression tests and `git diff --check`, then
   commit T002-T005 as `feat(contracts): complete catalog API behavior`
+  - Evidence: `go test -count=1 ./contracts` and `git diff --check` pass;
+    contract-gate work is committed with the required subject.
 
 **Analyze result (2026-07-14)**: PASS. Spec Kit Analyze checked 25 Functional
 Requirements, 11 buildable Success Criteria, 19 acceptance scenarios, 47 tasks,

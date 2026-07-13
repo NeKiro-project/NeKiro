@@ -15,6 +15,9 @@ const (
 	NorthboundAPIVersion           = "2"
 	ControlPlaneInternalAPIVersion = "1"
 	RouterInternalAPIVersion       = "2"
+	DiscoveryDefaultLimit          = 25
+	DiscoveryMinimumLimit          = 1
+	DiscoveryMaximumLimit          = 100
 )
 
 var safeIdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,127})$`)

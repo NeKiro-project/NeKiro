@@ -166,6 +166,26 @@ func (v *Validator) DecodeAgentCard(data []byte) (AgentCard, error) {
 	return card, nil
 }
 
+func (v *Validator) DecodeRegisterAgentRequest(data []byte) (RegisterAgentRequest, error) {
+	if err := rejectDuplicateJSONMemberNames(data); err != nil {
+		return RegisterAgentRequest{}, fmt.Errorf("decode register Agent request: %w", err)
+	}
+	var request RegisterAgentRequest
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		return RegisterAgentRequest{}, fmt.Errorf("decode register Agent request: %w", err)
+	}
+	if err := requireJSONEOF(decoder); err != nil {
+		return RegisterAgentRequest{}, fmt.Errorf("decode register Agent request: %w", err)
+	}
+	if err := v.ValidateAgentCard(request.Card); err != nil {
+		return RegisterAgentRequest{}, err
+	}
+	return request, nil
+}
+
 func (v *Validator) ValidateInstallation(installation Installation) error {
 	return validateMappedValue(v.installation, installation)
 }
