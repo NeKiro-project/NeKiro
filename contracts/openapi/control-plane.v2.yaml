@@ -13,8 +13,18 @@ paths:
     post:
       operationId: registerAgent
       summary: Register an immutable draft Agent Card version
+      description: >-
+        Registers only an active Agent Card 0.2 document. The authenticated
+        caller must equal card.owner.id. The request rejects malformed JSON,
+        duplicate members, unknown fields, trailing values, and structural or
+        semantic Card violations before persistence. The Gateway reads at most
+        16,777,216 body bytes; an oversized request returns the fixed validation
+        failure without persistence.
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
+        x-nekiro-max-body-bytes: 16777216
         content:
           application/json:
             schema:
@@ -27,38 +37,64 @@ paths:
       responses:
         "201":
           description: Agent version registered
+          headers:
+            x-nek-trace-id:
+              $ref: "#/components/headers/TraceID"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/CatalogEntry"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          $ref: "#/components/responses/CatalogValidationError"
+        "401":
+          $ref: "#/components/responses/CatalogUnauthenticated"
+        "403":
+          $ref: "#/components/responses/CatalogForbidden"
         "409":
-          $ref: "#/components/responses/StateConflict"
+          $ref: "#/components/responses/CatalogConflict"
+        "503":
+          $ref: "#/components/responses/CatalogDependencyError"
     get:
       operationId: searchAgents
       summary: Discover published Agents
+      description: >-
+        Returns only exact published Agent Card versions. Supplied query,
+        capability, and ownerId filters combine with AND. No matches returns an
+        explicit empty items array. Draft and disabled versions are excluded.
+      security:
+        - bearerAuth: []
       parameters:
         - in: query
           name: query
+          description: Literal case-insensitive substring over Card name or description; values are not SQL wildcards.
           schema: { type: string, minLength: 1, maxLength: 256, pattern: "\\S" }
         - in: query
           name: capability
+          description: Exact case-sensitive capability identifier.
           schema:
             $ref: ../schemas/common.v1.schema.json#/$defs/capabilityId
         - in: query
           name: ownerId
+          description: Exact case-sensitive owner identifier.
           schema:
             $ref: ../schemas/common.v1.schema.json#/$defs/ownerId
         - in: query
           name: limit
-          schema: { type: integer, minimum: 1, maximum: 100 }
+          description: Page size. Omission uses the explicit product default of 25; invalid explicit values are rejected.
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
         - in: query
           name: cursor
+          description: >-
+            Opaque continuation bound to the original normalized filters, page
+            size, and first-page publication boundary. Malformed or
+            filter-mismatched values are rejected and never restart traversal.
           schema: { type: string, minLength: 1 }
       responses:
         "200":
           description: Matching published Agents
+          headers:
+            x-nek-trace-id:
+              $ref: "#/components/headers/TraceID"
           content:
             application/json:
               schema:
@@ -73,53 +109,111 @@ paths:
                   nextCursor:
                     type: string
                     minLength: 1
+        "400":
+          $ref: "#/components/responses/CatalogValidationError"
+        "401":
+          $ref: "#/components/responses/CatalogUnauthenticated"
+        "503":
+          $ref: "#/components/responses/CatalogDependencyError"
   /v2/agents/{agentId}/versions/{version}:
     get:
       operationId: getAgentVersion
+      summary: Read one exact Agent Card version
+      description: >-
+        Published versions are visible to every authenticated caller. Draft and
+        disabled versions are visible only to their immutable owner.
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/AgentId"
         - $ref: "#/components/parameters/Version"
       responses:
         "200":
           description: Exact Agent version
+          headers:
+            x-nek-trace-id:
+              $ref: "#/components/headers/TraceID"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/CatalogEntry"
+        "400":
+          $ref: "#/components/responses/CatalogValidationError"
+        "401":
+          $ref: "#/components/responses/CatalogUnauthenticated"
+        "403":
+          $ref: "#/components/responses/CatalogForbidden"
         "404":
-          $ref: "#/components/responses/ResourceNotFound"
+          $ref: "#/components/responses/CatalogNotFound"
+        "503":
+          $ref: "#/components/responses/CatalogDependencyError"
   /v2/agents/{agentId}/versions/{version}/publish:
     post:
       operationId: publishAgentVersion
+      summary: Publish one owned draft Agent Card version
+      description: >-
+        Only the immutable owner may publish. Publication succeeds exactly once
+        from draft and makes the version immediately eligible for Discovery.
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/AgentId"
         - $ref: "#/components/parameters/Version"
       responses:
         "200":
           description: Published Agent version
+          headers:
+            x-nek-trace-id:
+              $ref: "#/components/headers/TraceID"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/CatalogEntry"
+        "400":
+          $ref: "#/components/responses/CatalogValidationError"
+        "401":
+          $ref: "#/components/responses/CatalogUnauthenticated"
+        "403":
+          $ref: "#/components/responses/CatalogForbidden"
         "404":
-          $ref: "#/components/responses/ResourceNotFound"
+          $ref: "#/components/responses/CatalogNotFound"
         "409":
-          $ref: "#/components/responses/StateConflict"
+          $ref: "#/components/responses/CatalogConflict"
+        "503":
+          $ref: "#/components/responses/CatalogDependencyError"
   /v2/agents/{agentId}/versions/{version}/disable:
     post:
       operationId: disableAgentVersion
+      summary: Disable one owned Agent Card version
+      description: >-
+        Only the immutable owner may disable a draft or published version.
+        Repeating disable returns the unchanged disabled entry as the specified
+        idempotent success.
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/AgentId"
         - $ref: "#/components/parameters/Version"
       responses:
         "200":
           description: Disabled Agent version
+          headers:
+            x-nek-trace-id:
+              $ref: "#/components/headers/TraceID"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/CatalogEntry"
+        "400":
+          $ref: "#/components/responses/CatalogValidationError"
+        "401":
+          $ref: "#/components/responses/CatalogUnauthenticated"
+        "403":
+          $ref: "#/components/responses/CatalogForbidden"
         "404":
-          $ref: "#/components/responses/ResourceNotFound"
+          $ref: "#/components/responses/CatalogNotFound"
+        "503":
+          $ref: "#/components/responses/CatalogDependencyError"
   /v2/workspaces/{workspaceId}/installations:
     post:
       operationId: installAgent
@@ -303,6 +397,20 @@ paths:
         "503":
           $ref: "#/components/responses/DependencyUnavailable"
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: >-
+        Gateway-verified bearer credential mapped to one trusted caller ID.
+        Public caller-ID headers are not an authentication source.
+  headers:
+    TraceID:
+      description: Gateway-assigned request trace identifier.
+      required: true
+      schema:
+        $ref: ../schemas/common.v1.schema.json#/$defs/traceId
   parameters:
     AgentId:
       in: path
@@ -345,6 +453,66 @@ components:
         type: string
         minLength: 1
   responses:
+    CatalogValidationError:
+      description: Catalog request validation failed
+      headers:
+        x-nek-trace-id:
+          $ref: "#/components/headers/TraceID"
+      x-platform-error-codes: [VALIDATION_ERROR]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    CatalogUnauthenticated:
+      description: A valid Gateway bearer identity is required
+      headers:
+        x-nek-trace-id:
+          $ref: "#/components/headers/TraceID"
+      x-platform-error-codes: [UNAUTHENTICATED]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    CatalogForbidden:
+      description: The authenticated caller is not allowed to perform this Catalog operation
+      headers:
+        x-nek-trace-id:
+          $ref: "#/components/headers/TraceID"
+      x-platform-error-codes: [FORBIDDEN]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    CatalogNotFound:
+      description: The exact Agent Card version does not exist
+      headers:
+        x-nek-trace-id:
+          $ref: "#/components/headers/TraceID"
+      x-platform-error-codes: [NOT_FOUND]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    CatalogConflict:
+      description: The exact version already exists or the requested lifecycle transition is illegal
+      headers:
+        x-nek-trace-id:
+          $ref: "#/components/headers/TraceID"
+      x-platform-error-codes: [CONFLICT]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
+    CatalogDependencyError:
+      description: The Catalog persistence dependency could not complete the operation
+      headers:
+        x-nek-trace-id:
+          $ref: "#/components/headers/TraceID"
+      x-platform-error-codes: [DEPENDENCY_ERROR]
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v2.schema.json
     ResourceNotFound:
       description: Requested resource was not found
       x-platform-error-codes: [NOT_FOUND]

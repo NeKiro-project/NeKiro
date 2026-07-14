@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "0.2",
+  "agentId": "runtime-a",
+  "name": "Runtime A Echo Agent",
+  "description": "Echoes input through the first acceptance Runtime.",
+  "owner": {
+    "id": "catalog-owner-a",
+    "displayName": "Catalog Owner A"
+  },
+  "version": "1.0.0",
+  "protocol": {
+    "type": "a2a",
+    "version": "0.3.0",
+    "transport": "JSONRPC",
+    "endpoint": "https://runtime-a.example.test/a2a"
+  },
+  "skills": [
+    {
+      "id": "runtime.echo",
+      "name": "Echo input",
+      "description": "Returns the supplied input.",
+      "inputSchema": {"type": "object", "maximum": 1e400},
+      "outputSchema": {"type": "object"},
+      "requiredPermissions": []
+    }
+  ],
+  "authentication": {"type": "none"},
+  "permissions": [],
+  "limits": {
+    "timeoutMs": 30000,
+    "maxInputBytes": 1e400,
+    "maxOutputBytes": 1048576,
+    "streaming": false
+  }
+}

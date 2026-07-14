@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"time"
@@ -15,6 +16,10 @@ const (
 	NorthboundAPIVersion           = "2"
 	ControlPlaneInternalAPIVersion = "1"
 	RouterInternalAPIVersion       = "2"
+	DiscoveryDefaultLimit          = 25
+	DiscoveryMinimumLimit          = 1
+	DiscoveryMaximumLimit          = 100
+	RegistrationMaximumBodyBytes   = 16 << 20
 )
 
 var safeIdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,127})$`)
@@ -61,10 +66,10 @@ type PermissionDeclaration struct {
 }
 
 type AgentLimits struct {
-	TimeoutMS      int64 `json:"timeoutMs"`
-	MaxInputBytes  int64 `json:"maxInputBytes"`
-	MaxOutputBytes int64 `json:"maxOutputBytes"`
-	Streaming      bool  `json:"streaming"`
+	TimeoutMS      int64       `json:"timeoutMs"`
+	MaxInputBytes  json.Number `json:"maxInputBytes"`
+	MaxOutputBytes json.Number `json:"maxOutputBytes"`
+	Streaming      bool        `json:"streaming"`
 }
 
 type AgentCard struct {

@@ -30,6 +30,31 @@ runtime implements only active targets. No deployed runtime consumer exists,
 so there is no dual-read, dual-write, or dual-dispatch compatibility window.
 All consumers must adopt the active target before that runtime is introduced.
 
+## Catalog v2 Completion
+
+Spec 002 additively completes the existing Northbound v2 Catalog operations
+before their first runtime implementation. The success representations and
+operation paths are unchanged. The active document now makes previously
+unspecified behavior explicit:
+
+- all five Catalog operations require Gateway Bearer authentication;
+- every Catalog response carries the Gateway-assigned `x-nek-trace-id`;
+- registration and lifecycle mutation enforce immutable owner identity;
+- published exact versions are authenticated-visible, while draft and disabled
+  exact versions are owner-visible only;
+- omitted discovery limit is the product policy `25`, explicit limits are
+  `1-100`, and opaque cursors are bound to filters and traversal boundary;
+- validation, unauthenticated, forbidden, not found, conflict, and dependency
+  failures use their exact Platform Error v2 status/code mappings.
+- the registration transport cap is 16,777,216 bytes and uses the existing
+  validation failure, while active unbounded JSON integer fields keep exact
+  `json.Number` semantics instead of a machine `int64` range.
+
+No existing deployed Catalog runtime or generated client consumes the earlier
+underspecified form, so a new API version or compatibility window is not
+required. Northbound v1 and Agent Card 0.1 remain byte-unchanged historical
+evidence and receive no runtime route, decoder, auto-upgrade, or fallback.
+
 ## Compatible Changes
 
 - Adding an optional field is additive when omission preserves existing

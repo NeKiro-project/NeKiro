@@ -126,7 +126,19 @@ func NewValidator() (*Validator, error) {
 }
 
 func (v *Validator) ValidateAgentCard(card AgentCard) error {
-	if err := validateMappedValue(v.agentCard, card); err != nil {
+	inputLimitError := validatePositiveJSONInteger(card.Limits.MaxInputBytes, "/limits/maxInputBytes")
+	outputLimitError := validatePositiveJSONInteger(card.Limits.MaxOutputBytes, "/limits/maxOutputBytes")
+	if inputLimitError != nil {
+		return inputLimitError
+	}
+	if outputLimitError != nil {
+		return outputLimitError
+	}
+
+	schemaCard := card
+	schemaCard.Limits.MaxInputBytes = json.Number("1")
+	schemaCard.Limits.MaxOutputBytes = json.Number("1")
+	if err := validateMappedValue(v.agentCard, schemaCard); err != nil {
 		return fmt.Errorf("validate Agent Card schema: %w", err)
 	}
 
@@ -146,8 +158,134 @@ func (v *Validator) ValidateAgentCard(card AgentCard) error {
 	return nil
 }
 
+func validatePositiveJSONInteger(number json.Number, path string) error {
+	text := number.String()
+	if text == "" {
+		return agentCardLimitValidationError(path, "type")
+	}
+
+	index := 0
+	negative := false
+	if text[index] == '-' {
+		negative = true
+		index++
+		if index == len(text) {
+			return agentCardLimitValidationError(path, "type")
+		}
+	}
+	coefficientNonZero := false
+	coefficientTrailingZeros := 0
+	fractionDigits := 0
+
+	if text[index] == '0' {
+		index++
+		coefficientTrailingZeros = 1
+		if index < len(text) && text[index] >= '0' && text[index] <= '9' {
+			return agentCardLimitValidationError(path, "type")
+		}
+	} else if text[index] >= '1' && text[index] <= '9' {
+		for index < len(text) && text[index] >= '0' && text[index] <= '9' {
+			if text[index] == '0' {
+				coefficientTrailingZeros++
+			} else {
+				coefficientNonZero = true
+				coefficientTrailingZeros = 0
+			}
+			index++
+		}
+	} else {
+		return agentCardLimitValidationError(path, "type")
+	}
+
+	if index < len(text) && text[index] == '.' {
+		index++
+		fractionStart := index
+		for index < len(text) && text[index] >= '0' && text[index] <= '9' {
+			if text[index] == '0' {
+				coefficientTrailingZeros++
+			} else {
+				coefficientNonZero = true
+				coefficientTrailingZeros = 0
+			}
+			fractionDigits++
+			index++
+		}
+		if index == fractionStart {
+			return agentCardLimitValidationError(path, "type")
+		}
+	}
+
+	exponentNegative := false
+	exponentMagnitude := 0
+	exponentTooLarge := false
+	if index < len(text) && (text[index] == 'e' || text[index] == 'E') {
+		index++
+		if index < len(text) && (text[index] == '+' || text[index] == '-') {
+			exponentNegative = text[index] == '-'
+			index++
+		}
+		exponentStart := index
+		for index < len(text) && text[index] >= '0' && text[index] <= '9' {
+			digit := int(text[index] - '0')
+			if !exponentTooLarge {
+				limit := len(text)
+				if exponentMagnitude > limit/10 ||
+					(exponentMagnitude == limit/10 && digit > limit%10) {
+					exponentTooLarge = true
+				} else {
+					exponentMagnitude = exponentMagnitude*10 + digit
+				}
+			}
+			index++
+		}
+		if index == exponentStart {
+			return agentCardLimitValidationError(path, "type")
+		}
+	}
+	if index != len(text) {
+		return agentCardLimitValidationError(path, "type")
+	}
+	if !coefficientNonZero {
+		return agentCardLimitValidationError(path, "minimum")
+	}
+	if negative {
+		return agentCardLimitValidationError(path, "minimum")
+	}
+
+	// coefficient * 10^(exponent-fractionDigits) is integral exactly when the
+	// exponent covers every coefficient digit that is not already a trailing zero.
+	minimumExponent := fractionDigits - coefficientTrailingZeros
+	if !exponentAtLeast(exponentNegative, exponentMagnitude, exponentTooLarge, minimumExponent) {
+		return agentCardLimitValidationError(path, "type")
+	}
+	return nil
+}
+
+func exponentAtLeast(negative bool, magnitude int, tooLarge bool, minimum int) bool {
+	if magnitude == 0 && !tooLarge {
+		negative = false
+	}
+	if !negative {
+		return minimum <= 0 || tooLarge || magnitude >= minimum
+	}
+	if minimum >= 0 || tooLarge {
+		return false
+	}
+	return magnitude <= -minimum
+}
+
+func agentCardLimitValidationError(path, keyword string) error {
+	return fmt.Errorf("validate Agent Card schema: %w", &SchemaValidationError{
+		InstancePath: path,
+		Keyword:      keyword,
+	})
+}
+
 func (v *Validator) DecodeAgentCard(data []byte) (AgentCard, error) {
 	if err := rejectDuplicateJSONMemberNames(data); err != nil {
+		return AgentCard{}, fmt.Errorf("decode Agent Card: %w", err)
+	}
+	if err := rejectQuotedAgentCardLimitValues(data); err != nil {
 		return AgentCard{}, fmt.Errorf("decode Agent Card: %w", err)
 	}
 	var card AgentCard
@@ -164,6 +302,68 @@ func (v *Validator) DecodeAgentCard(data []byte) (AgentCard, error) {
 		return AgentCard{}, err
 	}
 	return card, nil
+}
+
+func (v *Validator) DecodeRegisterAgentRequest(data []byte) (RegisterAgentRequest, error) {
+	if err := rejectDuplicateJSONMemberNames(data); err != nil {
+		return RegisterAgentRequest{}, fmt.Errorf("decode register Agent request: %w", err)
+	}
+	if err := rejectQuotedRegisterAgentCardLimitValues(data); err != nil {
+		return RegisterAgentRequest{}, fmt.Errorf("decode register Agent request: %w", err)
+	}
+	var request RegisterAgentRequest
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		return RegisterAgentRequest{}, fmt.Errorf("decode register Agent request: %w", err)
+	}
+	if err := requireJSONEOF(decoder); err != nil {
+		return RegisterAgentRequest{}, fmt.Errorf("decode register Agent request: %w", err)
+	}
+	if err := v.ValidateAgentCard(request.Card); err != nil {
+		return RegisterAgentRequest{}, err
+	}
+	return request, nil
+}
+
+func rejectQuotedAgentCardLimitValues(data []byte) error {
+	var document struct {
+		Limits struct {
+			MaxInputBytes  json.RawMessage `json:"maxInputBytes"`
+			MaxOutputBytes json.RawMessage `json:"maxOutputBytes"`
+		} `json:"limits"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(&document); err != nil {
+		return err
+	}
+	for _, field := range []struct {
+		value json.RawMessage
+		path  string
+	}{
+		{value: document.Limits.MaxInputBytes, path: "/limits/maxInputBytes"},
+		{value: document.Limits.MaxOutputBytes, path: "/limits/maxOutputBytes"},
+	} {
+		if trimmed := bytes.TrimSpace(field.value); len(trimmed) > 0 && trimmed[0] == '"' {
+			return agentCardLimitValidationError(field.path, "type")
+		}
+	}
+	return nil
+}
+
+func rejectQuotedRegisterAgentCardLimitValues(data []byte) error {
+	var envelope struct {
+		Card json.RawMessage `json:"card"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(&envelope); err != nil {
+		return err
+	}
+	if len(envelope.Card) == 0 {
+		return nil
+	}
+	return rejectQuotedAgentCardLimitValues(envelope.Card)
 }
 
 func (v *Validator) ValidateInstallation(installation Installation) error {
