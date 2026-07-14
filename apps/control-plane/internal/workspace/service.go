@@ -248,6 +248,9 @@ func validConstraint(value string) bool {
 }
 
 func validPermissionInput(values []string) bool {
+	if values == nil {
+		return false
+	}
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
 		if !ValidIdentifier(value) {
@@ -271,7 +274,8 @@ func validatePermissionSubset(card contracts.AgentCard, accepted []string) ([]st
 			return nil, ErrInvalid
 		}
 	}
-	canonical := append([]string(nil), accepted...)
+	canonical := make([]string, len(accepted))
+	copy(canonical, accepted)
 	sort.Strings(canonical)
 	return canonical, nil
 }

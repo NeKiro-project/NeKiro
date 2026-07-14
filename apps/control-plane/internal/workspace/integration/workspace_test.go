@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -169,6 +170,71 @@ func TestWorkspaceCreateReadSurvivesStoreReconstruction(t *testing.T) {
 	}
 }
 
+func TestInstallPinsCommittedFieldsAndIgnoresNewPublication(t *testing.T) {
+	ctx := context.Background()
+	catalogService, workspaceService := integrationServices(t, ctx)
+	owner := workspace.AuthenticatedCaller{ID: "owner-a"}
+	if _, err := workspaceService.CreateWorkspace(ctx, owner, contracts.CreateWorkspaceRequest{WorkspaceID: "workspace-pin"}); err != nil {
+		t.Fatal(err)
+	}
+	installation, err := workspaceService.Install(ctx, owner, "workspace-pin", contracts.InstallAgentRequest{
+		AgentID: "runtime-a", VersionConstraint: "^1.0.0", AcceptedPermissions: []string{"document.read"},
+	})
+	if err != nil {
+		t.Fatalf("install pinned Agent: %v", err)
+	}
+	if installation.InstalledVersion != "1.0.0" || installation.Status != "enabled" || installation.AcceptedPermissions[0] != "document.read" {
+		t.Fatalf("installation = %#v", installation)
+	}
+	stored, err := workspaceService.GetInstallation(ctx, owner, "workspace-pin", installation.InstallationID)
+	if err != nil || !sameInstallation(stored, installation) {
+		t.Fatalf("stored installation = %#v, %v; created = %#v", stored, err, installation)
+	}
+
+	newCard := integrationCard()
+	newCard.Version = "1.1.0"
+	if err := registerPublishedCard(ctx, catalogService, newCard); err != nil {
+		t.Fatalf("publish newer matching Card: %v", err)
+	}
+	unchanged, err := workspaceService.GetInstallation(ctx, owner, "workspace-pin", installation.InstallationID)
+	if err != nil || !sameInstallation(unchanged, installation) {
+		t.Fatalf("new publication mutated installation = %#v, %v; original = %#v", unchanged, err, installation)
+	}
+
+	emptyCard := integrationCard()
+	emptyCard.AgentID = "runtime-empty"
+	emptyCard.Name = "Runtime Empty Permission"
+	emptyCard.Skills[0].RequiredPermissions = []string{}
+	emptyCard.Permissions = []contracts.PermissionDeclaration{}
+	if err := registerPublishedCard(ctx, catalogService, emptyCard); err != nil {
+		t.Fatalf("publish empty-permission Card: %v", err)
+	}
+	if _, err := workspaceService.CreateWorkspace(ctx, owner, contracts.CreateWorkspaceRequest{WorkspaceID: "workspace-empty-install"}); err != nil {
+		t.Fatal(err)
+	}
+	emptyInstallation, err := workspaceService.Install(ctx, owner, "workspace-empty-install", contracts.InstallAgentRequest{
+		AgentID: "runtime-empty", VersionConstraint: "^1.0.0", AcceptedPermissions: []string{},
+	})
+	if err != nil {
+		t.Fatalf("install empty-permission Agent: %v", err)
+	}
+	if emptyInstallation.AcceptedPermissions == nil || len(emptyInstallation.AcceptedPermissions) != 0 {
+		t.Fatalf("empty accepted permissions = %#v", emptyInstallation.AcceptedPermissions)
+	}
+	emptyStored, err := workspaceService.GetInstallation(ctx, owner, "workspace-empty-install", emptyInstallation.InstallationID)
+	if err != nil || emptyStored.AcceptedPermissions == nil || len(emptyStored.AcceptedPermissions) != 0 {
+		t.Fatalf("stored empty accepted permissions = %#v, %v", emptyStored.AcceptedPermissions, err)
+	}
+
+	failedContext, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := workspaceService.Install(failedContext, owner, "workspace-pin", contracts.InstallAgentRequest{
+		AgentID: "runtime-a", VersionConstraint: "^1.0.0", AcceptedPermissions: []string{"document.read"},
+	}); !errors.Is(err, workspace.ErrDependency) {
+		t.Fatalf("canceled install = %v, want dependency", err)
+	}
+}
+
 func integrationServices(t *testing.T, ctx context.Context) (*catalog.Service, *workspace.Service) {
 	t.Helper()
 	databaseURL := integrationDatabaseURL(t)
@@ -214,15 +280,7 @@ func integrationServices(t *testing.T, ctx context.Context) (*catalog.Service, *
 	if err != nil {
 		t.Fatal(err)
 	}
-	card := integrationCard()
-	body, err := json.Marshal(contracts.RegisterAgentRequest{Card: card})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := catalogService.Register(ctx, catalog.AuthenticatedCaller{ID: "owner-a"}, body); err != nil && !errors.Is(err, catalog.ErrConflict) {
-		t.Fatalf("register fixture Card: %v", err)
-	}
-	if _, err := catalogService.Publish(ctx, catalog.AuthenticatedCaller{ID: "owner-a"}, card.AgentID, card.Version); err != nil && !errors.Is(err, catalog.ErrConflict) {
+	if err := registerPublishedCard(ctx, catalogService, integrationCard()); err != nil {
 		t.Fatalf("publish fixture Card: %v", err)
 	}
 	workspaceService, err := workspace.NewService(workspaceStore, catalogService, workspace.OwnerPolicy{}, validator, time.Now, workspace.NewRandomID)
@@ -248,6 +306,38 @@ func integrationDatabaseURL(t *testing.T) string {
 func sameWorkspace(left, right contracts.Workspace) bool {
 	return left.WorkspaceID == right.WorkspaceID && left.OwnerID == right.OwnerID &&
 		left.CreatedAt.Equal(right.CreatedAt) && left.UpdatedAt.Equal(right.UpdatedAt)
+}
+
+func sameInstallation(left, right contracts.Installation) bool {
+	if left.InstallationID != right.InstallationID || left.WorkspaceID != right.WorkspaceID ||
+		left.AgentID != right.AgentID || left.VersionConstraint != right.VersionConstraint ||
+		left.InstalledVersion != right.InstalledVersion || left.Status != right.Status ||
+		!left.InstalledAt.Equal(right.InstalledAt) || !left.UpdatedAt.Equal(right.UpdatedAt) ||
+		(left.UninstalledAt == nil) != (right.UninstalledAt == nil) ||
+		left.UninstalledAt != nil && !left.UninstalledAt.Equal(*right.UninstalledAt) ||
+		len(left.AcceptedPermissions) != len(right.AcceptedPermissions) {
+		return false
+	}
+	for index := range left.AcceptedPermissions {
+		if left.AcceptedPermissions[index] != right.AcceptedPermissions[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func registerPublishedCard(ctx context.Context, service *catalog.Service, card contracts.AgentCard) error {
+	body, err := json.Marshal(contracts.RegisterAgentRequest{Card: card})
+	if err != nil {
+		return err
+	}
+	if _, err := service.Register(ctx, catalog.AuthenticatedCaller{ID: "owner-a"}, body); err != nil && !errors.Is(err, catalog.ErrConflict) {
+		return fmt.Errorf("register Card: %w", err)
+	}
+	if _, err := service.Publish(ctx, catalog.AuthenticatedCaller{ID: "owner-a"}, card.AgentID, card.Version); err != nil && !errors.Is(err, catalog.ErrConflict) {
+		return fmt.Errorf("publish Card: %w", err)
+	}
+	return nil
 }
 
 func integrationCard() contracts.AgentCard {

@@ -122,9 +122,13 @@ func (store *memoryStore) Check(context.Context) error { return nil }
 type memoryCatalog struct {
 	candidates []catalog.AgentVersion
 	versions   map[string]catalog.AgentVersion
+	selectErr  error
 }
 
 func (reader *memoryCatalog) SelectPublished(_ context.Context, agentID, constraint string) (catalog.AgentVersion, error) {
+	if reader.selectErr != nil {
+		return catalog.AgentVersion{}, reader.selectErr
+	}
 	validator, err := contracts.NewValidator()
 	if err != nil {
 		return catalog.AgentVersion{}, err
@@ -228,6 +232,98 @@ func TestWorkspaceRootPropagatesPersistenceFailures(t *testing.T) {
 	}
 }
 
+func TestInstallPreservesExplicitEmptyPermissions(t *testing.T) {
+	card := testWorkspaceCard("agent-empty", "1.0.0", nil, nil)
+	reader := &memoryCatalog{candidates: []catalog.AgentVersion{{Card: card, Status: catalog.PublicationPublished}}}
+	store := newMemoryStore()
+	service := newWorkspaceTestService(t, store, reader)
+	caller := AuthenticatedCaller{ID: "owner-a"}
+	if _, err := service.CreateWorkspace(context.Background(), caller, contracts.CreateWorkspaceRequest{WorkspaceID: "workspace-empty"}); err != nil {
+		t.Fatal(err)
+	}
+	installation, err := service.Install(context.Background(), caller, "workspace-empty", contracts.InstallAgentRequest{
+		AgentID: "agent-empty", VersionConstraint: "^1.0.0", AcceptedPermissions: []string{},
+	})
+	if err != nil {
+		t.Fatalf("empty-permission install: %v", err)
+	}
+	if installation.AcceptedPermissions == nil || len(installation.AcceptedPermissions) != 0 {
+		t.Fatalf("empty permission snapshot = %#v", installation.AcceptedPermissions)
+	}
+	if _, err := service.Install(context.Background(), caller, "workspace-empty", contracts.InstallAgentRequest{
+		AgentID: "agent-empty", VersionConstraint: "^1.0.0", AcceptedPermissions: nil,
+	}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("missing permission slice = %v, want invalid", err)
+	}
+}
+
+func TestInstallRejectsUnknownPermissionBeforePersistence(t *testing.T) {
+	card := testWorkspaceCard("agent-permission", "1.0.0", []string{"declared"}, nil)
+	reader := &memoryCatalog{candidates: []catalog.AgentVersion{{Card: card, Status: catalog.PublicationPublished}}}
+	store := newMemoryStore()
+	service := newWorkspaceTestService(t, store, reader)
+	caller := AuthenticatedCaller{ID: "owner-a"}
+	if _, err := service.CreateWorkspace(context.Background(), caller, contracts.CreateWorkspaceRequest{WorkspaceID: "workspace-permission"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Install(context.Background(), caller, "workspace-permission", contracts.InstallAgentRequest{
+		AgentID: "agent-permission", VersionConstraint: "^1.0.0", AcceptedPermissions: []string{"unknown"},
+	}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unknown permission = %v, want invalid", err)
+	}
+	if len(store.installations) != 0 {
+		t.Fatalf("unknown permission persisted installations: %#v", store.installations)
+	}
+}
+
+func TestInstallPropagatesCatalogDependencyFailure(t *testing.T) {
+	store := newMemoryStore()
+	service := newWorkspaceTestService(t, store, &memoryCatalog{selectErr: catalog.ErrDependency})
+	caller := AuthenticatedCaller{ID: "owner-a"}
+	if _, err := service.CreateWorkspace(context.Background(), caller, contracts.CreateWorkspaceRequest{WorkspaceID: "workspace-dependency"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Install(context.Background(), caller, "workspace-dependency", contracts.InstallAgentRequest{
+		AgentID: "agent-dependency", VersionConstraint: "^1.0.0", AcceptedPermissions: []string{},
+	}); !errors.Is(err, ErrDependency) {
+		t.Fatalf("Catalog dependency failure = %v, want dependency", err)
+	}
+	if len(store.installations) != 0 {
+		t.Fatalf("Catalog dependency failure persisted installations: %#v", store.installations)
+	}
+}
+
+func TestInstallHonorsCatalogPrereleasePolicy(t *testing.T) {
+	stable := testWorkspaceCard("agent-prerelease", "1.0.0", []string{}, []string{})
+	preRelease := testWorkspaceCard("agent-prerelease", "1.1.0-rc.1", []string{}, []string{})
+	reader := &memoryCatalog{candidates: []catalog.AgentVersion{
+		{Card: stable, Status: catalog.PublicationPublished},
+		{Card: preRelease, Status: catalog.PublicationPublished},
+	}}
+	store := newMemoryStore()
+	service := newWorkspaceTestService(t, store, reader)
+	caller := AuthenticatedCaller{ID: "owner-a"}
+	if _, err := service.CreateWorkspace(context.Background(), caller, contracts.CreateWorkspaceRequest{WorkspaceID: "workspace-stable"}); err != nil {
+		t.Fatal(err)
+	}
+	stableInstallation, err := service.Install(context.Background(), caller, "workspace-stable", contracts.InstallAgentRequest{
+		AgentID: "agent-prerelease", VersionConstraint: ">=1.0.0 <2.0.0", AcceptedPermissions: []string{},
+	})
+	if err != nil || stableInstallation.InstalledVersion != "1.0.0" {
+		t.Fatalf("stable-only selection = %#v, %v", stableInstallation, err)
+	}
+
+	if _, err := service.CreateWorkspace(context.Background(), caller, contracts.CreateWorkspaceRequest{WorkspaceID: "workspace-prerelease"}); err != nil {
+		t.Fatal(err)
+	}
+	preReleaseInstallation, err := service.Install(context.Background(), caller, "workspace-prerelease", contracts.InstallAgentRequest{
+		AgentID: "agent-prerelease", VersionConstraint: ">=1.1.0-0 <2.0.0", AcceptedPermissions: []string{},
+	})
+	if err != nil || preReleaseInstallation.InstalledVersion != "1.1.0-rc.1" {
+		t.Fatalf("pre-release selection = %#v, %v", preReleaseInstallation, err)
+	}
+}
+
 func TestInstallPinsHighestVersionAndCanonicalPermissions(t *testing.T) {
 	card := testWorkspaceCard("agent-a", "1.0.0", []string{"read", "write"}, []string{"read"})
 	cardBuildA := testWorkspaceCard("agent-a", "1.0.1+a", []string{"read", "write"}, []string{"read"})
@@ -245,7 +341,7 @@ func TestInstallPinsHighestVersionAndCanonicalPermissions(t *testing.T) {
 	if installation.InstalledVersion != "1.0.1+z" || installation.AcceptedPermissions[0] != "read" || installation.AcceptedPermissions[1] != "write" {
 		t.Fatalf("installation pin = %#v", installation)
 	}
-	if _, err := service.Install(context.Background(), AuthenticatedCaller{ID: "owner-b"}, "workspace-a", contracts.InstallAgentRequest{AgentID: "agent-a", VersionConstraint: "^1.0.0"}); !errors.Is(err, ErrForbidden) {
+	if _, err := service.Install(context.Background(), AuthenticatedCaller{ID: "owner-b"}, "workspace-a", contracts.InstallAgentRequest{AgentID: "agent-a", VersionConstraint: "^1.0.0", AcceptedPermissions: []string{}}); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("non-owner install = %v", err)
 	}
 }

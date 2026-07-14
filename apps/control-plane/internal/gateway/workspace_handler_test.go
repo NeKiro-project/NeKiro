@@ -29,12 +29,16 @@ func (auth workspaceTestAuthenticator) Authenticate(*http.Request) (catalog.Auth
 }
 
 type workspaceTestService struct {
-	workspace   contracts.Workspace
-	resolveErr  error
-	createErr   error
-	getErr      error
-	createCalls int
-	getCalls    int
+	workspace          contracts.Workspace
+	installation       contracts.Installation
+	resolveErr         error
+	createErr          error
+	getErr             error
+	installErr         error
+	createCalls        int
+	getCalls           int
+	installCalls       int
+	lastInstallRequest contracts.InstallAgentRequest
 }
 
 func (service *workspaceTestService) CreateWorkspace(_ context.Context, caller workspace.AuthenticatedCaller, request contracts.CreateWorkspaceRequest) (contracts.Workspace, error) {
@@ -52,8 +56,26 @@ func (service *workspaceTestService) GetWorkspace(context.Context, workspace.Aut
 	}
 	return service.workspace, nil
 }
-func (service *workspaceTestService) Install(context.Context, workspace.AuthenticatedCaller, string, contracts.InstallAgentRequest) (contracts.Installation, error) {
-	return contracts.Installation{}, nil
+func (service *workspaceTestService) Install(_ context.Context, _ workspace.AuthenticatedCaller, _ string, request contracts.InstallAgentRequest) (contracts.Installation, error) {
+	service.installCalls++
+	service.lastInstallRequest = request
+	if service.installErr != nil {
+		return contracts.Installation{}, service.installErr
+	}
+	if service.installation.InstallationID == "" {
+		service.installation = contracts.Installation{
+			InstallationID:      "installation-a",
+			WorkspaceID:         "workspace-a",
+			AgentID:             request.AgentID,
+			VersionConstraint:   request.VersionConstraint,
+			InstalledVersion:    "1.0.0",
+			AcceptedPermissions: request.AcceptedPermissions,
+			Status:              "enabled",
+			InstalledAt:         time.Now().UTC(),
+			UpdatedAt:           time.Now().UTC(),
+		}
+	}
+	return service.installation, nil
 }
 func (service *workspaceTestService) GetInstallation(context.Context, workspace.AuthenticatedCaller, string, string) (contracts.Installation, error) {
 	return contracts.Installation{}, nil
@@ -167,6 +189,62 @@ func TestWorkspaceHandlerMapsWorkspaceCreateReadOutcomes(t *testing.T) {
 	handler.Routes().ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest || service.createCalls != createCallsBeforeInvalid {
 		t.Fatalf("owner override status=%d create calls=%d before=%d", response.Code, service.createCalls, createCallsBeforeInvalid)
+	}
+}
+
+func TestWorkspaceHandlerInstallRequiresPermissionArrayAndPreservesEmpty(t *testing.T) {
+	service := &workspaceTestService{}
+	handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, service)
+	validBody := `{"agentId":"agent-a","versionConstraint":"^1.0.0","acceptedPermissions":[]}`
+
+	request := httptest.NewRequest(http.MethodPost, "/v3/workspaces/workspace-a/installations", strings.NewReader(validBody))
+	request.Header.Set("Authorization", "Bearer token")
+	response := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || service.installCalls != 1 || service.lastInstallRequest.AcceptedPermissions == nil {
+		t.Fatalf("explicit empty permissions status=%d calls=%d request=%#v", response.Code, service.installCalls, service.lastInstallRequest)
+	}
+	var installation contracts.Installation
+	if err := json.Unmarshal(response.Body.Bytes(), &installation); err != nil {
+		t.Fatal(err)
+	}
+	if installation.AcceptedPermissions == nil || len(installation.AcceptedPermissions) != 0 {
+		t.Fatalf("empty permission response = %#v", installation.AcceptedPermissions)
+	}
+
+	for _, body := range []string{
+		`{"agentId":"agent-a","versionConstraint":"^1.0.0"}`,
+		`{"agentId":"agent-a","versionConstraint":"^1.0.0","acceptedPermissions":null}`,
+		`{"agentId":"agent-a","versionConstraint":"^1.0.0","acceptedPermissions":"read"}`,
+	} {
+		callsBefore := service.installCalls
+		request = httptest.NewRequest(http.MethodPost, "/v3/workspaces/workspace-a/installations", strings.NewReader(body))
+		request.Header.Set("Authorization", "Bearer token")
+		response = httptest.NewRecorder()
+		handler.Routes().ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest || service.installCalls != callsBefore {
+			t.Fatalf("invalid permission presence body=%s status=%d calls=%d before=%d", body, response.Code, service.installCalls, callsBefore)
+		}
+	}
+
+	for _, test := range []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{workspace.ErrForbidden, http.StatusForbidden, "FORBIDDEN"},
+		{workspace.ErrNotFound, http.StatusNotFound, "NOT_FOUND"},
+		{workspace.ErrConflict, http.StatusConflict, "CONFLICT"},
+		{workspace.ErrDependency, http.StatusServiceUnavailable, "DEPENDENCY_ERROR"},
+	} {
+		service.installErr = test.err
+		request = httptest.NewRequest(http.MethodPost, "/v3/workspaces/workspace-a/installations", strings.NewReader(validBody))
+		request.Header.Set("Authorization", "Bearer token")
+		response = httptest.NewRecorder()
+		handler.Routes().ServeHTTP(response, request)
+		if response.Code != test.status || !strings.Contains(response.Body.String(), `"code":"`+test.code+`"`) {
+			t.Fatalf("install error=%v status=%d body=%s", test.err, response.Code, response.Body.String())
+		}
 	}
 }
 
