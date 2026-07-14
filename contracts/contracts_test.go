@@ -59,6 +59,158 @@ func TestAgentCardPreservesUnboundedLimitIntegers(t *testing.T) {
 	}
 }
 
+func TestAgentCardUnboundedLimitIntegerEquivalenceClasses(t *testing.T) {
+	validator := mustValidator(t)
+	accepted := []string{
+		"1",
+		"1.0",
+		"10e-1",
+		"1.5e1",
+		"0.0001e4",
+		"10.00e-1",
+		"100.00e-2",
+		"1e1000001",
+		"1E+0001000001",
+	}
+	fields := []struct {
+		name string
+		path string
+		set  func(*AgentCard, json.Number)
+		get  func(AgentCard) json.Number
+	}{
+		{
+			name: "maxInputBytes",
+			path: "/limits/maxInputBytes",
+			set:  func(card *AgentCard, value json.Number) { card.Limits.MaxInputBytes = value },
+			get:  func(card AgentCard) json.Number { return card.Limits.MaxInputBytes },
+		},
+		{
+			name: "maxOutputBytes",
+			path: "/limits/maxOutputBytes",
+			set:  func(card *AgentCard, value json.Number) { card.Limits.MaxOutputBytes = value },
+			get:  func(card AgentCard) json.Number { return card.Limits.MaxOutputBytes },
+		},
+	}
+
+	for _, field := range fields {
+		for _, value := range accepted {
+			t.Run(field.name+"/accept/"+value, func(t *testing.T) {
+				card := validAgentCard()
+				field.set(&card, json.Number(value))
+				if err := validator.ValidateAgentCard(card); err != nil {
+					t.Fatalf("valid limit rejected: %v", err)
+				}
+				if got := field.get(card).String(); got != value {
+					t.Fatalf("ValidateAgentCard mutated limit to %q, want %q", got, value)
+				}
+			})
+		}
+	}
+
+	t.Run("arbitrary-length-exponent", func(t *testing.T) {
+		positive := "1e" + strings.Repeat("9", 4_096)
+		card := validAgentCard()
+		card.Limits.MaxInputBytes = json.Number(positive)
+		if err := validator.ValidateAgentCard(card); err != nil {
+			t.Fatalf("arbitrary-length positive exponent rejected: %v", err)
+		}
+		if card.Limits.MaxInputBytes.String() != positive {
+			t.Fatal("arbitrary-length positive exponent was mutated")
+		}
+
+		card.Limits.MaxInputBytes = json.Number("1e-" + strings.Repeat("9", 4_096))
+		var schemaError *SchemaValidationError
+		if err := validator.ValidateAgentCard(card); !errors.As(err, &schemaError) {
+			t.Fatalf("arbitrary-length negative exponent error = %v, want SchemaValidationError", err)
+		}
+	})
+
+	rejected := []string{
+		"0",
+		"0.0",
+		"0e1000001",
+		"-0",
+		"-1",
+		"-1e1000001",
+		"1.2",
+		"10e-2",
+		"0.0001e3",
+		"1e-1000001",
+		"01",
+		"1e",
+		"NaN",
+		"",
+		".1",
+		"1.",
+		"+1",
+		"1e+",
+		"--1",
+	}
+	for _, field := range fields {
+		for _, value := range rejected {
+			name := value
+			if name == "" {
+				name = "empty"
+			}
+			t.Run(field.name+"/reject/"+name, func(t *testing.T) {
+				card := validAgentCard()
+				field.set(&card, json.Number(value))
+				err := validator.ValidateAgentCard(card)
+				var schemaError *SchemaValidationError
+				if !errors.As(err, &schemaError) {
+					t.Fatalf("invalid limit error = %v, want SchemaValidationError", err)
+				}
+				if schemaError.InstancePath != field.path {
+					t.Fatalf("invalid limit path = %q, want %q", schemaError.InstancePath, field.path)
+				}
+				if value != "" && strings.Contains(err.Error(), value) {
+					t.Fatalf("validation error leaked rejected value %q: %v", value, err)
+				}
+				if got := field.get(card).String(); got != value {
+					t.Fatalf("ValidateAgentCard mutated rejected limit to %q, want %q", got, value)
+				}
+			})
+		}
+	}
+}
+
+func TestDecodeRegisterAgentRequestPreservesUnboundedLimitTokens(t *testing.T) {
+	validator := mustValidator(t)
+	card := validAgentCard()
+	card.Limits.MaxInputBytes = json.Number("1e1000001")
+	card.Limits.MaxOutputBytes = json.Number("1.5e1")
+
+	data, err := json.Marshal(RegisterAgentRequest{Card: card})
+	if err != nil {
+		t.Fatalf("marshal register request: %v", err)
+	}
+	request, err := validator.DecodeRegisterAgentRequest(data)
+	if err != nil {
+		t.Fatalf("decode register request: %v", err)
+	}
+	if got := request.Card.Limits.MaxInputBytes.String(); got != "1e1000001" {
+		t.Fatalf("decoded maxInputBytes = %q, want 1e1000001", got)
+	}
+	if got := request.Card.Limits.MaxOutputBytes.String(); got != "1.5e1" {
+		t.Fatalf("decoded maxOutputBytes = %q, want 1.5e1", got)
+	}
+	if card.Limits.MaxInputBytes.String() != "1e1000001" || card.Limits.MaxOutputBytes.String() != "1.5e1" {
+		t.Fatal("request validation mutated the source Card")
+	}
+}
+
+func TestAgentCardUnboundedLimitAdapterRetainsOtherSchemaValidation(t *testing.T) {
+	validator := mustValidator(t)
+	card := validAgentCard()
+	card.Limits.MaxInputBytes = json.Number("1e1000001")
+	card.Name = ""
+
+	var schemaError *SchemaValidationError
+	if err := validator.ValidateAgentCard(card); !errors.As(err, &schemaError) {
+		t.Fatalf("invalid non-limit field error = %v, want SchemaValidationError", err)
+	}
+}
+
 func TestAgentCardRejectsSecretsAndRuntimeState(t *testing.T) {
 	validator := mustValidator(t)
 	card := validAgentCard()

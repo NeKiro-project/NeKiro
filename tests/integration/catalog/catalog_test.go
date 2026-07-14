@@ -137,14 +137,14 @@ WHERE v.agent_id = 'runtime-a' AND v.version = '1.0.0'`).Scan(&retainedCard, &re
 		boundaryCard.Description = "Preserves JSON numbers beyond PostgreSQL numeric range."
 		boundaryCard.Skills[0].ID = "number.boundary"
 		boundaryCard.Skills[0].Name = "Number boundary"
-		boundaryCard.Limits.MaxInputBytes = json.Number("1e131072")
+		boundaryCard.Limits.MaxInputBytes = json.Number("1e1000001")
 		boundary := request(t, http.MethodPost, server.baseURL+"/v2/agents", ownerAToken, registrationEnvelope(t, mustJSON(t, boundaryCard)))
 		boundaryEntry := decodeEntry(t, boundary)
 		if boundary.status != http.StatusCreated {
 			t.Fatalf("unbounded number registration = %d %s", boundary.status, boundary.body)
 		}
-		if got := boundaryEntry.Card.Limits.MaxInputBytes.String(); got != "1e131072" {
-			t.Fatalf("unbounded response number = %s, want 1e131072", got)
+		if got := boundaryEntry.Card.Limits.MaxInputBytes.String(); got != "1e1000001" {
+			t.Fatalf("unbounded response number = %s, want 1e1000001", got)
 		}
 		var storedCard, cardType, storedName, storedDescription string
 		if err := pool.QueryRow(ctx, `
@@ -159,7 +159,7 @@ WHERE agent_id = 'unbounded-number-agent' AND version = '1.0.0'`).Scan(
 			t.Fatal(err)
 		}
 		storedBoundaryCard := decodeCard(t, []byte(storedCard))
-		if cardType != "text" || storedBoundaryCard.Limits.MaxInputBytes.String() != "1e131072" {
+		if cardType != "text" || storedBoundaryCard.Limits.MaxInputBytes.String() != "1e1000001" {
 			t.Fatalf("stored Card type/number = %s/%s", cardType, storedBoundaryCard.Limits.MaxInputBytes)
 		}
 		if storedName != boundaryCard.Name || storedDescription != boundaryCard.Description {
@@ -169,7 +169,7 @@ WHERE agent_id = 'unbounded-number-agent' AND version = '1.0.0'`).Scan(
 			t.Fatalf("publish unbounded number Card = %d %s", result.status, result.body)
 		}
 		boundaryDiscovery := decodeSearch(t, request(t, http.MethodGet, server.baseURL+"/v2/agents?query=PostgreSQL&capability=number.boundary", userToken, nil))
-		if len(boundaryDiscovery.Items) != 1 || boundaryDiscovery.Items[0].Card.Limits.MaxInputBytes.String() != "1e131072" {
+		if len(boundaryDiscovery.Items) != 1 || boundaryDiscovery.Items[0].Card.Limits.MaxInputBytes.String() != "1e1000001" {
 			t.Fatalf("unbounded number Discovery = %#v", boundaryDiscovery)
 		}
 
@@ -319,11 +319,11 @@ WHERE agent_id = 'unbounded-number-agent' AND version = '1.0.0'`).Scan(
 			t.Fatalf("durable read after restart = %d %s", result.status, result.body)
 		}
 		boundaryRead := decodeEntry(t, request(t, http.MethodGet, server.baseURL+"/v2/agents/unbounded-number-agent/versions/1.0.0", userToken, nil))
-		if got := boundaryRead.Card.Limits.MaxInputBytes.String(); got != "1e131072" {
+		if got := boundaryRead.Card.Limits.MaxInputBytes.String(); got != "1e1000001" {
 			t.Fatalf("unbounded number after restart = %s", got)
 		}
 		boundaryDiscovery := decodeSearch(t, request(t, http.MethodGet, server.baseURL+"/v2/agents?capability=number.boundary", userToken, nil))
-		if len(boundaryDiscovery.Items) != 1 || boundaryDiscovery.Items[0].Card.AgentID != "unbounded-number-agent" || boundaryDiscovery.Items[0].Card.Limits.MaxInputBytes.String() != "1e131072" {
+		if len(boundaryDiscovery.Items) != 1 || boundaryDiscovery.Items[0].Card.AgentID != "unbounded-number-agent" || boundaryDiscovery.Items[0].Card.Limits.MaxInputBytes.String() != "1e1000001" {
 			t.Fatalf("unbounded Discovery after restart = %#v", boundaryDiscovery)
 		}
 
