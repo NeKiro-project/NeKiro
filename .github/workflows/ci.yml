@@ -49,11 +49,19 @@ jobs:
           POSTGRES_PORT: "55432"
         run: docker compose --file deploy/compose.yaml config --quiet
 
+      - name: Build Go
+        run: go build ./...
+
       - name: Test Go
         run: go test ./...
 
       - name: Vet Go
         run: go vet ./...
+
+      - name: Lint Go
+        uses: golangci/golangci-lint-action@v9.3.0
+        with:
+          version: v2.12.2
 
       - name: Typecheck frontend
         run: pnpm typecheck
