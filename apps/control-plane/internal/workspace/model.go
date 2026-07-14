@@ -15,9 +15,9 @@ var (
 	ErrConflict             = errors.New("workspace operation conflict")
 	ErrInvalid              = errors.New("workspace input invalid")
 	ErrDependency           = errors.New("workspace dependency failed")
-	ErrAgentNotInstalled    = errors.New("Agent is not installed")
-	ErrInstallationDisabled = errors.New("Installation is disabled")
-	ErrAgentDisabled        = errors.New("Agent version is disabled")
+	ErrAgentNotInstalled    = errors.New("agent is not installed")
+	ErrInstallationDisabled = errors.New("installation is disabled")
+	ErrAgentDisabled        = errors.New("agent version is disabled")
 	ErrCapabilityNotAllowed = errors.New("capability is not allowed")
 	safeIdentifierRE        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 )
@@ -56,10 +56,6 @@ type InstallationPosition struct {
 
 func ValidIdentifier(value string) bool {
 	return safeIdentifierRE.MatchString(value)
-}
-
-func validInstallationStatus(value string) bool {
-	return value == "enabled" || value == "disabled" || value == "uninstalled"
 }
 
 func currentInstallationStatus(value string) bool {
