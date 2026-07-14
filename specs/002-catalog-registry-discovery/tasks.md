@@ -574,10 +574,19 @@ and require a fresh independent Review before convergence.
   - Evidence: strict raw-token boundary tests reject quoted numeric strings;
     readiness rejects non-text Card and nullable v2 derived columns; the v1-v2
     migration test proves the historical digest is unchanged; and the real
-    HTTP acceptance proves disabled owner read, non-owner forbidden, republish
-    conflict, timestamp preservation, and discovery exclusion.
-- [ ] T072 [Review-R6] Rerun the complete verification matrix, report fallback
+  HTTP acceptance proves disabled owner read, non-owner forbidden, republish
+  conflict, timestamp preservation, and discovery exclusion.
+- [x] T072 [Review-R6] Rerun the complete verification matrix, report fallback
   delta, and create a fresh non-OCR independent Reviewer after T068-T071
+  - Evidence: default, contract, Control Plane, readiness integration,
+    PostgreSQL/HTTP acceptance, pinned Linux race, vet, tidy/diff, pnpm,
+    Compose, and pinned Docker build passed after T068-T071. Reviewer
+    `019f5e86-2058-7293-8773-faf0d294a2f4` found no Critical issues and one
+    remaining Important about digest canonicalization; the follow-up test and
+    documentation now define and prove the exact re-hash algorithm.
+- [ ] T073 [Review-R7] Rerun the affected migration and complete verification
+  matrix, report fallback delta, and create a fresh non-OCR independent Reviewer
+  for the finalized digest canonicalization evidence.
 
 ---
 

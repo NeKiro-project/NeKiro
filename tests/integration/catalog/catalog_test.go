@@ -557,8 +557,18 @@ INSERT INTO catalog.agent_identities (agent_id, owner_id, created_at)
 VALUES ('migration-agent', 'catalog-owner-a', $1)`, registeredAt); err != nil {
 		t.Fatalf("seed v1 identity: %v", err)
 	}
-	card := `{"schemaVersion":"0.2","agentId":"migration-agent","name":"Migration Agent","description":"Existing v1 Card","owner":{"id":"catalog-owner-a"},"version":"1.0.0"}`
-	cardDigest := sha256.Sum256([]byte(card))
+	cardValue := decodeCard(t, readFixture(t, root, "runtime-a-card.json"))
+	cardValue.AgentID = "migration-agent"
+	cardValue.Name = "Migration Agent"
+	cardValue.Description = "Existing v1 Card"
+	cardValue.Owner = contracts.AgentOwner{ID: "catalog-owner-a", DisplayName: "Catalog Owner A"}
+	cardValue.Version = "1.0.0"
+	cardValue.Skills[0].InputSchema = contracts.JSONSchema{"type": "object"}
+	cardValue.Limits.MaxInputBytes = json.Number("1000000")
+	cardValue.Limits.MaxOutputBytes = json.Number("1000000")
+	cardJSON := mustJSON(t, cardValue)
+	cardDigest := sha256.Sum256(cardJSON)
+	card := string(cardJSON)
 	if _, err := pool.Exec(ctx, `
 INSERT INTO catalog.agent_versions (
     agent_id, version, schema_version, card, card_digest,
@@ -589,6 +599,12 @@ WHERE agent_id = 'migration-agent' AND version = '1.0.0'`).Scan(&storedDigest); 
 	}
 	if !bytes.Equal(storedDigest, cardDigest[:]) {
 		t.Fatalf("migrated v1 Card digest changed: got %x, want %x", storedDigest, cardDigest)
+	}
+	migratedCard := decodeCard(t, []byte(storedCard))
+	reencodedMigratedCard := mustJSON(t, migratedCard)
+	reencodedDigest := sha256.Sum256(reencodedMigratedCard)
+	if !bytes.Equal(reencodedDigest[:], storedDigest) {
+		t.Fatalf("migrated v1 Card does not re-hash to preserved digest: got %x, want %x", reencodedDigest, storedDigest)
 	}
 	if err := migrator.MigrateTo(ctx, 0); err != nil {
 		t.Fatalf("roll back migration assertion schema: %v", err)
