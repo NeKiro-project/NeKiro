@@ -27,12 +27,16 @@ func NewStore(pool *pgxpool.Pool) (*Store, error) {
 	return &Store{pool: pool}, nil
 }
 
-func (store *Store) Register(ctx context.Context, version catalog.AgentVersion) (catalog.AgentVersion, error) {
+func (store *Store) Register(ctx context.Context, version catalog.AgentVersion) (result catalog.AgentVersion, returnErr error) {
 	tx, err := store.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return catalog.AgentVersion{}, dependencyError("begin registration", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		if rollbackErr := tx.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			returnErr = errors.Join(returnErr, dependencyError("rollback registration", rollbackErr))
+		}
+	}()
 
 	if _, err := tx.Exec(ctx, `
 INSERT INTO catalog.agent_identities (agent_id, owner_id, created_at)
@@ -122,12 +126,16 @@ func (store *Store) Disable(ctx context.Context, agentID, version, callerID stri
 	return store.transition(ctx, agentID, version, callerID, at, false)
 }
 
-func (store *Store) transition(ctx context.Context, agentID, version, callerID string, at time.Time, publish bool) (catalog.AgentVersion, error) {
+func (store *Store) transition(ctx context.Context, agentID, version, callerID string, at time.Time, publish bool) (result catalog.AgentVersion, returnErr error) {
 	tx, err := store.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return catalog.AgentVersion{}, dependencyError("begin lifecycle transition", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		if rollbackErr := tx.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			returnErr = errors.Join(returnErr, dependencyError("rollback lifecycle transition", rollbackErr))
+		}
+	}()
 	row := tx.QueryRow(ctx, selectVersionSQL+`
 WHERE v.agent_id = $1 AND v.version = $2
 FOR UPDATE OF v`, agentID, version)
@@ -185,12 +193,16 @@ RETURNING disabled_at`, agentID, version, at).Scan(&storedDisabledAt); err != ni
 	return entry, nil
 }
 
-func (store *Store) DiscoverFirstPage(ctx context.Context, filter catalog.DiscoveryFilter) (int64, catalog.DiscoveryResult, error) {
+func (store *Store) DiscoverFirstPage(ctx context.Context, filter catalog.DiscoveryFilter) (snapshot int64, result catalog.DiscoveryResult, returnErr error) {
 	tx, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return 0, catalog.DiscoveryResult{}, dependencyError("begin discovery snapshot", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		if rollbackErr := tx.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			returnErr = errors.Join(returnErr, dependencyError("rollback discovery snapshot", rollbackErr))
+		}
+	}()
 	var sequence int64
 	if err := tx.QueryRow(ctx, `
 SELECT last_sequence
@@ -198,7 +210,7 @@ FROM catalog.publication_clock
 WHERE singleton = true`).Scan(&sequence); err != nil {
 		return 0, catalog.DiscoveryResult{}, dependencyError("read publication boundary", err)
 	}
-	result, err := discover(ctx, tx, catalog.DiscoveryQuery{Filter: filter, SnapshotPublicationSequence: sequence})
+	result, err = discover(ctx, tx, catalog.DiscoveryQuery{Filter: filter, SnapshotPublicationSequence: sequence})
 	if err != nil {
 		return 0, catalog.DiscoveryResult{}, err
 	}

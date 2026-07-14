@@ -249,7 +249,11 @@ func TestRegistrationBodyDeadlineStartsAfterHeadersAndClearsForConnectionReuse(t
 
 	body := []byte(`{"card":{}}`)
 	connection := dialTestServer(t, server)
-	defer connection.Close()
+	defer func() {
+		if err := connection.Close(); err != nil {
+			t.Errorf("close test connection: %v", err)
+		}
+	}()
 	writeRequestHeaders(t, connection, server.Listener.Addr().String(), len(body), false)
 	time.Sleep(250 * time.Millisecond)
 	if _, err := connection.Write(append([]byte("\r\n"), body...)); err != nil {
@@ -259,7 +263,9 @@ func TestRegistrationBodyDeadlineStartsAfterHeadersAndClearsForConnectionReuse(t
 	if response.StatusCode != http.StatusCreated {
 		t.Fatalf("delayed-header registration status = %d", response.StatusCode)
 	}
-	response.Body.Close()
+	if err := response.Body.Close(); err != nil {
+		t.Errorf("close registration response body: %v", err)
+	}
 
 	time.Sleep(250 * time.Millisecond)
 	if _, err := fmt.Fprintf(connection, "GET /livez HTTP/1.1\r\nHost: %s\r\n\r\n", server.Listener.Addr().String()); err != nil {
@@ -269,10 +275,16 @@ func TestRegistrationBodyDeadlineStartsAfterHeadersAndClearsForConnectionReuse(t
 	if reused.StatusCode != http.StatusNoContent {
 		t.Fatalf("connection reuse status = %d", reused.StatusCode)
 	}
-	reused.Body.Close()
+	if err := reused.Body.Close(); err != nil {
+		t.Errorf("close reused response body: %v", err)
+	}
 
 	partial := dialTestServer(t, server)
-	defer partial.Close()
+	defer func() {
+		if err := partial.Close(); err != nil {
+			t.Errorf("close partial test connection: %v", err)
+		}
+	}()
 	writeRequestHeaders(t, partial, server.Listener.Addr().String(), len(body), true)
 	if _, err := partial.Write(body[:4]); err != nil {
 		t.Fatalf("write partial registration body: %v", err)
@@ -282,7 +294,9 @@ func TestRegistrationBodyDeadlineStartsAfterHeadersAndClearsForConnectionReuse(t
 	if timedOut.StatusCode != http.StatusBadRequest {
 		t.Fatalf("partial registration status = %d, want 400", timedOut.StatusCode)
 	}
-	timedOut.Body.Close()
+	if err := timedOut.Body.Close(); err != nil {
+		t.Errorf("close timed-out response body: %v", err)
+	}
 	if service.registerCalls != 1 {
 		t.Fatalf("Catalog registrations = %d, want only completed body", service.registerCalls)
 	}
@@ -342,7 +356,9 @@ func dialTestServer(t *testing.T, server *httptest.Server) net.Conn {
 		t.Fatalf("dial test server: %v", err)
 	}
 	if err := connection.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
-		connection.Close()
+		if closeErr := connection.Close(); closeErr != nil {
+			t.Errorf("close test connection after deadline failure: %v", closeErr)
+		}
 		t.Fatalf("set test connection deadline: %v", err)
 	}
 	return connection
@@ -366,7 +382,9 @@ func readSocketResponse(t *testing.T, connection net.Conn) *http.Response {
 		t.Fatalf("read socket response: %v", err)
 	}
 	if _, err := io.Copy(io.Discard, response.Body); err != nil {
-		response.Body.Close()
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("close failed response body: %v", closeErr)
+		}
 		t.Fatalf("read socket response body: %v", err)
 	}
 	return response

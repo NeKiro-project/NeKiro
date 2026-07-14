@@ -125,7 +125,7 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 	}
 }
 
-func migrate(ctx context.Context, direction string) error {
+func migrate(ctx context.Context, direction string) (returnErr error) {
 	databaseURL, err := config.LoadDatabaseURL()
 	if err != nil {
 		return err
@@ -134,14 +134,18 @@ func migrate(ctx context.Context, direction string) error {
 	if err != nil {
 		return errors.New("connect migration database")
 	}
-	defer connection.Close(ctx)
+	defer func() {
+		if closeErr := connection.Close(ctx); closeErr != nil {
+			returnErr = errors.Join(returnErr, fmt.Errorf("close migration database: %w", closeErr))
+		}
+	}()
 	if err := postgres.Migrate(ctx, connection, direction); err != nil {
 		return errors.New("catalog migration failed")
 	}
 	return nil
 }
 
-func healthcheck(ctx context.Context, url string) error {
+func healthcheck(ctx context.Context, url string) (returnErr error) {
 	requestContext, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	request, err := http.NewRequestWithContext(requestContext, http.MethodGet, url, nil)
@@ -152,7 +156,11 @@ func healthcheck(ctx context.Context, url string) error {
 	if err != nil {
 		return errors.New("healthcheck request failed")
 	}
-	defer response.Body.Close()
+	defer func() {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			returnErr = errors.Join(returnErr, fmt.Errorf("close healthcheck response: %w", closeErr))
+		}
+	}()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return fmt.Errorf("healthcheck returned status %d", response.StatusCode)
 	}

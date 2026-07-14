@@ -122,9 +122,7 @@ func DecodeCursor(value string, filter DiscoveryFilter) (int64, DiscoveryPositio
 }
 
 func hashFilter(filter DiscoveryFilter) (string, error) {
-	data, err := json.Marshal(canonicalFilter{
-		Query: filter.Query, Capability: filter.Capability, OwnerID: filter.OwnerID, Limit: filter.Limit,
-	})
+	data, err := json.Marshal(canonicalFilter(filter))
 	if err != nil {
 		return "", fmt.Errorf("encode discovery filter: %w", err)
 	}
