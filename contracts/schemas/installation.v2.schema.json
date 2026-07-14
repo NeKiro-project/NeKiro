@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.nekiro.dev/installation/v2",
+  "$comment": "Structural validation is only one part of Installation v2 conformance. Semantic rules in contracts/installation/v2/semantic-rules.md also apply.",
+  "title": "NeKiro Workspace Installation v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "installationId",
+    "workspaceId",
+    "agentId",
+    "versionConstraint",
+    "installedVersion",
+    "acceptedPermissions",
+    "status",
+    "installedAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "installationId": { "$ref": "https://schemas.nekiro.dev/common/v1#/$defs/installationId" },
+    "workspaceId": { "$ref": "https://schemas.nekiro.dev/common/v1#/$defs/workspaceId" },
+    "agentId": { "$ref": "https://schemas.nekiro.dev/common/v1#/$defs/agentId" },
+    "versionConstraint": { "$ref": "https://schemas.nekiro.dev/common/v1#/$defs/semverRange" },
+    "installedVersion": { "$ref": "https://schemas.nekiro.dev/common/v1#/$defs/semver" },
+    "acceptedPermissions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "https://schemas.nekiro.dev/common/v1#/$defs/permissionId" }
+    },
+    "status": { "enum": ["enabled", "disabled", "uninstalled"] },
+    "installedAt": { "$ref": "https://schemas.nekiro.dev/common/v1#/$defs/dateTime" },
+    "updatedAt": { "$ref": "https://schemas.nekiro.dev/common/v1#/$defs/dateTime" },
+    "uninstalledAt": { "$ref": "https://schemas.nekiro.dev/common/v1#/$defs/dateTime" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["status"],
+        "properties": { "status": { "const": "uninstalled" } }
+      },
+      "then": { "required": ["uninstalledAt"] },
+      "else": { "not": { "required": ["uninstalledAt"] } }
+    }
+  ]
+}

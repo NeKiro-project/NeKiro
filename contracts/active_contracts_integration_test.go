@@ -14,20 +14,26 @@ import (
 func TestActiveContractVersionSynchronization(t *testing.T) {
 	wantConstants := map[string]string{
 		"Agent Card Schema":          "0.2",
+		"Workspace Schema":           "1",
+		"Installation Schema":        "2",
 		"Invocation Event Schema":    "0.2",
 		"Platform Error Schema":      "2",
+		"Workspace Platform Error":   "3",
 		"Invocation Result Schema":   "1",
 		"Result Stream Event Schema": "1",
 		"A2A Profile Schema":         "0.2",
 		"A2A protocol":               "0.3.0",
-		"Northbound API":             "2",
-		"Control Plane Internal API": "1",
+		"Northbound API":             "3",
+		"Control Plane Internal API": "2",
 		"Router Internal API":        "2",
 	}
 	actualConstants := map[string]string{
 		"Agent Card Schema":          AgentCardSchemaVersion,
+		"Workspace Schema":           WorkspaceSchemaVersion,
+		"Installation Schema":        InstallationSchemaVersion,
 		"Invocation Event Schema":    InvocationEventSchemaVersion,
 		"Platform Error Schema":      PlatformErrorSchemaVersion,
+		"Workspace Platform Error":   WorkspacePlatformErrorSchemaVersion,
 		"Invocation Result Schema":   InvocationResultSchemaVersion,
 		"Result Stream Event Schema": InvocationResultStreamEventSchemaVersion,
 		"A2A Profile Schema":         A2AProfileSchemaVersion,
@@ -83,8 +89,8 @@ func TestActiveContractVersionSynchronization(t *testing.T) {
 		path string
 		want string
 	}{
-		{path: filepath.Join("openapi", "control-plane.v2.yaml"), want: "2.0.0"},
-		{path: filepath.Join("openapi", "control-plane-internal.v1.yaml"), want: "1.0.0"},
+		{path: filepath.Join("openapi", "control-plane.v3.yaml"), want: "3.0.0"},
+		{path: filepath.Join("openapi", "control-plane-internal.v2.yaml"), want: "2.0.0"},
 		{path: filepath.Join("openapi", "router-internal.v2.yaml"), want: "2.0.0"},
 	}
 	for _, document := range documents {
@@ -107,19 +113,19 @@ func TestActiveOpenAPIToGoMappings(t *testing.T) {
 		Result:        json.RawMessage(`{"answer":42}`),
 	}
 
-	northbound := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v2.yaml"))
+	northbound := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v3.yaml"))
 	validateOpenAPIValue(
 		t,
-		northbound.Paths.Find("/v2/agents").Post.RequestBody.Value.Content["application/json"].Schema,
+		northbound.Paths.Find("/v3/agents").Post.RequestBody.Value.Content["application/json"].Schema,
 		RegisterAgentRequest{Card: card},
 	)
 	validateOpenAPIValue(
 		t,
-		northbound.Paths.Find("/v2/workspaces/{workspaceId}/invocations").Post.Responses.Status(200).Value.Content["application/json"].Schema,
+		northbound.Paths.Find("/v3/workspaces/{workspaceId}/invocations").Post.Responses.Status(200).Value.Content["application/json"].Schema,
 		result,
 	)
 
-	controlPlaneInternal := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v1.yaml"))
+	controlPlaneInternal := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v2.yaml"))
 	resolveRequest := ResolveAgentRequest{
 		InvocationID: event.InvocationID,
 		RootTaskID:   event.RootTaskID,
@@ -129,7 +135,7 @@ func TestActiveOpenAPIToGoMappings(t *testing.T) {
 		Version:      card.Version,
 		Capability:   event.Capability,
 	}
-	resolveOperation := controlPlaneInternal.Paths.Find("/internal/v1/resolve-agent").Post
+	resolveOperation := controlPlaneInternal.Paths.Find("/internal/v2/resolve-agent").Post
 	validateOpenAPIValue(t, resolveOperation.RequestBody.Value.Content["application/json"].Schema, resolveRequest)
 	validateOpenAPIValue(t, resolveOperation.Responses.Status(200).Value.Content["application/json"].Schema, ResolveAgentResponse{
 		Card: card,
@@ -296,17 +302,17 @@ func TestActiveContractsExcludeSecretsAndResultsFromMetadata(t *testing.T) {
 }
 
 func TestActiveInternalAPIsPreserveDirectionalOwnership(t *testing.T) {
-	controlPlane := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v1.yaml"))
+	controlPlane := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v2.yaml"))
 	router := loadOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v2.yaml"))
 
-	assertExactStringSlice(t, "Control Plane Internal paths", controlPlane.Paths.Keys(), []string{"/internal/v1/resolve-agent"})
+	assertExactStringSlice(t, "Control Plane Internal paths", controlPlane.Paths.Keys(), []string{"/internal/v2/resolve-agent"})
 	assertExactStringSlice(t, "Router Internal paths", router.Paths.Keys(), []string{
 		"/internal/v2/invocations",
 		"/internal/v2/invocations/{invocationId}",
 		"/internal/v2/invocations/{invocationId}/events",
 		"/internal/v2/traces/{traceId}",
 	})
-	if router.Paths.Find("/internal/v1/resolve-agent") != nil {
+	if router.Paths.Find("/internal/v2/resolve-agent") != nil {
 		t.Fatal("Router Internal API owns Control Plane resolution")
 	}
 	if controlPlane.Paths.Find("/internal/v2/invocations") != nil {

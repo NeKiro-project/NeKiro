@@ -17,17 +17,19 @@ import (
 const (
 	commonSchemaID          = "https://schemas.nekiro.dev/common/v1"
 	agentCardSchemaID       = "https://schemas.nekiro.dev/agent-card/v0.2"
+	workspaceSchemaID       = "https://schemas.nekiro.dev/workspace/v1"
 	platformErrorSchemaID   = platformErrorV2SchemaID
-	installationSchemaID    = "https://schemas.nekiro.dev/installation/v1"
+	installationSchemaID    = "https://schemas.nekiro.dev/installation/v2"
 	invocationEventSchemaID = invocationEventV02SchemaID
 	a2aProfileSchemaID      = "https://schemas.nekiro.dev/a2a-profile/v0.2"
 )
 
-//go:embed schemas/*.json openapi/*.yaml a2a-profile/*.json a2a-profile/v0.3.0/*.json a2a-profile/v0.3.0/conformance/*.json a2a-profile/v0.3.0/conformance/*.sse agent-card/v0.2/semantic-rules.md agent-card/v0.2/conformance/*.json invocation/v1/semantic-rules.md invocation/v1/conformance/*.json
+//go:embed schemas/*.json openapi/*.yaml a2a-profile/*.json a2a-profile/v0.3.0/*.json a2a-profile/v0.3.0/conformance/*.json a2a-profile/v0.3.0/conformance/*.sse agent-card/v0.2/semantic-rules.md agent-card/v0.2/conformance/*.json invocation/v1/semantic-rules.md invocation/v1/conformance/*.json installation/v2/semantic-rules.md
 var contractFiles embed.FS
 
 type Validator struct {
 	agentCard                   *jsonschema.Schema
+	workspace                   *jsonschema.Schema
 	platformError               *jsonschema.Schema
 	installation                *jsonschema.Schema
 	invocationEvent             *jsonschema.Schema
@@ -81,7 +83,8 @@ func NewValidator() (*Validator, error) {
 	resources := map[string]string{
 		commonSchemaID:       "schemas/common.v1.schema.json",
 		agentCardSchemaID:    "schemas/agent-card.v0.2.schema.json",
-		installationSchemaID: "schemas/installation.v1.schema.json",
+		workspaceSchemaID:    "schemas/workspace.v1.schema.json",
+		installationSchemaID: "schemas/installation.v2.schema.json",
 		a2aProfileSchemaID:   "schemas/a2a-profile.v0.2.schema.json",
 	}
 
@@ -99,6 +102,10 @@ func NewValidator() (*Validator, error) {
 	if err != nil {
 		return nil, fmt.Errorf("compile Agent Card schema: %w", err)
 	}
+	workspace, err := compiler.Compile(workspaceSchemaID)
+	if err != nil {
+		return nil, fmt.Errorf("compile Workspace schema: %w", err)
+	}
 	installation, err := compiler.Compile(installationSchemaID)
 	if err != nil {
 		return nil, fmt.Errorf("compile installation schema: %w", err)
@@ -115,6 +122,7 @@ func NewValidator() (*Validator, error) {
 
 	return &Validator{
 		agentCard:                   agentCard,
+		workspace:                   workspace,
 		platformError:               resultContracts.platformError,
 		installation:                installation,
 		invocationEvent:             resultContracts.invocationEvent,
@@ -367,7 +375,14 @@ func rejectQuotedRegisterAgentCardLimitValues(data []byte) error {
 }
 
 func (v *Validator) ValidateInstallation(installation Installation) error {
-	return validateMappedValue(v.installation, installation)
+	if err := validateMappedValue(v.installation, installation); err != nil {
+		return err
+	}
+	return validateInstallationV2Semantics(installation)
+}
+
+func (v *Validator) ValidateWorkspace(workspace Workspace) error {
+	return validateMappedValue(v.workspace, workspace)
 }
 
 func (v *Validator) ValidateInvocationEvent(event InvocationEvent) error {
@@ -376,6 +391,10 @@ func (v *Validator) ValidateInvocationEvent(event InvocationEvent) error {
 
 func (v *Validator) ValidatePlatformError(platformError PlatformError) error {
 	return v.resultContracts.ValidatePlatformError(platformError)
+}
+
+func (v *Validator) ValidatePlatformErrorV3(platformError PlatformErrorV3) error {
+	return v.resultContracts.ValidatePlatformErrorV3(platformError)
 }
 
 func (v *Validator) ValidateInvocationResult(result InvocationResult) error {
