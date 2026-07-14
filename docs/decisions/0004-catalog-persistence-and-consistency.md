@@ -26,11 +26,13 @@ identity-provider selection is in scope.
   unbounded active Card numbers. Discovery reads those Registry-owned facts
   directly and stores no second Card copy.
 - The v1-to-v2 representation migration preserves each existing
-  `card_digest`. Its canonical input is the UTF-8 output of Go
-  `encoding/json.Marshal` over the active Card decoded with `json.Number`; it is
-  not a digest of PostgreSQL's `jsonb::text` formatting. The representation
-  change must not rewrite historical Card identity, and integration coverage
-  asserts both byte preservation and re-hash equivalence under that algorithm.
+  `card_digest` as historical Card identity evidence. New registrations hash
+  the UTF-8 output of Go `encoding/json.Marshal` over the active Card decoded
+  with `json.Number`; the migration does not hash PostgreSQL's `jsonb::text`
+  formatting. PostgreSQL may normalize legal number spellings during the
+  representation change, so migrated digests are preserved and are not
+  recomputed from the new text serialization. Integration coverage includes
+  exponent and decimal spellings and asserts digest preservation.
 - Publication and disablement use row locking and database constraints.
   Publication additionally increments one Catalog-owned transactional clock
   row whose lock is held until commit, making sequence order equal successful

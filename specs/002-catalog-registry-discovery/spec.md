@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-14
 
-**Status**: Ready for Implementation
+**Status**: Complete
 
 **Input**: Specify the next NeKiro backend capability after the contract
 foundation: make Agent registration, version publication, exact version reads,

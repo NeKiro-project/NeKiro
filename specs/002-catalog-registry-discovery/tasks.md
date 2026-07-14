@@ -370,7 +370,7 @@ and require a fresh independent Review before convergence.
     `.github/workflows/ci.yml` conflict; it was resolved by preserving the
     latest split Go/frontend/Compose jobs and adding the Catalog PostgreSQL,
     readiness, and HTTP integration steps. Post-rebase verification passed.
-- [ ] T044 Create a fresh independent Review Agent for the complete rebased
+- [x] T044 Create a fresh independent Review Agent for the complete rebased
   Spec 002 diff; fix every High or Medium finding through the original
   implementation Agent, update Spec/Tasks before behavioral fixes, and use a new
   Reviewer after every fix until explicit PASS is recorded in
@@ -400,6 +400,11 @@ and require a fresh independent Review before convergence.
     duplicate-precedence remediation, but returned `High 0`, `Medium 1`,
     `Low 0`: the pinned JSON Schema engine materializes integers through
     `big.Rat` and rejects legal `1e1000001` before persistence.
+  - Final review: fresh boundary-focused Reviewer
+    `019f5ec1-d8f0-7302-a7c1-34eebd6e9c4b` did not use OCR, reviewed the
+    migration policy and prior remediation boundaries, and returned `PASS`
+    with `High 0`, `Medium 0`, `Low 1`; the only Low was stale T073/T074
+    bookkeeping and was resolved in the same closure update.
 
 ### Review Round 1 Remediation
 
@@ -586,27 +591,52 @@ and require a fresh independent Review before convergence.
     `019f5e86-2058-7293-8773-faf0d294a2f4` found no Critical issues and one
     remaining Important about digest canonicalization; the follow-up test and
     documentation now define and prove the exact re-hash algorithm.
-- [ ] T073 [Review-R7] Rerun the affected migration and complete verification
+- [x] T073 [Review-R7] Rerun the affected migration and complete verification
   matrix, report fallback delta, and create a fresh non-OCR independent Reviewer
   for the finalized digest canonicalization evidence.
-  - Evidence so far: readiness integration, PostgreSQL/HTTP acceptance, full
-    pinned Linux race, default tests, vet, tidy/diff, pnpm, Compose rendering,
-    and pinned Docker build passed after the rebase. The final Review Agent has
-    not yet returned a report, so this task remains incomplete.
+  - Evidence: affected migration and PostgreSQL/HTTP acceptance pass with
+    `1e3` and `1.0` fixtures; default tests, vet, binary build, tidy-diff,
+    Compose rendering, and pinned Docker build pass; pinned Linux Go 1.26.4
+    race passes for `./...`; Windows race is unavailable because this host has
+    no cgo compiler. Fresh independent Reviewer
+    `019f5ec1-d8f0-7302-a7c1-34eebd6e9c4b` returned `PASS`, `High 0`,
+    `Medium 0`, `Low 1` (the only Low was stale task bookkeeping addressed by
+    this update). Fallback delta: removed `0`, retained `3`, added `0`, net
+    `0`; added fallback evidence: none.
+- [x] T074 [Review-R8] Clarify that migrated historical `card_digest` values are
+  preserved identity evidence rather than hashes of post-migration text, and
+  extend the migration test with legal exponent/decimal number spellings to
+  prove digest preservation through PostgreSQL normalization in
+  `specs/002-catalog-registry-discovery/data-model.md`,
+  `docs/decisions/0004-catalog-persistence-and-consistency.md`, and
+  `tests/integration/catalog/catalog_test.go`
+  - Evidence: the data model and ADR distinguish new-registration canonical
+    digests from preserved migrated identity evidence; the migration test hashes
+    `1e3`/`1.0` before PostgreSQL `jsonb` storage, asserts the migrated values
+    are reconstructed as `1000`/`1.0`, and asserts the original digest is
+    unchanged.
 
 ---
 
 ## Phase 8: Convergence and Handoff
 
-- [ ] T045 Run `speckit-converge` against the implemented repository and append
+- [x] T045 Run `speckit-converge` against the implemented repository and append
   only genuine remaining work to
   `specs/002-catalog-registry-discovery/tasks.md`
-- [ ] T046 Map FR-001 through FR-025 and every US1-US4 acceptance scenario to
+  - Evidence: convergence checked all 25 functional requirements, 11
+    buildable success criteria, 19 acceptance scenarios, Plan decisions, and
+    constitution constraints; no missing, partial, contradicting, or
+    unrequested gaps were found, so no Convergence tasks were appended.
+- [x] T046 Map FR-001 through FR-025 and every US1-US4 acceptance scenario to
   implemented artifacts and passing tests, confirm total added fallback is zero,
   and mark Spec complete only after Review PASS in
   `specs/002-catalog-registry-discovery/spec.md` and
   `specs/002-catalog-registry-discovery/tasks.md`
-- [ ] T047 Update current repository status, remaining non-goals, and the next
+  - Evidence: the existing task-to-artifact/test mappings and acceptance
+    evidence cover FR-001 through FR-025 and all 19 scenarios; the Spec status
+    is now `Complete`, and final review is `PASS`. Fallback delta remains
+    removed `0`, retained `3`, added `0`, net `0`.
+- [x] T047 Update current repository status, remaining non-goals, and the next
   Phase 1 feature entry point in `docs/handoffs/CURRENT.md`, `AGENTS.md`, and
   `README.md`, then commit finalized SDD/handoff artifacts without push
 

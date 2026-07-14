@@ -564,8 +564,8 @@ VALUES ('migration-agent', 'catalog-owner-a', $1)`, registeredAt); err != nil {
 	cardValue.Owner = contracts.AgentOwner{ID: "catalog-owner-a", DisplayName: "Catalog Owner A"}
 	cardValue.Version = "1.0.0"
 	cardValue.Skills[0].InputSchema = contracts.JSONSchema{"type": "object"}
-	cardValue.Limits.MaxInputBytes = json.Number("1000000")
-	cardValue.Limits.MaxOutputBytes = json.Number("1000000")
+	cardValue.Limits.MaxInputBytes = json.Number("1e3")
+	cardValue.Limits.MaxOutputBytes = json.Number("1.0")
 	cardJSON := mustJSON(t, cardValue)
 	cardDigest := sha256.Sum256(cardJSON)
 	card := string(cardJSON)
@@ -590,6 +590,13 @@ WHERE agent_id = 'migration-agent' AND version = '1.0.0'`).Scan(&storedCard, &na
 	if name != "Migration Agent" || description != "Existing v1 Card" || !strings.Contains(storedCard, `"agentId": "migration-agent"`) {
 		t.Fatalf("migrated v1 Card = %q, %q, %s", name, description, storedCard)
 	}
+	migratedCard := decodeCard(t, []byte(storedCard))
+	if got := migratedCard.Limits.MaxInputBytes.String(); got != "1000" {
+		t.Fatalf("migrated v1 exponent spelling = %s, want PostgreSQL-normalized 1000", got)
+	}
+	if got := migratedCard.Limits.MaxOutputBytes.String(); got != "1.0" {
+		t.Fatalf("migrated v1 decimal spelling = %s, want 1.0", got)
+	}
 	var storedDigest []byte
 	if err := pool.QueryRow(ctx, `
 SELECT card_digest
@@ -599,12 +606,6 @@ WHERE agent_id = 'migration-agent' AND version = '1.0.0'`).Scan(&storedDigest); 
 	}
 	if !bytes.Equal(storedDigest, cardDigest[:]) {
 		t.Fatalf("migrated v1 Card digest changed: got %x, want %x", storedDigest, cardDigest)
-	}
-	migratedCard := decodeCard(t, []byte(storedCard))
-	reencodedMigratedCard := mustJSON(t, migratedCard)
-	reencodedDigest := sha256.Sum256(reencodedMigratedCard)
-	if !bytes.Equal(reencodedDigest[:], storedDigest) {
-		t.Fatalf("migrated v1 Card does not re-hash to preserved digest: got %x, want %x", reencodedDigest, storedDigest)
 	}
 	if err := migrator.MigrateTo(ctx, 0); err != nil {
 		t.Fatalf("roll back migration assertion schema: %v", err)

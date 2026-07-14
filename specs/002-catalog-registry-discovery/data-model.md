@@ -97,14 +97,13 @@ Primary key: `(agent_id, version)`.
 - `card_name`, `card_description`, ownership, and capability rows are derived
   only from the already validated mapped Card and commit with the Card fact.
 - Publication metadata is not inserted into the Card document.
-- The canonical `card_digest` input is the UTF-8 byte sequence emitted by Go
-  `encoding/json.Marshal` for the decoded active Agent Card, with `json.Number`
-  preserving legal number tokens. The schema-v1 to schema-v2 migration
-  preserves the existing digest. It identifies the canonical mapped Card fact,
-  not PostgreSQL's serialization of the old `jsonb` storage representation;
-  changing storage representation must not create a new Card identity. A
-  migrated Card must decode and re-emit to the preserved digest under this
-  algorithm.
+- For new registrations, the canonical `card_digest` input is the UTF-8 byte
+  sequence emitted by Go `encoding/json.Marshal` for the decoded active Agent
+  Card, with `json.Number` preserving legal input number tokens. The
+  schema-v1 to schema-v2 migration preserves each existing digest as
+  historical Card identity evidence. PostgreSQL may normalize number spellings
+  while converting `jsonb` to text, so a migrated digest is not a hash of the
+  post-migration text serialization and must not be recomputed from it.
 
 ### State/Timestamp Constraints
 
