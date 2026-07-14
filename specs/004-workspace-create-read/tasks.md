@@ -86,7 +86,7 @@ Workspace through the Gateway.
   independent Review.
 - [X] T015 Run Converge; append any remaining traceable work to this file and
   resolve it before marking issue #4 complete.
-- [ ] T016 Update `docs/handoffs/CURRENT.md`, check every completed issue #4
+- [X] T016 Update `docs/handoffs/CURRENT.md`, check every completed issue #4
   acceptance checkbox, commit with `Nene7ko_ <1604009816@qq.com>`, push the
   branch to `origin`, and create a ready PR targeting `main`.
 
@@ -160,3 +160,9 @@ The post-review Converge audit found no remaining implementation gap against
 the #4 Spec, Plan, Tasks, active contracts, or constitution. There are no
 clarification markers, missing runtime paths, or untracked acceptance
 requirements. No Convergence task was appended.
+
+## Delivery Evidence
+
+- Implementation commit: `c125b30`
+- Ready PR: [NeKiro-project/NeKiro#11](https://github.com/NeKiro-project/NeKiro/pull/11)
+- Issue #4 acceptance criteria: all checked on GitHub.

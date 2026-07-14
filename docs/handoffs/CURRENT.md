@@ -3,17 +3,17 @@
 **Updated**: 2026-07-15 (Asia/Hong_Kong)
 
 **State**: Issue #4 Workspace create/read runtime and its independent delivery
-gate are complete on the feature branch. Issue #3 remains the dependent base
-PR; Issue #5 installation delivery is the next slice. Invocation Dispatch,
-Router, Ledger, SDK, Sample Agents, and the complete E2E loop remain future
-scope.
+gate are complete on the feature branch. Issue #3 is now merged into project
+main as the dependent base; Issue #5 installation delivery is the next slice.
+Invocation Dispatch, Router, Ledger, SDK, Sample Agents, and the complete E2E
+loop remain future scope.
 
 ## Repository State
 
 - Upstream repository: `https://github.com/NeKiro-project/NeKiro.git`
 - Fork remote: `https://github.com/XnLemon/NeKiro.git`
 - Branch: `codex/004-workspace-create-read`
-- Base: `upstream/main` at `f4caf4d`
+- Base: `upstream/main` at `7de6fe6`
 - Required local Git identity: `Nene7ko_ <1604009816@qq.com>`
 - Frontend remains paused.
 
