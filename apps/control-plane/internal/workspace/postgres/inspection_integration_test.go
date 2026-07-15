@@ -5,8 +5,8 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -40,7 +40,7 @@ func TestInstallationInspectionStoreReturnsCompleteCurrentHistoryAndKeysetPages(
 	if err != nil {
 		t.Fatalf("read historical Installation: %v", err)
 	}
-	if !reflect.DeepEqual(actual, rows[1]) {
+	if !sameInstallation(actual, rows[1]) {
 		t.Fatalf("historical Installation = %#v, want %#v", actual, rows[1])
 	}
 
@@ -72,6 +72,53 @@ func TestInstallationInspectionStoreReturnsNonNilEmptyHistory(t *testing.T) {
 	}
 }
 
+func TestInstallationInspectionStoreTraverses101RowsWithoutDuplicates(t *testing.T) {
+	ctx := context.Background()
+	store, pool := inspectionStoreForTest(t, ctx)
+	installedAt := time.Date(2026, 7, 15, 11, 0, 0, 0, time.UTC)
+	workspaceValue := contracts.Workspace{WorkspaceID: "workspace-inspection-scale", OwnerID: "owner-a", CreatedAt: installedAt, UpdatedAt: installedAt}
+	if _, err := store.CreateWorkspace(ctx, workspaceValue); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 101; index++ {
+		insertInspectionRow(t, ctx, pool, contracts.Installation{
+			InstallationID:      fmt.Sprintf("installation-%03d", index),
+			WorkspaceID:         workspaceValue.WorkspaceID,
+			AgentID:             fmt.Sprintf("runtime-%03d", index),
+			VersionConstraint:   "^1.0.0",
+			InstalledVersion:    "1.0.0",
+			AcceptedPermissions: []string{},
+			Status:              "enabled",
+			InstalledAt:         installedAt,
+			UpdatedAt:           installedAt,
+		})
+	}
+
+	var all []contracts.Installation
+	var after *workspace.InstallationPosition
+	for {
+		page, hasMore, err := store.ListInstallations(ctx, workspaceValue.WorkspaceID, 25, after)
+		if err != nil {
+			t.Fatal(err)
+		}
+		all = append(all, page...)
+		if !hasMore {
+			break
+		}
+		last := page[len(page)-1]
+		after = &workspace.InstallationPosition{InstalledAt: last.InstalledAt, InstallationID: last.InstallationID}
+	}
+	if len(all) != 101 {
+		t.Fatalf("traversed %d installations, want 101", len(all))
+	}
+	for index, value := range all {
+		wantID := fmt.Sprintf("installation-%03d", index)
+		if value.InstallationID != wantID {
+			t.Fatalf("installation[%d] = %q, want %q", index, value.InstallationID, wantID)
+		}
+	}
+}
+
 func TestInstallationInspectionStorePropagatesQueryAndScanFailures(t *testing.T) {
 	ctx := context.Background()
 	store, pool := inspectionStoreForTest(t, ctx)
@@ -98,6 +145,45 @@ func TestInstallationInspectionStorePropagatesQueryAndScanFailures(t *testing.T)
 	items, _, err = store.ListInstallations(ctx, workspaceValue.WorkspaceID, 25, nil)
 	if !errors.Is(err, workspace.ErrDependency) || items != nil {
 		t.Fatalf("scan failure list = %#v, %v; want dependency and no items", items, err)
+	}
+}
+
+func TestLifecycleStoreAdvancesStaleCandidateAfterLockedRow(t *testing.T) {
+	ctx := context.Background()
+	store, pool := inspectionStoreForTest(t, ctx)
+	installedAt := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	row := contracts.Installation{
+		InstallationID:      "installation-monotonic",
+		WorkspaceID:         "workspace-monotonic",
+		AgentID:             "runtime-monotonic",
+		VersionConstraint:   "^1.0.0",
+		InstalledVersion:    "1.0.0",
+		AcceptedPermissions: []string{"document.read"},
+		Status:              "enabled",
+		InstalledAt:         installedAt,
+		UpdatedAt:           installedAt,
+	}
+	workspaceValue := contracts.Workspace{WorkspaceID: row.WorkspaceID, OwnerID: "owner-a", CreatedAt: installedAt, UpdatedAt: installedAt}
+	if _, err := store.CreateWorkspace(ctx, workspaceValue); err != nil {
+		t.Fatal(err)
+	}
+	insertInspectionRow(t, ctx, pool, row)
+
+	stale := installedAt.Add(-time.Hour)
+	disabled, err := store.ChangeInstallationStatus(ctx, row.WorkspaceID, row.InstallationID, "disabled", stale)
+	if err != nil {
+		t.Fatalf("stale disable: %v", err)
+	}
+	if !disabled.UpdatedAt.After(row.UpdatedAt) {
+		t.Fatalf("stale disable timestamp = %s, previous = %s", disabled.UpdatedAt, row.UpdatedAt)
+	}
+
+	terminal, err := store.UninstallInstallation(ctx, row.WorkspaceID, row.InstallationID, stale)
+	if err != nil {
+		t.Fatalf("stale uninstall: %v", err)
+	}
+	if !terminal.UpdatedAt.After(disabled.UpdatedAt) || terminal.UninstalledAt == nil || !terminal.UninstalledAt.Equal(terminal.UpdatedAt) {
+		t.Fatalf("stale uninstall timestamps = %#v", terminal)
 	}
 }
 
@@ -156,6 +242,21 @@ func assertInspectionIDs(t *testing.T, items []contracts.Installation, want []st
 			t.Fatalf("Installation[%d] = %s, want %s", index, item.InstallationID, want[index])
 		}
 	}
+}
+
+func sameInstallation(left, right contracts.Installation) bool {
+	if left.InstallationID != right.InstallationID || left.WorkspaceID != right.WorkspaceID || left.AgentID != right.AgentID || left.VersionConstraint != right.VersionConstraint || left.InstalledVersion != right.InstalledVersion || left.Status != right.Status || !left.InstalledAt.Equal(right.InstalledAt) || !left.UpdatedAt.Equal(right.UpdatedAt) || (left.UninstalledAt == nil) != (right.UninstalledAt == nil) || len(left.AcceptedPermissions) != len(right.AcceptedPermissions) {
+		return false
+	}
+	if left.UninstalledAt != nil && !left.UninstalledAt.Equal(*right.UninstalledAt) {
+		return false
+	}
+	for index := range left.AcceptedPermissions {
+		if left.AcceptedPermissions[index] != right.AcceptedPermissions[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func inspectionDatabaseURL(t *testing.T) string {

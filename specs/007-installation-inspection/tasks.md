@@ -114,8 +114,8 @@ scope.
 - Broad: `go test ./...`, `go vet ./...`, `go build ./...`,
   `go mod tidy -diff`, and `git diff --check` passed.
 - Race: `go test -race -count=1 ./apps/control-plane/internal/workspace/... ./apps/control-plane/internal/gateway ./contracts` passed.
-- PostgreSQL: integration-tag packages compiled with `go test -tags=integration -run '^$' ...`; runtime integration was not run because `NEKIRO_TEST_DATABASE_URL` was unavailable.
-- Review: final diff checked against Issue #7 scope, active contracts, ownership boundaries, error semantics, and zero-fallback policy; no High/Medium findings remained.
+- PostgreSQL: `go test -tags=integration -count=1 ./apps/control-plane/internal/workspace/postgres ./apps/control-plane/internal/workspace/integration` passed serially against a disposable dedicated `_test` database, including 101-row keyset traversal, empty history, restart, scan failure, and dependency behavior.
+- Review: independent review identified the lifecycle timestamp regression and undersized pagination corpus; the timestamp was remediated in Issue #8 and the 101-row corpus was added here. No High/Medium finding remains unresolved.
 
 ## Fallback Delta
 
