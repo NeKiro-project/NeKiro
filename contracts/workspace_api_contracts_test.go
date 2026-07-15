@@ -191,6 +191,14 @@ func TestWorkspaceV3GoMappings(t *testing.T) {
 	if !collection.Get.Parameters.GetByInAndName("query", "limit").Required {
 		t.Fatal("Installation list limit must be required")
 	}
+	limitParameter := collection.Get.Parameters.GetByInAndName("query", "limit")
+	if limitParameter.Schema == nil || limitParameter.Schema.Value == nil || limitParameter.Schema.Value.Min == nil || *limitParameter.Schema.Value.Min != float64(InstallationMinimumLimit) || limitParameter.Schema.Value.Max == nil || *limitParameter.Schema.Value.Max != float64(InstallationMaximumLimit) {
+		t.Fatalf("Installation list limit schema = %#v, want inclusive 1-100", limitParameter.Schema)
+	}
+	cursorParameter := collection.Get.Parameters.GetByInAndName("query", "cursor")
+	if cursorParameter.Required {
+		t.Fatal("Installation list cursor must remain optional")
+	}
 	validateOpenAPIValue(t, collection.Post.RequestBody.Value.Content["application/json"].Schema, InstallAgentRequest{
 		AgentID:             installation.AgentID,
 		VersionConstraint:   installation.VersionConstraint,
