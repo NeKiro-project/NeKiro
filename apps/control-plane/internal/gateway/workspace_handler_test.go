@@ -29,24 +29,33 @@ func (auth workspaceTestAuthenticator) Authenticate(*http.Request) (catalog.Auth
 }
 
 type workspaceTestService struct {
-	workspace          contracts.Workspace
-	installation       contracts.Installation
-	resolveResponse    contracts.ResolveAgentResponse
-	resolveErr         error
-	createErr          error
-	getErr             error
-	installErr         error
-	updateErr          error
-	uninstallErr       error
-	createCalls        int
-	getCalls           int
-	installCalls       int
-	updateCalls        int
-	uninstallCalls     int
-	resolveCalls       int
-	lastResolveRequest contracts.ResolveAgentRequest
-	lastInstallRequest contracts.InstallAgentRequest
-	lastUpdate         struct {
+	workspace            contracts.Workspace
+	installation         contracts.Installation
+	resolveResponse      contracts.ResolveAgentResponse
+	resolveErr           error
+	createErr            error
+	getErr               error
+	getInstallationErr   error
+	installErr           error
+	updateErr            error
+	uninstallErr         error
+	listErr              error
+	createCalls          int
+	getCalls             int
+	getInstallationCalls int
+	installCalls         int
+	updateCalls          int
+	uninstallCalls       int
+	resolveCalls         int
+	listCalls            int
+	lastResolveRequest   contracts.ResolveAgentRequest
+	lastInstallRequest   contracts.InstallAgentRequest
+	installationResult   contracts.Installation
+	listResult           contracts.InstallationList
+	lastListWorkspace    string
+	lastListLimit        int
+	lastListCursor       *string
+	lastUpdate           struct {
 		workspaceID, installationID, status string
 	}
 	lastUninstall struct {
@@ -91,10 +100,21 @@ func (service *workspaceTestService) Install(_ context.Context, _ workspace.Auth
 	return service.installation, nil
 }
 func (service *workspaceTestService) GetInstallation(context.Context, workspace.AuthenticatedCaller, string, string) (contracts.Installation, error) {
-	return contracts.Installation{}, nil
+	service.getInstallationCalls++
+	if service.getInstallationErr != nil {
+		return contracts.Installation{}, service.getInstallationErr
+	}
+	return service.installationResult, nil
 }
-func (service *workspaceTestService) ListInstallations(context.Context, workspace.AuthenticatedCaller, string, int, *string) (contracts.InstallationList, error) {
-	return contracts.InstallationList{Items: []contracts.Installation{}}, nil
+func (service *workspaceTestService) ListInstallations(_ context.Context, _ workspace.AuthenticatedCaller, workspaceID string, limit int, cursor *string) (contracts.InstallationList, error) {
+	service.listCalls++
+	service.lastListWorkspace = workspaceID
+	service.lastListLimit = limit
+	service.lastListCursor = cursor
+	if service.listErr != nil {
+		return contracts.InstallationList{}, service.listErr
+	}
+	return service.listResult, nil
 }
 func (service *workspaceTestService) UpdateInstallation(_ context.Context, _ workspace.AuthenticatedCaller, workspaceID, installationID, status string) (contracts.Installation, error) {
 	service.updateCalls++
@@ -226,6 +246,170 @@ func TestWorkspaceHandlerMapsWorkspaceCreateReadOutcomes(t *testing.T) {
 	if response.Code != http.StatusBadRequest || service.createCalls != createCallsBeforeInvalid {
 		t.Fatalf("owner override status=%d create calls=%d before=%d", response.Code, service.createCalls, createCallsBeforeInvalid)
 	}
+}
+
+func TestWorkspaceHandlerReadsAndListsInstallationFacts(t *testing.T) {
+	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	installation := contracts.Installation{
+		InstallationID:      "installation-a",
+		WorkspaceID:         "workspace-a",
+		AgentID:             "runtime-a",
+		VersionConstraint:   "^1.0.0",
+		InstalledVersion:    "1.0.2",
+		AcceptedPermissions: []string{"document.read"},
+		Status:              "enabled",
+		InstalledAt:         now,
+		UpdatedAt:           now,
+	}
+	historical := installation
+	historical.InstallationID = "installation-b"
+	historical.Status = "uninstalled"
+	historical.UninstalledAt = &now
+	cursor := "opaque-cursor"
+	service := &workspaceTestService{
+		installationResult: installation,
+		listResult: contracts.InstallationList{
+			Items:      []contracts.Installation{installation, historical},
+			NextCursor: &cursor,
+		},
+	}
+	handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, service)
+
+	request := httptest.NewRequest(http.MethodGet, "/v3/workspaces/workspace-a/installations/installation-a", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	response := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || service.getInstallationCalls != 1 || response.Header().Get(TraceHeader) == "" {
+		t.Fatalf("exact read status=%d calls=%d trace=%q", response.Code, service.getInstallationCalls, response.Header().Get(TraceHeader))
+	}
+	var read contracts.Installation
+	if err := json.Unmarshal(response.Body.Bytes(), &read); err != nil {
+		t.Fatal(err)
+	}
+	if !sameHTTPInstallation(read, installation) {
+		t.Fatalf("exact read = %#v, want %#v", read, installation)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/v3/workspaces/workspace-a/installations?limit=1&cursor="+cursor, nil)
+	request.Header.Set("Authorization", "Bearer token")
+	response = httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || service.listCalls != 1 || service.lastListWorkspace != "workspace-a" || service.lastListLimit != 1 || service.lastListCursor == nil || *service.lastListCursor != cursor {
+		t.Fatalf("list status=%d calls=%d workspace=%q limit=%d cursor=%v", response.Code, service.listCalls, service.lastListWorkspace, service.lastListLimit, service.lastListCursor)
+	}
+	var listed contracts.InstallationList
+	if err := json.Unmarshal(response.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Items) != 2 || listed.NextCursor == nil || *listed.NextCursor != cursor {
+		t.Fatalf("list response = %#v", listed)
+	}
+}
+
+func TestWorkspaceHandlerInstallationInspectionFailures(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		serviceErr error
+		list       bool
+		status     int
+		code       string
+	}{
+		{name: "unknown Workspace", path: "/v3/workspaces/missing-workspace/installations?limit=25", serviceErr: workspace.ErrNotFound, list: true, status: http.StatusNotFound, code: "NOT_FOUND"},
+		{name: "unknown Installation", path: "/v3/workspaces/workspace-a/installations/missing-installation", serviceErr: workspace.ErrNotFound, status: http.StatusNotFound, code: "NOT_FOUND"},
+		{name: "non-owner", path: "/v3/workspaces/workspace-a/installations/installation-a", serviceErr: workspace.ErrForbidden, status: http.StatusForbidden, code: "FORBIDDEN"},
+		{name: "read dependency", path: "/v3/workspaces/workspace-a/installations/installation-a", serviceErr: workspace.ErrDependency, status: http.StatusServiceUnavailable, code: "DEPENDENCY_ERROR"},
+		{name: "list dependency", path: "/v3/workspaces/workspace-a/installations?limit=25", serviceErr: workspace.ErrDependency, list: true, status: http.StatusServiceUnavailable, code: "DEPENDENCY_ERROR"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := &workspaceTestService{}
+			if test.list {
+				service.listErr = test.serviceErr
+			} else {
+				service.getInstallationErr = test.serviceErr
+			}
+			handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, service)
+			request := httptest.NewRequest(http.MethodGet, test.path, nil)
+			request.Header.Set("Authorization", "Bearer token")
+			response := httptest.NewRecorder()
+			handler.Routes().ServeHTTP(response, request)
+			if response.Code != test.status || !strings.Contains(response.Body.String(), test.code) {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			if response.Header().Get(TraceHeader) == "" || strings.Contains(response.Body.String(), "runtime-a") {
+				t.Fatalf("unsafe inspection failure response=%s", response.Body.String())
+			}
+		})
+	}
+
+	service := &workspaceTestService{}
+	handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{err: ErrUnauthenticated}, service)
+	request := httptest.NewRequest(http.MethodGet, "/v3/workspaces/workspace-a/installations?limit=25", nil)
+	response := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized || service.listCalls != 0 || service.getInstallationCalls != 0 {
+		t.Fatalf("unauthenticated status=%d listCalls=%d getCalls=%d", response.Code, service.listCalls, service.getInstallationCalls)
+	}
+
+	for _, query := range []string{"", "limit=0", "limit=101", "limit=abc", "limit=25&limit=50", "limit=25&cursor=a&cursor=b"} {
+		service = &workspaceTestService{}
+		handler = newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, service)
+		request = httptest.NewRequest(http.MethodGet, "/v3/workspaces/workspace-a/installations?"+query, nil)
+		request.Header.Set("Authorization", "Bearer token")
+		response = httptest.NewRecorder()
+		handler.Routes().ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest || service.listCalls != 0 {
+			t.Fatalf("invalid query %q status=%d listCalls=%d", query, response.Code, service.listCalls)
+		}
+	}
+
+	service = &workspaceTestService{listErr: workspace.ErrInvalid}
+	handler = newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, service)
+	request = httptest.NewRequest(http.MethodGet, "/v3/workspaces/workspace-a/installations?limit=25&cursor=malformed", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	response = httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || service.listCalls != 1 || !strings.Contains(response.Body.String(), "VALIDATION_ERROR") {
+		t.Fatalf("invalid cursor status=%d calls=%d body=%s", response.Code, service.listCalls, response.Body.String())
+	}
+}
+
+func TestWorkspaceHandlerReturnsExplicitEmptyInstallationList(t *testing.T) {
+	service := &workspaceTestService{listResult: contracts.InstallationList{Items: []contracts.Installation{}}}
+	handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, service)
+	request := httptest.NewRequest(http.MethodGet, "/v3/workspaces/workspace-a/installations?limit=25", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	response := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("empty list status=%d body=%s", response.Code, response.Body.String())
+	}
+	var listed contracts.InstallationList
+	if err := json.Unmarshal(response.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if listed.Items == nil || len(listed.Items) != 0 {
+		t.Fatalf("empty list = %#v", listed)
+	}
+}
+
+func sameHTTPInstallation(left, right contracts.Installation) bool {
+	if left.InstallationID != right.InstallationID || left.WorkspaceID != right.WorkspaceID || left.AgentID != right.AgentID || left.VersionConstraint != right.VersionConstraint || left.InstalledVersion != right.InstalledVersion || left.Status != right.Status || !left.InstalledAt.Equal(right.InstalledAt) || !left.UpdatedAt.Equal(right.UpdatedAt) || (left.UninstalledAt == nil) != (right.UninstalledAt == nil) {
+		return false
+	}
+	if left.UninstalledAt != nil && !left.UninstalledAt.Equal(*right.UninstalledAt) {
+		return false
+	}
+	if len(left.AcceptedPermissions) != len(right.AcceptedPermissions) {
+		return false
+	}
+	for index := range left.AcceptedPermissions {
+		if left.AcceptedPermissions[index] != right.AcceptedPermissions[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestWorkspaceHandlerInstallRequiresPermissionArrayAndPreservesEmpty(t *testing.T) {

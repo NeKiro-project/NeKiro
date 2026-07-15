@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"testing"
 	"time"
@@ -194,6 +195,44 @@ func (store *failingWorkspaceStore) GetWorkspace(context.Context, string) (contr
 	return contracts.Workspace{}, store.getWorkspaceErr
 }
 
+type inspectionStore struct {
+	*memoryStore
+	getWorkspaceErr      error
+	getInstallationErr   error
+	listErr              error
+	getWorkspaceCalls    int
+	getInstallationCalls int
+	listCalls            int
+}
+
+func newInspectionStore() *inspectionStore {
+	return &inspectionStore{memoryStore: newMemoryStore()}
+}
+
+func (store *inspectionStore) GetWorkspace(_ context.Context, workspaceID string) (contracts.Workspace, error) {
+	store.getWorkspaceCalls++
+	if store.getWorkspaceErr != nil {
+		return contracts.Workspace{}, store.getWorkspaceErr
+	}
+	return store.memoryStore.GetWorkspace(context.Background(), workspaceID)
+}
+
+func (store *inspectionStore) GetInstallation(_ context.Context, workspaceID, installationID string) (contracts.Installation, error) {
+	store.getInstallationCalls++
+	if store.getInstallationErr != nil {
+		return contracts.Installation{}, store.getInstallationErr
+	}
+	return store.memoryStore.GetInstallation(context.Background(), workspaceID, installationID)
+}
+
+func (store *inspectionStore) ListInstallations(_ context.Context, workspaceID string, limit int, after *InstallationPosition) ([]contracts.Installation, bool, error) {
+	store.listCalls++
+	if store.listErr != nil {
+		return nil, false, store.listErr
+	}
+	return store.memoryStore.ListInstallations(context.Background(), workspaceID, limit, after)
+}
+
 func TestWorkspaceRootTrustsOwnerAndPreservesDuplicate(t *testing.T) {
 	store := newMemoryStore()
 	service := newWorkspaceTestService(t, store, &memoryCatalog{})
@@ -237,6 +276,112 @@ func TestWorkspaceRootPropagatesPersistenceFailures(t *testing.T) {
 	readService := newWorkspaceTestService(t, readFailure, &memoryCatalog{})
 	if _, err := readService.GetWorkspace(context.Background(), AuthenticatedCaller{ID: "owner-a"}, "workspace-a"); !errors.Is(err, ErrDependency) {
 		t.Fatalf("read dependency failure = %v, want dependency", err)
+	}
+}
+
+func TestInstallationInspectionReturnsCompleteCurrentAndHistoricalFacts(t *testing.T) {
+	store := newInspectionStore()
+	store.workspaces["workspace-a"] = contracts.Workspace{WorkspaceID: "workspace-a", OwnerID: "owner-a"}
+	installedAt := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	updatedAt := installedAt.Add(time.Minute)
+	uninstalledAt := updatedAt.Add(time.Minute)
+	current := contracts.Installation{
+		InstallationID:      "installation-current",
+		WorkspaceID:         "workspace-a",
+		AgentID:             "runtime-current",
+		VersionConstraint:   "^1.0.0",
+		InstalledVersion:    "1.0.3",
+		AcceptedPermissions: []string{"document.read", "document.write"},
+		Status:              "enabled",
+		InstalledAt:         installedAt,
+		UpdatedAt:           updatedAt,
+	}
+	historical := contracts.Installation{
+		InstallationID:      "installation-history",
+		WorkspaceID:         "workspace-a",
+		AgentID:             "runtime-history",
+		VersionConstraint:   "~2.0.0",
+		InstalledVersion:    "2.0.4",
+		AcceptedPermissions: []string{"document.read"},
+		Status:              "uninstalled",
+		InstalledAt:         installedAt.Add(time.Hour),
+		UpdatedAt:           uninstalledAt,
+		UninstalledAt:       &uninstalledAt,
+	}
+	store.installations[current.InstallationID] = current
+	store.installations[historical.InstallationID] = historical
+	service := newWorkspaceTestService(t, store, &memoryCatalog{})
+	caller := AuthenticatedCaller{ID: "owner-a"}
+
+	for _, expected := range []contracts.Installation{current, historical} {
+		actual, err := service.GetInstallation(context.Background(), caller, "workspace-a", expected.InstallationID)
+		if err != nil {
+			t.Fatalf("read %s: %v", expected.InstallationID, err)
+		}
+		if !reflect.DeepEqual(actual, expected) {
+			t.Fatalf("read %s = %#v, want %#v", expected.InstallationID, actual, expected)
+		}
+	}
+}
+
+func TestInstallationInspectionAuthorizesBeforeFactLookupAndHidesCrossWorkspaceRows(t *testing.T) {
+	store := newInspectionStore()
+	store.workspaces["workspace-a"] = contracts.Workspace{WorkspaceID: "workspace-a", OwnerID: "owner-a"}
+	store.workspaces["workspace-b"] = contracts.Workspace{WorkspaceID: "workspace-b", OwnerID: "owner-b"}
+	store.installations["installation-b"] = contracts.Installation{InstallationID: "installation-b", WorkspaceID: "workspace-b"}
+	service := newWorkspaceTestService(t, store, &memoryCatalog{})
+
+	if _, err := service.GetInstallation(context.Background(), AuthenticatedCaller{ID: "owner-b"}, "workspace-a", "installation-b"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("non-owner installation read = %v, want forbidden", err)
+	}
+	if store.getInstallationCalls != 0 {
+		t.Fatalf("installation lookup count = %d, want 0 before authorization", store.getInstallationCalls)
+	}
+
+	if _, err := service.GetInstallation(context.Background(), AuthenticatedCaller{ID: "owner-a"}, "workspace-a", "installation-b"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cross-Workspace installation read = %v, want not found", err)
+	}
+
+	if _, err := service.GetInstallation(context.Background(), AuthenticatedCaller{ID: "owner-a"}, "missing-workspace", "installation-b"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown Workspace installation read = %v, want not found", err)
+	}
+	if store.getInstallationCalls != 1 {
+		t.Fatalf("installation lookup count after unknown Workspace = %d, want 1", store.getInstallationCalls)
+	}
+
+	if _, err := service.GetInstallation(context.Background(), AuthenticatedCaller{ID: "owner-a"}, "workspace-a", "missing-installation"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown installation read = %v, want not found", err)
+	}
+}
+
+func TestInstallationInspectionPropagatesWorkspaceAndInstallationDependencies(t *testing.T) {
+	store := newInspectionStore()
+	store.workspaces["workspace-a"] = contracts.Workspace{WorkspaceID: "workspace-a", OwnerID: "owner-a"}
+	service := newWorkspaceTestService(t, store, &memoryCatalog{})
+	caller := AuthenticatedCaller{ID: "owner-a"}
+
+	store.getWorkspaceErr = ErrDependency
+	if _, err := service.GetInstallation(context.Background(), caller, "workspace-a", "installation-a"); !errors.Is(err, ErrDependency) {
+		t.Fatalf("Workspace lookup dependency = %v, want dependency", err)
+	}
+	if store.getInstallationCalls != 0 {
+		t.Fatalf("installation lookup count after Workspace failure = %d, want 0", store.getInstallationCalls)
+	}
+
+	store.getWorkspaceErr = nil
+	store.getInstallationErr = ErrDependency
+	if _, err := service.GetInstallation(context.Background(), caller, "workspace-a", "installation-a"); !errors.Is(err, ErrDependency) {
+		t.Fatalf("Installation lookup dependency = %v, want dependency", err)
+	}
+
+	store.getInstallationErr = nil
+	store.listErr = ErrDependency
+	result, err := service.ListInstallations(context.Background(), caller, "workspace-a", 25, nil)
+	if !errors.Is(err, ErrDependency) {
+		t.Fatalf("Installation list dependency = %v, want dependency", err)
+	}
+	if result.Items != nil || store.listCalls != 1 {
+		t.Fatalf("failed Installation list = %#v, list calls = %d", result, store.listCalls)
 	}
 }
 
@@ -714,6 +859,53 @@ func TestListCursorBindsWorkspaceAndLimit(t *testing.T) {
 	}
 	if _, err := service.ListInstallations(context.Background(), caller, "workspace-a", 2, first.NextCursor); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("mismatched page size = %v", err)
+	}
+	if _, err := service.ListInstallations(context.Background(), caller, "workspace-b", 1, first.NextCursor); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("mismatched Workspace = %v", err)
+	}
+}
+
+func TestListInstallationsUsesTimestampTieBreakAndReturnsGenuineEmptyPages(t *testing.T) {
+	store := newMemoryStore()
+	store.workspaces["workspace-a"] = contracts.Workspace{WorkspaceID: "workspace-a", OwnerID: "owner-a"}
+	installedAt := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	for _, id := range []string{"installation-c", "installation-a", "installation-e", "installation-b", "installation-d"} {
+		store.installations[id] = contracts.Installation{InstallationID: id, WorkspaceID: "workspace-a", InstalledAt: installedAt, UpdatedAt: installedAt, Status: "enabled"}
+	}
+	service := newWorkspaceTestService(t, store, &memoryCatalog{})
+	caller := AuthenticatedCaller{ID: "owner-a"}
+
+	var ids []string
+	var cursor *string
+	for page := 0; ; page++ {
+		result, err := service.ListInstallations(context.Background(), caller, "workspace-a", 2, cursor)
+		if err != nil {
+			t.Fatalf("page %d: %v", page, err)
+		}
+		if len(result.Items) > 2 {
+			t.Fatalf("page %d returned %d items, want at most 2", page, len(result.Items))
+		}
+		for _, item := range result.Items {
+			ids = append(ids, item.InstallationID)
+		}
+		if result.NextCursor == nil {
+			break
+		}
+		cursor = result.NextCursor
+	}
+	if got, want := ids, []string{"installation-a", "installation-b", "installation-c", "installation-d", "installation-e"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ordered Installation IDs = %#v, want %#v", got, want)
+	}
+
+	store = newMemoryStore()
+	store.workspaces["workspace-empty"] = contracts.Workspace{WorkspaceID: "workspace-empty", OwnerID: "owner-a"}
+	service = newWorkspaceTestService(t, store, &memoryCatalog{})
+	empty, err := service.ListInstallations(context.Background(), caller, "workspace-empty", 25, nil)
+	if err != nil {
+		t.Fatalf("empty history: %v", err)
+	}
+	if empty.Items == nil || len(empty.Items) != 0 || empty.NextCursor != nil {
+		t.Fatalf("empty history = %#v, want non-nil empty items and no cursor", empty)
 	}
 }
 
