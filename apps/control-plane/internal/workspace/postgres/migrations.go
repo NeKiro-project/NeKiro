@@ -322,7 +322,7 @@ SELECT
         to_regcollation('pg_catalog."C"')::text))`).Scan(&currentIndexMetadata, &orderIndexMetadata, &expectedIndexMetadata); metadataErr == nil {
 			return fmt.Errorf("%w: version=%d workspace=%t workspace_columns=%t workspace_constraints=%t installation=%t installation_columns=%t installation_constraints=%t current_index=%t order_index=%t current_index_metadata=%q order_index_metadata=%q expected_index_metadata=%q", ErrSchemaVersionMismatch, version, workspacePresent, workspaceColumnsPresent, workspaceConstraintsPresent, installationPresent, installationColumnsPresent, installationConstraintsPresent, currentIndexPresent, orderIndexPresent, currentIndexMetadata, orderIndexMetadata, expectedIndexMetadata)
 		}
-		return fmt.Errorf("%w: version=%d workspace=%t workspace_columns=%t workspace_constraints=%t installation=%t installation_columns=%t installation_constraints=%t current_index=%t order_index=%t", ErrSchemaVersionMismatch, version, workspacePresent, workspaceColumnsPresent, workspaceConstraintsPresent, installationPresent, installationColumnsPresent, installationConstraintsPresent, currentIndexPresent, orderIndexPresent)
+		return fmt.Errorf("%w: version=%d workspace=%t workspace_columns=%t workspace_constraints=%t installation=%t installation_columns=%t installation_constraints=%t current_index=%t order_index=%t metadata_error=%q", ErrSchemaVersionMismatch, version, workspacePresent, workspaceColumnsPresent, workspaceConstraintsPresent, installationPresent, installationColumnsPresent, installationConstraintsPresent, currentIndexPresent, orderIndexPresent, metadataErr)
 	}
 	return nil
 }
