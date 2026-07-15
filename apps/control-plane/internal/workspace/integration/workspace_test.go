@@ -170,6 +170,113 @@ func TestWorkspaceCreateReadSurvivesStoreReconstruction(t *testing.T) {
 	}
 }
 
+func TestInstallationInspectionHistorySurvivesStoreReconstruction(t *testing.T) {
+	ctx := context.Background()
+	catalogService, workspaceService := integrationServices(t, ctx)
+	owner := workspace.AuthenticatedCaller{ID: "owner-a"}
+	if _, err := workspaceService.CreateWorkspace(ctx, owner, contracts.CreateWorkspaceRequest{WorkspaceID: "workspace-inspection-restart"}); err != nil {
+		t.Fatalf("create Workspace: %v", err)
+	}
+
+	var expected []contracts.Installation
+	expectedByID := make(map[string]contracts.Installation)
+	for index := 0; index < 3; index++ {
+		created, err := workspaceService.Install(ctx, owner, "workspace-inspection-restart", contracts.InstallAgentRequest{AgentID: "runtime-a", VersionConstraint: "^1.0.0", AcceptedPermissions: []string{"document.read"}})
+		if err != nil {
+			t.Fatalf("install history row %d: %v", index, err)
+		}
+		if index < 2 {
+			if _, err := workspaceService.UpdateInstallation(ctx, owner, "workspace-inspection-restart", created.InstallationID, "disabled"); err != nil {
+				t.Fatalf("disable history row %d: %v", index, err)
+			}
+			if _, err := workspaceService.Uninstall(ctx, owner, "workspace-inspection-restart", created.InstallationID); err != nil {
+				t.Fatalf("uninstall history row %d: %v", index, err)
+			}
+		}
+		stored, err := workspaceService.GetInstallation(ctx, owner, "workspace-inspection-restart", created.InstallationID)
+		if err != nil {
+			t.Fatalf("read history row %d: %v", index, err)
+		}
+		expected = append(expected, stored)
+		expectedByID[stored.InstallationID] = stored
+	}
+
+	beforeRestart, err := listAllInspectionInstallations(ctx, workspaceService, owner, "workspace-inspection-restart", 1)
+	if err != nil {
+		t.Fatalf("list history before restart: %v", err)
+	}
+	if len(beforeRestart) != len(expected) {
+		t.Fatalf("history before restart count = %d, want %d", len(beforeRestart), len(expected))
+	}
+	seen := make(map[string]struct{}, len(beforeRestart))
+	for index, row := range beforeRestart {
+		if _, exists := seen[row.InstallationID]; exists {
+			t.Fatalf("history before restart contains duplicate %s", row.InstallationID)
+		}
+		seen[row.InstallationID] = struct{}{}
+		want, exists := expectedByID[row.InstallationID]
+		if !exists || !sameInstallation(row, want) {
+			t.Fatalf("history before restart[%d] = %#v, want committed row %#v", index, row, want)
+		}
+	}
+
+	databaseURL := integrationDatabaseURL(t)
+	reconstructedPool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatalf("reopen Workspace database pool: %v", err)
+	}
+	t.Cleanup(reconstructedPool.Close)
+	reconstructedStore, err := workspacepostgres.NewStore(reconstructedPool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validator, err := contracts.NewValidator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconstructedService, err := workspace.NewService(reconstructedStore, catalogService, workspace.OwnerPolicy{}, validator, time.Now, workspace.NewRandomID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range expected {
+		actual, err := reconstructedService.GetInstallation(ctx, owner, "workspace-inspection-restart", row.InstallationID)
+		if err != nil {
+			t.Fatalf("restarted read %s: %v", row.InstallationID, err)
+		}
+		if !sameInstallation(actual, row) {
+			t.Fatalf("restarted read = %#v, want %#v", actual, row)
+		}
+	}
+	afterRestart, err := listAllInspectionInstallations(ctx, reconstructedService, owner, "workspace-inspection-restart", 1)
+	if err != nil {
+		t.Fatalf("list history after restart: %v", err)
+	}
+	if len(afterRestart) != len(beforeRestart) {
+		t.Fatalf("history after restart count = %d, want %d", len(afterRestart), len(beforeRestart))
+	}
+	for index := range afterRestart {
+		if !sameInstallation(afterRestart[index], beforeRestart[index]) {
+			t.Fatalf("history after restart[%d] = %#v, want %#v", index, afterRestart[index], beforeRestart[index])
+		}
+	}
+}
+
+func listAllInspectionInstallations(ctx context.Context, service *workspace.Service, caller workspace.AuthenticatedCaller, workspaceID string, limit int) ([]contracts.Installation, error) {
+	var result []contracts.Installation
+	var cursor *string
+	for {
+		page, err := service.ListInstallations(ctx, caller, workspaceID, limit, cursor)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, page.Items...)
+		if page.NextCursor == nil {
+			return result, nil
+		}
+		cursor = page.NextCursor
+	}
+}
+
 func TestInstallPinsCommittedFieldsAndIgnoresNewPublication(t *testing.T) {
 	ctx := context.Background()
 	catalogService, workspaceService := integrationServices(t, ctx)
@@ -262,7 +369,11 @@ func TestInstallationLifecyclePersistsCommittedHistoryAcrossRestart(t *testing.T
 	if terminal.Status != "uninstalled" || terminal.UninstalledAt == nil || !terminal.UninstalledAt.Equal(terminal.UpdatedAt) || !terminal.UpdatedAt.After(disabled.UpdatedAt) {
 		t.Fatalf("terminal committed row = %#v", terminal)
 	}
-	if err := contracts.NewValidator().ValidateInstallation(terminal); err != nil {
+	terminalValidator, err := contracts.NewValidator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := terminalValidator.ValidateInstallation(terminal); err != nil {
 		t.Fatalf("terminal Installation contract = %v", err)
 	}
 

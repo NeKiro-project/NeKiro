@@ -153,6 +153,12 @@ legal sequence with at most one current Installation.
   alternate source.
 - **FR-010**: The schema MUST preserve terminal rows and enforce state,
   timestamp, foreign-key, and partial-current uniqueness invariants.
+- **FR-011**: A successful lifecycle transition MUST use a committed timestamp
+  that is strictly later than the locked row's prior `updatedAt`; if the
+  operation's candidate time is stale under lock contention, the Workspace
+  store MUST normalize both values to PostgreSQL microsecond precision and
+  advance it by the smallest representable timestamp unit rather than writing
+  a regressed or equal timestamp.
 
 ## Success Criteria
 

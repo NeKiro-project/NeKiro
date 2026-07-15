@@ -31,6 +31,10 @@
 - [X] T014 Perform an independent review against Spec, Plan, Tasks, contracts, implementation, tests, and constitution; resolve any High/Medium findings.
 - [X] T015 Run Converge; append and resolve only traceable remaining work.
 - [X] T016 Confirm tasks are marked complete, verify repository Git identity, commit the complete branch with a focused message, and report hash, files, tests, SDD status, fallback delta, and integration limitations.
+- [X] T017 [Review-R1] Fix the lock-contention timestamp regression identified
+  by independent review: compute a strictly monotonic committed lifecycle time
+  inside the locked Workspace store transaction, add unit and PostgreSQL
+  coverage, and update the Spec/Plan evidence before implementation.
 
 ## Dependency and Write Scope
 
@@ -51,7 +55,7 @@ proof for every acceptance path plus any defect exposed by that evidence.
 | --- | --- | --- |
 | FR-001 through FR-006 | T005, T006, T008, T011 | owner policy, transition graph, terminal preservation, reinstall |
 | FR-007 | T007, T009, T010 | distinct HTTP/service outcomes and Trace |
-| FR-008, FR-010 | T006, T011, T012 | locks, constraints, one-current race, restart |
+| FR-008, FR-010, FR-011 | T006, T011, T012, T017 | locks, constraints, one-current race, restart, monotonic committed timestamps |
 | FR-009 | T005, T007, T009 | no Catalog call, no fallback, no secret leakage |
 | SC-001 through SC-005 | T008-T013 | mapped test and verification evidence |
 
@@ -62,7 +66,7 @@ contract versions or expanding scope.
 
 ### Formatting and Focused Verification
 
-- `gofmt -w apps/control-plane/internal/gateway/workspace_handler.go apps/control-plane/internal/gateway/workspace_handler_test.go apps/control-plane/internal/workspace/integration/workspace_test.go apps/control-plane/internal/workspace/service_test.go contracts/workspace_api_contracts_test.go` completed successfully.
+- `gofmt` on the lifecycle Gateway, service/store tests, integration tests, and PostgreSQL store completed successfully.
 - `go test -count=1 ./contracts` passed.
 - `go test -count=1 ./apps/control-plane/internal/workspace` passed.
 - `go test -count=1 ./apps/control-plane/internal/gateway` passed.
@@ -73,18 +77,10 @@ contract versions or expanding scope.
 
 ### Integration and Review Limits
 
-- PostgreSQL integration tests were not run because `NEKIRO_TEST_DATABASE_URL`
-  is unset. The test package is intentionally build-tagged `integration` and
-  requires a dedicated database ending in `_test`; no result is represented as
-  a pass without that dependency.
-- Compose validation and PowerShell prerequisite execution were not run on this
-  macOS host because the repository has no available `pwsh`/`powershell`; the
-  focused Go evidence above is complete.
-- A fresh local diff review against `spec.md`, `plan.md`, active v3 contracts,
-  and the Workspace ownership boundary found no unresolved High/Medium issue.
-  No external review-agent tool is available in this session.
-- Converge found no remaining Issue #8 behavior or artifact gap beyond the
-  unavailable PostgreSQL environment.
+- PostgreSQL: `go test -tags=integration -count=1 ./apps/control-plane/internal/workspace/postgres ./apps/control-plane/internal/workspace/integration` passed serially against a disposable dedicated `_test` database, including stale-candidate timestamp regression coverage.
+- Compose validation passed with explicit local values; PowerShell prerequisite execution remains Windows-only and was not run on this macOS host.
+- Independent review by Galileo found the stale timestamp issue and an undersized #7 pagination corpus; T017 and the 101-row inspection test resolved both findings.
+- Converge found no remaining Issue #8 behavior or artifact gap after remediation.
 
 ### Fallback Report
 

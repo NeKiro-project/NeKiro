@@ -41,8 +41,12 @@ approved semantics.
 5. Return `NOT_FOUND` for an unknown or cross-Workspace row.
 6. Apply only the exact transition graph; return `CONFLICT` for all illegal
    transitions without an update.
-7. Update status and timestamp atomically; for uninstall set both terminal
-   timestamps to the same committed value.
+7. Under the row lock, normalize candidate and previous times to PostgreSQL
+   microsecond precision, then choose a committed timestamp strictly later than
+   the previous `updatedAt`; advance a stale or equal candidate by one
+   PostgreSQL microsecond when contention makes the caller-provided time
+   non-monotonic. Update status atomically, and for uninstall set both terminal
+   timestamps to that same committed value.
 8. Return `RETURNING` values after commit, preserving immutable facts.
 
 The existing install transaction locks the Workspace row and rechecks partial
