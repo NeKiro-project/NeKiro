@@ -114,6 +114,60 @@ func TestConcurrentInstallLeavesOneCurrentInstallation(t *testing.T) {
 	}
 }
 
+func TestConcurrentWorkspaceCreateLeavesOneCommittedRow(t *testing.T) {
+	ctx := context.Background()
+	_, workspaceService := integrationServices(t, ctx)
+	owner := workspace.AuthenticatedCaller{ID: "owner-a"}
+
+	type createResult struct {
+		value contracts.Workspace
+		err   error
+	}
+	const callers = 100
+	results := make(chan createResult, callers)
+	var wait sync.WaitGroup
+	wait.Add(callers)
+	for range callers {
+		go func() {
+			defer wait.Done()
+			value, err := workspaceService.CreateWorkspace(ctx, owner, contracts.CreateWorkspaceRequest{WorkspaceID: "workspace-create-race"})
+			results <- createResult{value: value, err: err}
+		}()
+	}
+	wait.Wait()
+	close(results)
+
+	successes, conflicts := 0, 0
+	var created contracts.Workspace
+	for result := range results {
+		switch {
+		case result.err == nil:
+			successes++
+			created = result.value
+		case errors.Is(result.err, workspace.ErrConflict):
+			if result.value.WorkspaceID != "" {
+				t.Fatalf("conflicting create returned a Workspace: %#v", result.value)
+			}
+			conflicts++
+		default:
+			t.Fatalf("concurrent create error: %v", result.err)
+		}
+	}
+	if successes != 1 || conflicts != callers-1 {
+		t.Fatalf("concurrent creates successes=%d conflicts=%d", successes, conflicts)
+	}
+	if created.WorkspaceID != "workspace-create-race" || created.OwnerID != owner.ID {
+		t.Fatalf("created Workspace = %#v", created)
+	}
+	stored, err := workspaceService.GetWorkspace(ctx, owner, created.WorkspaceID)
+	if err != nil {
+		t.Fatalf("read committed Workspace: %v", err)
+	}
+	if !sameWorkspace(stored, created) {
+		t.Fatalf("stored Workspace = %#v, want %#v", stored, created)
+	}
+}
+
 func TestWorkspaceCreateReadSurvivesStoreReconstruction(t *testing.T) {
 	ctx := context.Background()
 	catalogService, workspaceService := integrationServices(t, ctx)

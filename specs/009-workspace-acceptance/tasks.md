@@ -69,6 +69,9 @@ product behavior is included.
 - [X] T019 [Review-R2] Add Trace assertions to all successful failure-fixture
   setup responses, align the Plan with the actual public read/restart evidence,
   and correct the Research statement about the sentinel server's local port.
+- [X] T020 [Review-R4 Spec] Close the four Spec-axis evidence gaps: concurrent
+  Workspace creation, public cursor traversal, durable state immutability after
+  rejected requests, and real schema/transaction failure mapping.
 
 ## Requirement Coverage Map
 
@@ -76,14 +79,14 @@ product behavior is included.
 | --- | --- | --- |
 | FR-001 | T007, T012, T013 | Public capability discovery returns the published fixture. |
 | FR-002 | T007, T012, T013 | Public create/install returns exact pin and permission snapshot. |
-| FR-003 | T007, T012, T013 | HTTP list/detail plus existing keyset/restart integration. |
+| FR-003 | T007, T012, T013, T020 | HTTP list/detail/cursor traversal plus existing keyset/restart integration. |
 | FR-004 | T006, T007, T012, T013 | Legal/illegal lifecycle and committed timestamps. |
 | FR-005 | T007, T008, T012, T013 | Separate internal auth and exact resolution correlation. |
 | FR-006 | T006, T007, T013 | Restart, terminal history, and new reinstall identity. |
-| FR-007 | T006, T013 | 100-request races and per-result legal outcome validation. |
+| FR-007 | T006, T013, T020 | 100-request create/install/lifecycle races and per-result legal outcome validation. |
 | FR-008 | T007, T008, T012 | Active v3/public and v2/internal HTTP routes only. |
-| FR-009 | T008, T012 | Distinct auth, owner, identity, conflict, disabled, and dependency results. |
-| FR-010 | T008, T013 | Canceled/dependency/schema failures remain explicit. |
+| FR-009 | T008, T012, T020 | Distinct auth, owner, identity, conflict, disabled, and dependency results with state immutability checks. |
+| FR-010 | T008, T013, T020 | Canceled/dependency/schema/transaction failures remain explicit. |
 | FR-011 | T007, T008, T009 | No Agent endpoint call and no future runtime dependency. |
 | FR-012 | T002, T003, T010, T011, T015, T016, T017 | SDD artifacts, quickstart, review, converge, and handoff. |
 
@@ -102,10 +105,22 @@ versions.
   retain successful results, assert one disable success/99 conflicts, validate
   terminal timestamps and immutable facts, count uninstall/reinstall outcomes,
   and reject duplicate or unknown final history rows.
+- T020 added
+  `TestConcurrentWorkspaceCreateLeavesOneCommittedRow` with 100 concurrent
+  create requests, one committed result, 99 conflicts, and a durable read-back.
 - T007/T008 added
   `TestAcceptanceWorkspaceControlPlaneHTTPWorkflow` and
   `TestAcceptanceHTTPFailureBoundaries` in a real PostgreSQL-backed composed
   Catalog/Workspace/Gateway harness.
+- T020 extended the composed HTTP workflow with three Installation rows and
+  public `limit=1` cursor traversal, and extended failure coverage with a
+  durable Installation read after rejected requests.
+- T020 also exercises a real Workspace schema outage and a PostgreSQL trigger
+  that forces a transaction failure; both must map to `503 DEPENDENCY_ERROR`
+  without exposing dependency details.
+- T020 integration-tag compilation and all static checks passed locally. The
+  PostgreSQL-backed T020 execution remains pending because this environment has
+  neither `NEKIRO_TEST_DATABASE_URL` nor a running Docker PostgreSQL service.
 - T009 uses a local fixture Agent HTTP server that records every request; both
   acceptance tests completed with zero Agent endpoint calls. Public and
   internal authenticators use different tokens.
@@ -138,6 +153,14 @@ Review-R3 re-read the current acceptance tests and SDD artifacts after T019.
 It found no P0, P1, or P2 issue. Converge checked all FR/SC mappings, plan
 decisions, active contract reuse, constitution boundaries, and task status and
 found no remaining unbuilt work. T015, T016, and T017 are complete.
+
+## Spec Review Remediation
+
+T020 addresses the four Spec-axis evidence gaps without changing production
+ownership, contracts, routes, migrations, or fallback policy. The new tests
+cover concurrent Workspace creation, public cursor traversal, durable state
+immutability after rejected requests, and explicit schema/transaction failure
+mapping through the composed Gateway.
 
 ## Cross-Artifact Analysis Evidence
 

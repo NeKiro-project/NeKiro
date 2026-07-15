@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -39,6 +40,8 @@ type acceptanceHTTPHarness struct {
 	handler          http.Handler
 	catalog          *catalog.Service
 	workspace        *workspace.Service
+	pool             *pgxpool.Pool
+	agentEndpoint    string
 	ownerToken       string
 	otherToken       string
 	internalToken    string
@@ -150,6 +153,7 @@ func newAcceptanceHTTPHarness(t *testing.T) *acceptanceHTTPHarness {
 
 	return &acceptanceHTTPHarness{
 		handler: mux, catalog: catalogService, workspace: workspaceService,
+		pool: pool, agentEndpoint: agentServer.URL,
 		ownerToken: acceptanceOwnerToken, otherToken: acceptanceOtherToken,
 		internalToken: acceptanceInternalToken, agentCallCounter: &agentCallCounter,
 	}
@@ -304,6 +308,55 @@ func TestAcceptanceWorkspaceControlPlaneHTTPWorkflow(t *testing.T) {
 		t.Fatalf("detailed = %#v, installed = %#v", detailed, installed)
 	}
 
+	for _, agentID := range []string{"runtime-b", "runtime-c"} {
+		card := integrationCard()
+		card.AgentID = agentID
+		card.Name = "Acceptance " + agentID
+		card.Protocol.Endpoint = harness.agentEndpoint
+		if err := registerPublishedCard(context.Background(), harness.catalog, card); err != nil {
+			t.Fatalf("publish %s: %v", agentID, err)
+		}
+		response := harness.request(t, http.MethodPost, "/v3/workspaces/acceptance-workspace/installations", harness.ownerToken, contracts.InstallAgentRequest{
+			AgentID: agentID, VersionConstraint: "^1.0.0", AcceptedPermissions: []string{"document.read"},
+		})
+		if response.Code != http.StatusCreated {
+			t.Fatalf("install %s status=%d body=%s", agentID, response.Code, response.Body.String())
+		}
+		requireAcceptanceTrace(t, response)
+	}
+
+	seen := make(map[string]struct{})
+	cursor := ""
+	for {
+		path := "/v3/workspaces/acceptance-workspace/installations?limit=1"
+		if cursor != "" {
+			path += "&cursor=" + url.QueryEscape(cursor)
+		}
+		response := harness.request(t, http.MethodGet, path, harness.ownerToken, nil)
+		if response.Code != http.StatusOK {
+			t.Fatalf("paged list status=%d body=%s", response.Code, response.Body.String())
+		}
+		requireAcceptanceTrace(t, response)
+		var page contracts.InstallationList
+		decodeAcceptanceJSON(t, response, &page)
+		if len(page.Items) > 1 {
+			t.Fatalf("paged list returned %d items for limit=1", len(page.Items))
+		}
+		for _, item := range page.Items {
+			if _, exists := seen[item.InstallationID]; exists {
+				t.Fatalf("paged list repeated Installation %s", item.InstallationID)
+			}
+			seen[item.InstallationID] = struct{}{}
+		}
+		if page.NextCursor == nil {
+			break
+		}
+		cursor = *page.NextCursor
+	}
+	if len(seen) != 3 {
+		t.Fatalf("paged list returned %d unique Installations, want 3", len(seen))
+	}
+
 	disabledResponse := harness.request(t, http.MethodPatch, "/v3/workspaces/acceptance-workspace/installations/"+installed.InstallationID, harness.ownerToken, contracts.UpdateInstallationRequest{Status: "disabled"})
 	if disabledResponse.Code != http.StatusOK {
 		t.Fatalf("disable status=%d body=%s", disabledResponse.Code, disabledResponse.Body.String())
@@ -421,6 +474,17 @@ func TestAcceptanceHTTPFailureBoundaries(t *testing.T) {
 	requireAcceptanceError(t, harness, harness.request(t, http.MethodPost, "/v3/workspaces/acceptance-errors/installations", harness.ownerToken, map[string]any{"agentId": "runtime-a", "versionConstraint": "^1.0.0"}), http.StatusBadRequest, contracts.ErrorCodeValidationError)
 	requireAcceptanceError(t, harness, harness.request(t, http.MethodPatch, "/v3/workspaces/acceptance-errors/installations/"+installed.InstallationID, harness.ownerToken, contracts.UpdateInstallationRequest{Status: "enabled"}), http.StatusConflict, contracts.ErrorCodeConflict)
 
+	unchangedResponse := harness.request(t, http.MethodGet, "/v3/workspaces/acceptance-errors/installations/"+installed.InstallationID, harness.ownerToken, nil)
+	if unchangedResponse.Code != http.StatusOK {
+		t.Fatalf("read Installation after rejected requests status=%d body=%s", unchangedResponse.Code, unchangedResponse.Body.String())
+	}
+	requireAcceptanceTrace(t, unchangedResponse)
+	var unchanged contracts.Installation
+	decodeAcceptanceJSON(t, unchangedResponse, &unchanged)
+	if !sameInstallation(unchanged, installed) {
+		t.Fatalf("rejected requests mutated Installation = %#v, before = %#v", unchanged, installed)
+	}
+
 	resolveRequest := contracts.ResolveAgentRequest{
 		InvocationID: "invocation-errors", RootTaskID: "root-task-errors", TraceID: "trace-errors",
 		WorkspaceID: "acceptance-errors", AgentID: "runtime-a", Version: "1.0.0", Capability: "document.read",
@@ -461,5 +525,42 @@ func TestAcceptanceHTTPFailureBoundaries(t *testing.T) {
 	}
 	if calls := harness.agentCallCounter.Load(); calls != 0 {
 		t.Fatalf("failure acceptance contacted Agent endpoint %d times", calls)
+	}
+
+	if _, err := harness.pool.Exec(context.Background(), `ALTER SCHEMA workspace RENAME TO workspace_unavailable`); err != nil {
+		t.Fatalf("degrade Workspace schema: %v", err)
+	}
+	schemaFailure := requireAcceptanceError(t, harness, harness.request(t, http.MethodGet, "/v3/workspaces/acceptance-errors", harness.ownerToken, nil), http.StatusServiceUnavailable, contracts.ErrorCodeDependency)
+	if schemaFailure.Code != contracts.ErrorCodeDependency {
+		t.Fatalf("schema failure code = %q", schemaFailure.Code)
+	}
+	if _, err := harness.pool.Exec(context.Background(), `ALTER SCHEMA workspace_unavailable RENAME TO workspace`); err != nil {
+		t.Fatalf("restore Workspace schema: %v", err)
+	}
+
+	if _, err := harness.pool.Exec(context.Background(), `
+CREATE OR REPLACE FUNCTION workspace.issue_9_reject_workspace_insert()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'issue-9 transaction failure';
+END;
+$$`); err != nil {
+		t.Fatalf("create transaction failure trigger function: %v", err)
+	}
+	if _, err := harness.pool.Exec(context.Background(), `
+CREATE TRIGGER issue_9_reject_workspace_insert
+BEFORE INSERT ON workspace.workspaces
+FOR EACH ROW EXECUTE FUNCTION workspace.issue_9_reject_workspace_insert()`); err != nil {
+		t.Fatalf("create transaction failure trigger: %v", err)
+	}
+	transactionFailure := requireAcceptanceError(t, harness, harness.request(t, http.MethodPost, "/v3/workspaces", harness.ownerToken, contracts.CreateWorkspaceRequest{WorkspaceID: "acceptance-transaction-failure"}), http.StatusServiceUnavailable, contracts.ErrorCodeDependency)
+	if transactionFailure.Code != contracts.ErrorCodeDependency {
+		t.Fatalf("transaction failure code = %q", transactionFailure.Code)
+	}
+	if _, err := harness.pool.Exec(context.Background(), `DROP TRIGGER issue_9_reject_workspace_insert ON workspace.workspaces`); err != nil {
+		t.Fatalf("drop transaction failure trigger: %v", err)
+	}
+	if _, err := harness.pool.Exec(context.Background(), `DROP FUNCTION workspace.issue_9_reject_workspace_insert()`); err != nil {
+		t.Fatalf("drop transaction failure trigger function: %v", err)
 	}
 }
