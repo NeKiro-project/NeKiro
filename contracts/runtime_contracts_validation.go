@@ -215,15 +215,15 @@ func (v *RuntimeInvocationSequenceValidator) Accept(event InvocationEventV03) er
 		return fmt.Errorf("validate Invocation Event 0.3: %w", err)
 	}
 	if event.Sequence != v.nextSequence {
-		return fmt.Errorf("Invocation event sequence must be %d", v.nextSequence)
+		return fmt.Errorf("invocation event sequence must be %d", v.nextSequence)
 	}
 	if v.last == nil {
 		if event.Type != "created" || event.Status != "pending" {
-			return errors.New("Invocation lifecycle must begin with created/pending")
+			return errors.New("invocation lifecycle must begin with created/pending")
 		}
 	} else {
 		if !sameRuntimeInvocationContext(*v.last, event) {
-			return errors.New("Invocation lifecycle context changed")
+			return errors.New("invocation lifecycle context changed")
 		}
 		if !validRuntimeTransition(v.last.Status, event.Type, event.Status) {
 			return fmt.Errorf("invalid Invocation transition %s -> %s/%s", v.last.Status, event.Type, event.Status)
