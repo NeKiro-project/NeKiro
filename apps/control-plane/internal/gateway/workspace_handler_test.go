@@ -523,12 +523,16 @@ func TestWorkspaceHandlerMapsUnexpectedErrorsToInternalServerError(t *testing.T)
 }
 
 func newWorkspaceTestHandler(t *testing.T, auth Authenticator, service WorkspaceService) *WorkspaceHandler {
+	return newWorkspaceTestHandlerWithAuthenticators(t, auth, auth, service)
+}
+
+func newWorkspaceTestHandlerWithAuthenticators(t *testing.T, auth, internalAuth Authenticator, service WorkspaceService) *WorkspaceHandler {
 	t.Helper()
 	traces, err := NewTraceGenerator()
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler, err := NewWorkspaceHandler(auth, auth, service, traces, slog.Default())
+	handler, err := NewWorkspaceHandler(auth, internalAuth, service, traces, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}

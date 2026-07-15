@@ -58,5 +58,5 @@ repository-local commit identity is used.
 - Focused tests passed: `go test ./contracts ./apps/control-plane/internal/workspace ./apps/control-plane/internal/gateway`.
 - Formatting passed: `gofmt` on all modified Go files.
 - Diff hygiene passed: `git diff --check`.
-- Integration limitation: no dedicated PostgreSQL `_test` database was configured; existing integration coverage was not rerun.
+- PostgreSQL integration: `go test -tags=integration -count=1 ./apps/control-plane/internal/workspace/integration` passed against a disposable dedicated `_test` database; the resolver path was exercised through persisted Workspace/Installation reconstruction and Catalog disablement.
 - Fallback delta: removed 1, retained 2, added 0, net -1. Added fallback evidence: none.
