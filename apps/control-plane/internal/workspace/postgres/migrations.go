@@ -311,6 +311,13 @@ FROM workspace.schema_version`).Scan(
 		return fmt.Errorf("read workspace schema version: %w", err)
 	}
 	if version != ExpectedSchemaVersion || !workspacePresent || !workspaceColumnsPresent || !workspaceConstraintsPresent || !installationPresent || !installationColumnsPresent || !installationConstraintsPresent || !currentIndexPresent || !orderIndexPresent {
+		var currentIndexMetadata, orderIndexMetadata string
+		if metadataErr := db.QueryRow(ctx, `
+SELECT
+    COALESCE((SELECT format('key=%s option=%s class=%s collation=%s predicate=%s definition=%s', indkey::text, indoption::text, indclass::text, indcollation::text, pg_get_expr(indpred, indrelid), pg_get_indexdef(indexrelid)) FROM pg_index WHERE indexrelid = to_regclass('workspace.installations_current_agent_idx')), ''),
+    COALESCE((SELECT format('key=%s option=%s class=%s collation=%s predicate=%s definition=%s', indkey::text, indoption::text, indclass::text, indcollation::text, pg_get_expr(indpred, indrelid), pg_get_indexdef(indexrelid)) FROM pg_index WHERE indexrelid = to_regclass('workspace.installations_workspace_order_idx')), '')`).Scan(&currentIndexMetadata, &orderIndexMetadata); metadataErr == nil {
+			return fmt.Errorf("%w: version=%d workspace=%t workspace_columns=%t workspace_constraints=%t installation=%t installation_columns=%t installation_constraints=%t current_index=%t order_index=%t current_index_metadata=%q order_index_metadata=%q", ErrSchemaVersionMismatch, version, workspacePresent, workspaceColumnsPresent, workspaceConstraintsPresent, installationPresent, installationColumnsPresent, installationConstraintsPresent, currentIndexPresent, orderIndexPresent, currentIndexMetadata, orderIndexMetadata)
+		}
 		return fmt.Errorf("%w: version=%d workspace=%t workspace_columns=%t workspace_constraints=%t installation=%t installation_columns=%t installation_constraints=%t current_index=%t order_index=%t", ErrSchemaVersionMismatch, version, workspacePresent, workspaceColumnsPresent, workspaceConstraintsPresent, installationPresent, installationColumnsPresent, installationConstraintsPresent, currentIndexPresent, orderIndexPresent)
 	}
 	return nil
