@@ -311,7 +311,7 @@ FROM workspace.schema_version`).Scan(
 		return fmt.Errorf("read workspace schema version: %w", err)
 	}
 	if version != ExpectedSchemaVersion || !workspacePresent || !workspaceColumnsPresent || !workspaceConstraintsPresent || !installationPresent || !installationColumnsPresent || !installationConstraintsPresent || !currentIndexPresent || !orderIndexPresent {
-		return ErrSchemaVersionMismatch
+		return fmt.Errorf("%w: version=%d workspace=%t workspace_columns=%t workspace_constraints=%t installation=%t installation_columns=%t installation_constraints=%t current_index=%t order_index=%t", ErrSchemaVersionMismatch, version, workspacePresent, workspaceColumnsPresent, workspaceConstraintsPresent, installationPresent, installationColumnsPresent, installationConstraintsPresent, currentIndexPresent, orderIndexPresent)
 	}
 	return nil
 }
