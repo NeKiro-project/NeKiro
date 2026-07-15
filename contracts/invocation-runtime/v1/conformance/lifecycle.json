@@ -1,0 +1,25 @@
+{
+  "cases": [
+    {
+      "id":"success-valid","valid":true,"events":[
+        {"schemaVersion":"0.3","eventId":"e-0","sequence":0,"occurredAt":"2026-07-16T00:00:00Z","type":"created","status":"pending","invocationId":"inv-1","rootTaskId":"task-1","traceId":"trace-1","caller":{"type":"user","id":"user-1"},"workspaceId":"workspace-1","targetAgentId":"agent-1","agentCardVersion":"1.0.0","capability":"summarize"},
+        {"schemaVersion":"0.3","eventId":"e-1","sequence":1,"occurredAt":"2026-07-16T00:00:01Z","type":"routing","status":"routing","invocationId":"inv-1","rootTaskId":"task-1","traceId":"trace-1","caller":{"type":"user","id":"user-1"},"workspaceId":"workspace-1","targetAgentId":"agent-1","agentCardVersion":"1.0.0","capability":"summarize"},
+        {"schemaVersion":"0.3","eventId":"e-2","sequence":2,"occurredAt":"2026-07-16T00:00:02Z","type":"started","status":"running","invocationId":"inv-1","rootTaskId":"task-1","traceId":"trace-1","caller":{"type":"user","id":"user-1"},"workspaceId":"workspace-1","targetAgentId":"agent-1","agentCardVersion":"1.0.0","capability":"summarize"},
+        {"schemaVersion":"0.3","eventId":"e-3","sequence":3,"occurredAt":"2026-07-16T00:00:03Z","type":"succeeded","status":"succeeded","invocationId":"inv-1","rootTaskId":"task-1","traceId":"trace-1","caller":{"type":"user","id":"user-1"},"workspaceId":"workspace-1","targetAgentId":"agent-1","agentCardVersion":"1.0.0","capability":"summarize","latencyMs":3}
+      ]
+    },
+    {
+      "id":"success-from-routing-invalid","valid":false,"events":[
+        {"schemaVersion":"0.3","eventId":"x-0","sequence":0,"occurredAt":"2026-07-16T00:00:00Z","type":"created","status":"pending","invocationId":"inv-2","rootTaskId":"task-2","traceId":"trace-2","caller":{"type":"user","id":"user-1"},"workspaceId":"workspace-1","targetAgentId":"agent-1","agentCardVersion":"1.0.0","capability":"summarize"},
+        {"schemaVersion":"0.3","eventId":"x-1","sequence":1,"occurredAt":"2026-07-16T00:00:01Z","type":"routing","status":"routing","invocationId":"inv-2","rootTaskId":"task-2","traceId":"trace-2","caller":{"type":"user","id":"user-1"},"workspaceId":"workspace-1","targetAgentId":"agent-1","agentCardVersion":"1.0.0","capability":"summarize"},
+        {"schemaVersion":"0.3","eventId":"x-2","sequence":2,"occurredAt":"2026-07-16T00:00:02Z","type":"succeeded","status":"succeeded","invocationId":"inv-2","rootTaskId":"task-2","traceId":"trace-2","caller":{"type":"user","id":"user-1"},"workspaceId":"workspace-1","targetAgentId":"agent-1","agentCardVersion":"1.0.0","capability":"summarize","latencyMs":2}
+      ]
+    },
+    {
+      "id":"context-change-invalid","valid":false,"events":[
+        {"schemaVersion":"0.3","eventId":"y-0","sequence":0,"occurredAt":"2026-07-16T00:00:00Z","type":"created","status":"pending","invocationId":"inv-3","rootTaskId":"task-3","traceId":"trace-3","caller":{"type":"user","id":"user-1"},"workspaceId":"workspace-1","targetAgentId":"agent-1","agentCardVersion":"1.0.0","capability":"summarize"},
+        {"schemaVersion":"0.3","eventId":"y-1","sequence":1,"occurredAt":"2026-07-16T00:00:01Z","type":"routing","status":"routing","invocationId":"inv-3","rootTaskId":"task-3","traceId":"trace-3","caller":{"type":"user","id":"user-1"},"workspaceId":"workspace-other","targetAgentId":"agent-1","agentCardVersion":"1.0.0","capability":"summarize"}
+      ]
+    }
+  ]
+}

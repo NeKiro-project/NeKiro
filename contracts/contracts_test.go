@@ -749,12 +749,15 @@ func loadOpenAPIDocument(t *testing.T, path string) *openapi3.T {
 				"/platform-error/v1":                 "schemas/platform-error.v1.schema.json",
 				"/platform-error/v2":                 "schemas/platform-error.v2.schema.json",
 				"/platform-error/v3":                 "schemas/platform-error.v3.schema.json",
+				"/platform-error/v4":                 "schemas/platform-error.v4.schema.json",
 				"/installation/v1":                   "schemas/installation.v1.schema.json",
 				"/installation/v2":                   "schemas/installation.v2.schema.json",
 				"/invocation-event/v0.1":             "schemas/invocation-event.v0.1.schema.json",
 				"/invocation-event/v0.2":             "schemas/invocation-event.v0.2.schema.json",
+				"/invocation-event/v0.3":             "schemas/invocation-event.v0.3.schema.json",
 				"/invocation-result/v1":              "schemas/invocation-result.v1.schema.json",
 				"/invocation-result-stream-event/v1": "schemas/invocation-result-stream-event.v1.schema.json",
+				"/invocation-result-stream-event/v2": "schemas/invocation-result-stream-event.v2.schema.json",
 			}
 			localPath, exists := schemaFiles[location.Path]
 			if !exists {

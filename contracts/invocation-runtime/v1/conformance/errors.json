@@ -1,0 +1,9 @@
+{
+  "cases": [
+    {"id":"pre-valid","phase":"pre","valid":true,"error":{"code":"PAYLOAD_TOO_LARGE","message":"The payload is too large.","traceId":"trace-1"}},
+    {"id":"pre-rejects-correlation","phase":"pre","valid":false,"error":{"code":"PAYLOAD_TOO_LARGE","message":"The payload is too large.","traceId":"trace-1","invocationId":"inv-1","rootTaskId":"task-1"}},
+    {"id":"correlated-valid","phase":"correlated","valid":true,"error":{"code":"AGENT_RESPONSE_TOO_LARGE","message":"The Agent response is too large.","traceId":"trace-1","invocationId":"inv-1","rootTaskId":"task-1"}},
+    {"id":"correlated-missing-root","phase":"correlated","valid":false,"error":{"code":"AGENT_RESPONSE_TOO_LARGE","message":"The Agent response is too large.","traceId":"trace-1","invocationId":"inv-1"}},
+    {"id":"fixed-message-mismatch","phase":"correlated","valid":false,"error":{"code":"AGENT_AUTH_UNSUPPORTED","message":"The Agent is unavailable.","traceId":"trace-1","invocationId":"inv-1","rootTaskId":"task-1"}}
+  ]
+}

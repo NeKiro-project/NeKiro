@@ -1,0 +1,191 @@
+openapi: 3.1.0
+info:
+  title: NeKiro Northbound Invocation API
+  version: 4.0.0
+  description: >-
+    Invocation-only Northbound target. Catalog, Workspace, and Installation
+    remain served from control-plane.v3.yaml; this document is not a complete
+    Control Plane v4 replacement and defines no second fact for those domains.
+    Clients use the same Gateway destination and select v4 only for Invocation
+    create/metadata routes.
+servers:
+  - url: https://api.nekiro.dev
+    description: Existing Gateway destination
+paths:
+  /v4/workspaces/{workspaceId}/invocations:
+    post:
+      operationId: invokeAgentV4
+      summary: Invoke an installed Agent through Dispatch and Router
+      description: >-
+        Gateway authenticates the caller, strictly validates media and the
+        required configured public body bound, generates root correlation, and
+        dispatches only to Router Internal v3. Successful Router created-event
+        commit is acceptance. Before it, failures create no Ledger fact. Clean
+        success follows terminal Ledger commit. After an Agent side effect,
+        Ledger persistence loss is explicit DEPENDENCY_ERROR and leaves only
+        committed non-terminal metadata; no retry or fabricated terminal occurs.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ResultAccept"
+      x-nekiro-media-negotiation: invocation-result-v1
+      requestBody:
+        required: true
+        x-nekiro-max-body-bytes-source: required-gateway-invocation-request-limit
+        x-nekiro-limit-default: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InvokeAgentRequest" }
+      responses:
+        "200":
+          description: JSON success or live SSE result
+          content:
+            application/json: { schema: { $ref: ../schemas/invocation-result.v1.schema.json } }
+            text/event-stream:
+              schema: { type: string }
+              x-sse-data-schema: { $ref: ../schemas/invocation-result-stream-event.v2.schema.json }
+              x-nekiro-sse-framing: single-data-line-blank-line-flush
+              x-nekiro-max-event-bytes-source: required-gateway-sse-event-limit
+              x-nekiro-limit-default: false
+          x-nekiro-max-agent-response-bytes-source: required-router-agent-response-limit
+          x-nekiro-max-a2a-event-bytes-source: required-router-a2a-event-limit
+          x-nekiro-limit-default: false
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "406": { $ref: "#/components/responses/NotAcceptable" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "502": { $ref: "#/components/responses/AgentFailure" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+        "504": { $ref: "#/components/responses/Timeout" }
+  /v4/workspaces/{workspaceId}/invocations/{invocationId}:
+    get:
+      operationId: getInvocationV4
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/InvocationId"
+      responses:
+        "200":
+          description: Workspace-scoped metadata projection and ordered facts; a last non-terminal status is returned unchanged
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InvocationDetailResponseV4" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v4/workspaces/{workspaceId}/traces/{traceId}:
+    get:
+      operationId: getTraceV4
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - in: path
+          name: traceId
+          required: true
+          schema: { $ref: ../schemas/common.v1.schema.json#/$defs/traceId }
+      responses:
+        "200":
+          description: Workspace-authorized metadata-only parent-child lineage projections
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TraceResponseV4" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: Gateway-verified caller identity; public identity headers are not trusted.
+  parameters:
+    WorkspaceId:
+      in: path
+      name: workspaceId
+      required: true
+      schema: { $ref: ../schemas/common.v1.schema.json#/$defs/workspaceId }
+    InvocationId:
+      in: path
+      name: invocationId
+      required: true
+      schema: { $ref: ../schemas/common.v1.schema.json#/$defs/invocationId }
+    ResultAccept:
+      in: header
+      name: Accept
+      required: true
+      schema: { type: string, minLength: 1 }
+  schemas:
+    InvokeAgentRequest:
+      type: object
+      additionalProperties: false
+      required: [agentId, capability, input, stream]
+      properties:
+        agentId: { $ref: ../schemas/common.v1.schema.json#/$defs/agentId }
+        capability: { $ref: ../schemas/common.v1.schema.json#/$defs/capabilityId }
+        input: { $ref: ../schemas/common.v1.schema.json#/$defs/jsonObject }
+        stream: { type: boolean }
+    InvocationRecordV4:
+      type: object
+      additionalProperties: false
+      required: [invocationId, rootTaskId, traceId, caller, workspaceId, targetAgentId, agentCardVersion, capability, status, createdAt, updatedAt]
+      properties:
+        invocationId: { $ref: ../schemas/common.v1.schema.json#/$defs/invocationId }
+        rootTaskId: { $ref: ../schemas/common.v1.schema.json#/$defs/taskId }
+        parentInvocationId: { $ref: ../schemas/common.v1.schema.json#/$defs/invocationId }
+        traceId: { $ref: ../schemas/common.v1.schema.json#/$defs/traceId }
+        caller: { $ref: ../schemas/common.v1.schema.json#/$defs/caller }
+        workspaceId: { $ref: ../schemas/common.v1.schema.json#/$defs/workspaceId }
+        targetAgentId: { $ref: ../schemas/common.v1.schema.json#/$defs/agentId }
+        agentCardVersion: { $ref: ../schemas/common.v1.schema.json#/$defs/semver }
+        capability: { $ref: ../schemas/common.v1.schema.json#/$defs/capabilityId }
+        status: { enum: [pending, routing, running, succeeded, failed, canceled, timed_out] }
+        latencyMs: { type: integer, minimum: 0 }
+        errorCode: { $ref: ../schemas/platform-error.v4.schema.json#/$defs/errorCode }
+        createdAt: { $ref: ../schemas/common.v1.schema.json#/$defs/dateTime }
+        updatedAt: { $ref: ../schemas/common.v1.schema.json#/$defs/dateTime }
+    InvocationDetailResponseV4:
+      type: object
+      additionalProperties: false
+      required: [invocation, events]
+      properties:
+        invocation: { $ref: "#/components/schemas/InvocationRecordV4" }
+        events:
+          type: array
+          items: { $ref: ../schemas/invocation-event.v0.3.schema.json }
+    TraceResponseV4:
+      type: object
+      additionalProperties: false
+      required: [traceId, invocations]
+      properties:
+        traceId: { $ref: ../schemas/common.v1.schema.json#/$defs/traceId }
+        invocations:
+          type: array
+          items: { $ref: "#/components/schemas/InvocationRecordV4" }
+    PreCorrelationPlatformError:
+      $ref: ../schemas/platform-error.v4.schema.json#/$defs/preCorrelation
+    CorrelatedPlatformError:
+      $ref: ../schemas/platform-error.v4.schema.json#/$defs/correlated
+    PhasePlatformError:
+      x-nekiro-phase-boundary: successful-created-commit
+      x-nekiro-pre-acceptance-schema: PreCorrelationPlatformError
+      x-nekiro-post-acceptance-schema: CorrelatedPlatformError
+      oneOf:
+        - $ref: "#/components/schemas/PreCorrelationPlatformError"
+        - $ref: "#/components/schemas/CorrelatedPlatformError"
+  responses:
+    BadRequest: { description: Pre-acceptance invalid request, x-platform-error-codes: [VALIDATION_ERROR], content: { application/json: { schema: { $ref: "#/components/schemas/PreCorrelationPlatformError" } } } }
+    Unauthenticated: { description: Pre-acceptance authentication required, x-platform-error-codes: [UNAUTHENTICATED], content: { application/json: { schema: { $ref: "#/components/schemas/PreCorrelationPlatformError" } } } }
+    Forbidden: { description: Pre-acceptance Workspace/capability forbidden, x-platform-error-codes: [FORBIDDEN, CAPABILITY_NOT_ALLOWED], content: { application/json: { schema: { $ref: "#/components/schemas/PreCorrelationPlatformError" } } } }
+    NotFound: { description: Pre-acceptance Workspace/installation/resource not found, x-platform-error-codes: [NOT_FOUND, AGENT_NOT_INSTALLED], content: { application/json: { schema: { $ref: "#/components/schemas/PreCorrelationPlatformError" } } } }
+    NotAcceptable: { description: Pre-acceptance stream and Accept mismatch, x-platform-error-codes: [NOT_ACCEPTABLE], content: { application/json: { schema: { $ref: "#/components/schemas/PreCorrelationPlatformError" } } } }
+    Conflict: { description: Failure may occur before or after acceptance; correlated shape is mandatory after acceptance, x-platform-error-codes: [CONFLICT, INSTALLATION_DISABLED, AGENT_DISABLED, CANCELED], content: { application/json: { schema: { $ref: "#/components/schemas/PhasePlatformError" } } } }
+    PayloadTooLarge: { description: Pre-acceptance public request overflow, x-platform-error-codes: [PAYLOAD_TOO_LARGE], content: { application/json: { schema: { $ref: "#/components/schemas/PreCorrelationPlatformError" } } } }
+    AgentFailure: { description: Post-acceptance exact Agent/protocol/auth/response-size failure, x-platform-error-codes: [AGENT_AUTH_UNSUPPORTED, AGENT_RESPONSE_TOO_LARGE, AGENT_EXECUTION_FAILED, A2A_PROTOCOL_ERROR], content: { application/json: { schema: { $ref: "#/components/schemas/CorrelatedPlatformError" } } } }
+    Unavailable: { description: May occur before/after acceptance; correlated shape is mandatory after acceptance, x-platform-error-codes: [ROUTE_NOT_FOUND, AGENT_UNAVAILABLE, DEPENDENCY_ERROR], content: { application/json: { schema: { $ref: "#/components/schemas/PhasePlatformError" } } } }
+    Timeout: { description: May occur before/after acceptance; correlated shape is mandatory after acceptance, x-platform-error-codes: [TIMEOUT], content: { application/json: { schema: { $ref: "#/components/schemas/PhasePlatformError" } } } }
