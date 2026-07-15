@@ -35,7 +35,7 @@
 
 - [x] T020 Run focused contract tests.
 - [x] T021 Run full contract, repository, vet, formatting, and diff checks.
-- [ ] T022 Confirm repo-local identity, commit logical changes, push branch, and open a draft PR referencing #20 and #19 with evidence.
+- [x] T022 Confirm repo-local identity, commit logical changes, push branch, and open a draft PR referencing #20 and #19 with evidence.
 - [ ] T023 Independent Review by a non-implementing agent. **Owner: root; intentionally not completed here.**
 - [ ] T024 Converge findings into tasks and resolve them. **Blocked by T023; intentionally not completed here.**
 
