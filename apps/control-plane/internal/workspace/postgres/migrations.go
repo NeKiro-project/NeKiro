@@ -312,14 +312,15 @@ FROM workspace.schema_version`).Scan(
 	}
 	if version != ExpectedSchemaVersion || !workspacePresent || !workspaceColumnsPresent || !workspaceConstraintsPresent || !installationPresent || !installationColumnsPresent || !installationConstraintsPresent || !currentIndexPresent || !orderIndexPresent {
 		var currentIndexMetadata, orderIndexMetadata, expectedIndexMetadata string
-		if metadataErr := db.QueryRow(ctx, `
+		metadataErr := db.QueryRow(ctx, `
 SELECT
     COALESCE((SELECT format('key=%s option=%s class=%s collation=%s predicate=%s definition=%s', indkey::text, indoption::text, indclass::text, indcollation::text, pg_get_expr(indpred, indrelid), pg_get_indexdef(indexrelid)) FROM pg_index WHERE indexrelid = to_regclass('workspace.installations_current_agent_idx')), ''),
     COALESCE((SELECT format('key=%s option=%s class=%s collation=%s predicate=%s definition=%s', indkey::text, indoption::text, indclass::text, indcollation::text, pg_get_expr(indpred, indrelid), pg_get_indexdef(indexrelid)) FROM pg_index WHERE indexrelid = to_regclass('workspace.installations_workspace_order_idx')), ''),
     format('varchar_opclass=%s timestamptz_opclass=%s C_collation=%s',
         (SELECT oid::text FROM pg_opclass WHERE opcmethod = (SELECT oid FROM pg_am WHERE amname = 'btree') AND opcnamespace = 'pg_catalog'::regnamespace AND opcname = 'varchar_ops'),
         (SELECT oid::text FROM pg_opclass WHERE opcmethod = (SELECT oid FROM pg_am WHERE amname = 'btree') AND opcnamespace = 'pg_catalog'::regnamespace AND opcname = 'timestamptz_ops'),
-        to_regcollation('pg_catalog."C"')::text))`).Scan(&currentIndexMetadata, &orderIndexMetadata, &expectedIndexMetadata); metadataErr == nil {
+		to_regcollation('pg_catalog."C"')::text))`).Scan(&currentIndexMetadata, &orderIndexMetadata, &expectedIndexMetadata)
+		if metadataErr == nil {
 			return fmt.Errorf("%w: version=%d workspace=%t workspace_columns=%t workspace_constraints=%t installation=%t installation_columns=%t installation_constraints=%t current_index=%t order_index=%t current_index_metadata=%q order_index_metadata=%q expected_index_metadata=%q", ErrSchemaVersionMismatch, version, workspacePresent, workspaceColumnsPresent, workspaceConstraintsPresent, installationPresent, installationColumnsPresent, installationConstraintsPresent, currentIndexPresent, orderIndexPresent, currentIndexMetadata, orderIndexMetadata, expectedIndexMetadata)
 		}
 		return fmt.Errorf("%w: version=%d workspace=%t workspace_columns=%t workspace_constraints=%t installation=%t installation_columns=%t installation_constraints=%t current_index=%t order_index=%t metadata_error=%q", ErrSchemaVersionMismatch, version, workspacePresent, workspaceColumnsPresent, workspaceConstraintsPresent, installationPresent, installationColumnsPresent, installationConstraintsPresent, currentIndexPresent, orderIndexPresent, metadataErr)
