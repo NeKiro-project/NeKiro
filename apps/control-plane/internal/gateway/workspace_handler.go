@@ -35,6 +35,12 @@ type WorkspaceHandler struct {
 	logger                *slog.Logger
 }
 
+type installRequestWire struct {
+	AgentID             string          `json:"agentId"`
+	VersionConstraint   string          `json:"versionConstraint"`
+	AcceptedPermissions json.RawMessage `json:"acceptedPermissions"`
+}
+
 func NewWorkspaceHandler(authenticator, internalAuthenticator Authenticator, service WorkspaceService, traces *TraceGenerator, logger *slog.Logger) (*WorkspaceHandler, error) {
 	if authenticator == nil || internalAuthenticator == nil || service == nil || traces == nil || logger == nil {
 		return nil, errors.New("workspace gateway dependencies are required")
@@ -109,8 +115,8 @@ func (handler *WorkspaceHandler) install(writer http.ResponseWriter, request *ht
 	if !ok {
 		return
 	}
-	var body contracts.InstallAgentRequest
-	if err := readStrictJSON(writer, request, &body); err != nil {
+	body, err := readInstallRequest(writer, request)
+	if err != nil {
 		handler.fail(writer, request, traceID, "install", workspace.ErrInvalid, nil)
 		return
 	}
@@ -294,6 +300,26 @@ func readStrictJSON(writer http.ResponseWriter, request *http.Request, destinati
 		return err
 	}
 	return nil
+}
+
+func readInstallRequest(writer http.ResponseWriter, request *http.Request) (contracts.InstallAgentRequest, error) {
+	var wire installRequestWire
+	if err := readStrictJSON(writer, request, &wire); err != nil {
+		return contracts.InstallAgentRequest{}, err
+	}
+	permissions := bytes.TrimSpace(wire.AcceptedPermissions)
+	if len(permissions) == 0 || bytes.Equal(permissions, []byte("null")) {
+		return contracts.InstallAgentRequest{}, errors.New("acceptedPermissions is required")
+	}
+	var accepted []string
+	if err := json.Unmarshal(permissions, &accepted); err != nil || accepted == nil {
+		return contracts.InstallAgentRequest{}, errors.New("acceptedPermissions must be an array")
+	}
+	return contracts.InstallAgentRequest{
+		AgentID:             wire.AgentID,
+		VersionConstraint:   wire.VersionConstraint,
+		AcceptedPermissions: accepted,
+	}, nil
 }
 
 func rejectDuplicateMembers(data []byte) error {

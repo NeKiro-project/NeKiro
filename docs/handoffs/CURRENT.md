@@ -1,10 +1,10 @@
-# Current Handoff: Issue 004 Workspace Create and Read
+# Current Handoff: Issue 005 Install Agent and Pin Exact Version
 
 **Updated**: 2026-07-15 (Asia/Hong_Kong)
 
-**State**: Issue #4 Workspace create/read runtime and its independent delivery
-gate are complete on the feature branch. Issue #3 is now merged into project
-main as the dependent base; Issue #5 installation delivery is the next slice.
+**State**: Issue #5 installation/pin runtime and its independent delivery gate
+are complete on the feature branch. Issues #3 and #4 are now merged into
+project main as the dependent base. Installation inspection/lifecycle,
 Invocation Dispatch, Router, Ledger, SDK, Sample Agents, and the complete E2E
 loop remain future scope.
 
@@ -12,14 +12,34 @@ loop remain future scope.
 
 - Upstream repository: `https://github.com/NeKiro-project/NeKiro.git`
 - Fork remote: `https://github.com/XnLemon/NeKiro.git`
-- Branch: `codex/004-workspace-create-read`
-- Base: `upstream/main` at `7de6fe6`
+- Branch: `codex/005-install-agent-pin`
+- Base: `upstream/main` at `b351e40`
 - Required local Git identity: `Nene7ko_ <1604009816@qq.com>`
 - Frontend remains paused.
 
 The handoff commit hash is intentionally not recorded because this file is part
 of that commit. Resolve the repository root on the current machine; do not
 assume a previous Windows path exists.
+
+## Issue #5 Delivery
+
+The active #5 Spec/Plan/Tasks define and verify the owner installation slice:
+
+- `POST /v3/workspaces/{workspaceId}/installations` requires trusted owner
+  authentication, a valid SemVer constraint, and a required permission array;
+  missing/null is invalid while explicit `[]` is preserved.
+- Catalog remains the sole published-version selector. Installation stores the
+  exact selected version, canonical permission subset, submitted constraint,
+  enabled status, server ID, and committed database timestamps through the
+  controlled Catalog reader and Workspace-owned transaction.
+- Workspace row locking plus the partial unique index leaves one current
+  Installation under concurrent requests. New matching publications do not
+  mutate an existing pin.
+- Integration evidence covers stable/pre-release/build selection, empty
+  permissions, restart reconstruction, publication immutability, dependency
+  failure, and the 100-request race. No Agent endpoint is invoked or probed.
+- Fallback delta: removed `0`, retained `1`, added `0`, net `0`; the retained
+  behavior is the explicitly approved empty permission set.
 
 ## Issue #4 Delivery
 
@@ -140,10 +160,9 @@ Added fallback evidence: none. The retained behaviors are the approved genuine
 empty Installation list and the unchanged Spec 002 Discovery page-size policy,
 not degraded dependency handling.
 
-Independent closure Review used `open-code-review` v1.7.9. Three review passes
-on the #4 change found and fixed Workspace schema readiness gaps for column
-metadata/constraints, identifier collation, and timestamp precision. The final
-review produced zero comments.
+Independent closure Review used `open-code-review` v1.7.9. The #4 change had
+three remediation passes for Workspace readiness; the #5 change was reviewed
+independently across 4 files and produced zero comments.
 
 ## Runtime Boundary
 
@@ -164,8 +183,8 @@ Ledger, SDK/runtime behavior, live sample Agents, Frontend, and the complete
 E2E loop remain unimplemented.
 
 Do not infer Invocation/Router runtime availability from active schemas or
-OpenAPI paths. Continue future implementation by creating the Issue #5 Spec
-and a fresh worktree after Issue #4 is accepted.
+OpenAPI paths. Continue future implementation with a fresh Spec/worktree for
+Installation inspection or lifecycle after Issue #5 is accepted.
 
 ## Recovery
 
@@ -175,7 +194,7 @@ Set-Location NeKiro
 git remote add upstream https://github.com/NeKiro-project/NeKiro.git
 git fetch origin --prune
 git fetch upstream --prune
-git switch --track origin/codex/004-workspace-create-read
+git switch --track origin/codex/005-install-agent-pin
 git config --local user.name Nene7ko_
 git config --local user.email 1604009816@qq.com
 git status --short --branch
@@ -187,6 +206,7 @@ Before modifying runtime code, read in full:
 - `AGENTS.md`
 - `.specify/memory/constitution.md`
 - this file
+- every artifact under `specs/005-install-agent-pin/`
 - every artifact under `specs/004-workspace-create-read/`
 - every artifact under `specs/003-workspace-installation-contracts/`
 - `docs/decisions/0005-minimal-workspace-installation-boundary.md`

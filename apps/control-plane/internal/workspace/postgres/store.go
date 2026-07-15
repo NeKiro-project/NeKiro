@@ -102,14 +102,19 @@ SELECT EXISTS (
 	if current {
 		return contracts.Installation{}, workspace.ErrConflict
 	}
-	if _, err = tx.Exec(ctx, `
+	if err = tx.QueryRow(ctx, `
 INSERT INTO workspace.installations (
   installation_id, workspace_id, agent_id, version_constraint, installed_version,
   accepted_permissions, status, installed_at, updated_at, uninstalled_at
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+RETURNING installation_id, workspace_id, agent_id, version_constraint, installed_version,
+          accepted_permissions, status, installed_at, updated_at, uninstalled_at`,
 		value.InstallationID, value.WorkspaceID, value.AgentID, value.VersionConstraint,
 		value.InstalledVersion, value.AcceptedPermissions, value.Status, value.InstalledAt,
-		value.UpdatedAt, value.UninstalledAt); err != nil {
+		value.UpdatedAt, value.UninstalledAt).Scan(
+		&result.InstallationID, &result.WorkspaceID, &result.AgentID, &result.VersionConstraint,
+		&result.InstalledVersion, &result.AcceptedPermissions, &result.Status, &result.InstalledAt,
+		&result.UpdatedAt, &result.UninstalledAt); err != nil {
 		if isUniqueViolation(err) {
 			return contracts.Installation{}, workspace.ErrConflict
 		}
@@ -118,7 +123,7 @@ INSERT INTO workspace.installations (
 	if err = tx.Commit(ctx); err != nil {
 		return contracts.Installation{}, dependencyError("commit Installation", err)
 	}
-	return value, nil
+	return result, nil
 }
 
 func (store *Store) GetInstallation(ctx context.Context, workspaceID, installationID string) (contracts.Installation, error) {
