@@ -235,6 +235,193 @@ func TestInstallPinsCommittedFieldsAndIgnoresNewPublication(t *testing.T) {
 	}
 }
 
+func TestInstallationLifecyclePersistsCommittedHistoryAcrossRestart(t *testing.T) {
+	ctx := context.Background()
+	catalogService, workspaceService := integrationServices(t, ctx)
+	owner := workspace.AuthenticatedCaller{ID: "owner-a"}
+	if _, err := workspaceService.CreateWorkspace(ctx, owner, contracts.CreateWorkspaceRequest{WorkspaceID: "workspace-lifecycle-restart"}); err != nil {
+		t.Fatal(err)
+	}
+	original, err := workspaceService.Install(ctx, owner, "workspace-lifecycle-restart", contracts.InstallAgentRequest{
+		AgentID: "runtime-a", VersionConstraint: "^1.0.0", AcceptedPermissions: []string{"document.read"},
+	})
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	disabled, err := workspaceService.UpdateInstallation(ctx, owner, "workspace-lifecycle-restart", original.InstallationID, "disabled")
+	if err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	if !disabled.UpdatedAt.After(original.UpdatedAt) || disabled.Status != "disabled" || disabled.UninstalledAt != nil {
+		t.Fatalf("disabled committed row = %#v", disabled)
+	}
+	terminal, err := workspaceService.Uninstall(ctx, owner, "workspace-lifecycle-restart", original.InstallationID)
+	if err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if terminal.Status != "uninstalled" || terminal.UninstalledAt == nil || !terminal.UninstalledAt.Equal(terminal.UpdatedAt) || !terminal.UpdatedAt.After(disabled.UpdatedAt) {
+		t.Fatalf("terminal committed row = %#v", terminal)
+	}
+	if err := contracts.NewValidator().ValidateInstallation(terminal); err != nil {
+		t.Fatalf("terminal Installation contract = %v", err)
+	}
+
+	databaseURL := integrationDatabaseURL(t)
+	restartedPool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatalf("reopen Workspace database: %v", err)
+	}
+	t.Cleanup(restartedPool.Close)
+	restartedStore, err := workspacepostgres.NewStore(restartedPool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validator, err := contracts.NewValidator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	restartedService, err := workspace.NewService(restartedStore, catalogService, workspace.OwnerPolicy{}, validator, time.Now, workspace.NewRandomID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := restartedService.GetInstallation(ctx, owner, "workspace-lifecycle-restart", original.InstallationID)
+	if err != nil {
+		t.Fatalf("read terminal after restart: %v", err)
+	}
+	if !sameInstallation(restarted, terminal) {
+		t.Fatalf("restarted terminal = %#v, want %#v", restarted, terminal)
+	}
+
+	reinstalled, err := workspaceService.Install(ctx, owner, "workspace-lifecycle-restart", contracts.InstallAgentRequest{
+		AgentID: "runtime-a", VersionConstraint: "^1.0.0", AcceptedPermissions: []string{"document.read"},
+	})
+	if err != nil {
+		t.Fatalf("reinstall: %v", err)
+	}
+	if reinstalled.InstallationID == original.InstallationID || reinstalled.Status != "enabled" {
+		t.Fatalf("reinstall identity/state = %#v", reinstalled)
+	}
+	history, err := restartedService.ListInstallations(ctx, owner, "workspace-lifecycle-restart", 100, nil)
+	if err != nil || len(history.Items) != 2 {
+		t.Fatalf("lifecycle history = %#v, %v", history, err)
+	}
+	if history.Items[0].Status != "uninstalled" || history.Items[1].Status != "enabled" {
+		t.Fatalf("lifecycle history states = %#v", history.Items)
+	}
+}
+
+func TestConcurrentLifecycleAndReinstallRequestsPreserveOneCurrentRow(t *testing.T) {
+	ctx := context.Background()
+	_, workspaceService := integrationServices(t, ctx)
+	owner := workspace.AuthenticatedCaller{ID: "owner-a"}
+	if _, err := workspaceService.CreateWorkspace(ctx, owner, contracts.CreateWorkspaceRequest{WorkspaceID: "workspace-lifecycle-race"}); err != nil {
+		t.Fatal(err)
+	}
+	original, err := workspaceService.Install(ctx, owner, "workspace-lifecycle-race", contracts.InstallAgentRequest{
+		AgentID: "runtime-a", VersionConstraint: "^1.0.0", AcceptedPermissions: []string{"document.read"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var wait sync.WaitGroup
+	disableResults := make(chan error, 100)
+	for index := 0; index < 100; index++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			_, err := workspaceService.UpdateInstallation(ctx, owner, "workspace-lifecycle-race", original.InstallationID, "disabled")
+			disableResults <- err
+		}()
+	}
+	wait.Wait()
+	close(disableResults)
+	disableSuccesses, disableConflicts := 0, 0
+	for err := range disableResults {
+		switch {
+		case err == nil:
+			disableSuccesses++
+		case errors.Is(err, workspace.ErrConflict):
+			disableConflicts++
+		default:
+			t.Fatalf("concurrent disable error: %v", err)
+		}
+	}
+	if disableSuccesses != 1 || disableConflicts != 99 {
+		t.Fatalf("concurrent disable successes=%d conflicts=%d", disableSuccesses, disableConflicts)
+	}
+
+	results := make(chan error, 100)
+	for index := 0; index < 100; index++ {
+		wait.Add(1)
+		if index%2 == 0 {
+			go func() {
+				defer wait.Done()
+				_, err := workspaceService.Uninstall(ctx, owner, "workspace-lifecycle-race", original.InstallationID)
+				results <- err
+			}()
+			continue
+		}
+		go func() {
+			defer wait.Done()
+			_, err := workspaceService.Install(ctx, owner, "workspace-lifecycle-race", contracts.InstallAgentRequest{
+				AgentID: "runtime-a", VersionConstraint: "^1.0.0", AcceptedPermissions: []string{"document.read"},
+			})
+			results <- err
+		}()
+	}
+	wait.Wait()
+	close(results)
+	for err := range results {
+		if err != nil && !errors.Is(err, workspace.ErrConflict) {
+			t.Fatalf("concurrent uninstall/reinstall error: %v", err)
+		}
+	}
+
+	listed, err := workspaceService.ListInstallations(ctx, owner, "workspace-lifecycle-race", 100, nil)
+	if err != nil {
+		t.Fatalf("list lifecycle race history: %v", err)
+	}
+	current := 0
+	terminalCount := 0
+	for _, value := range listed.Items {
+		switch value.Status {
+		case "enabled", "disabled":
+			current++
+		case "uninstalled":
+			terminalCount++
+			if value.InstallationID != original.InstallationID {
+				t.Fatalf("unexpected replacement terminal row: %#v", value)
+			}
+		}
+	}
+	if terminalCount != 1 || current > 1 || len(listed.Items) > 2 {
+		t.Fatalf("lifecycle race history = %#v", listed.Items)
+	}
+}
+
+func TestLifecycleDependencyFailuresRemainExplicit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, workspaceService := integrationServices(t, context.Background())
+	owner := workspace.AuthenticatedCaller{ID: "owner-a"}
+	if _, err := workspaceService.CreateWorkspace(context.Background(), owner, contracts.CreateWorkspaceRequest{WorkspaceID: "workspace-lifecycle-dependency"}); err != nil {
+		t.Fatal(err)
+	}
+	installation, err := workspaceService.Install(context.Background(), owner, "workspace-lifecycle-dependency", contracts.InstallAgentRequest{
+		AgentID: "runtime-a", VersionConstraint: "^1.0.0", AcceptedPermissions: []string{"document.read"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workspaceService.UpdateInstallation(ctx, owner, "workspace-lifecycle-dependency", installation.InstallationID, "disabled"); !errors.Is(err, workspace.ErrDependency) {
+		t.Fatalf("canceled disable = %v, want dependency", err)
+	}
+	if _, err := workspaceService.Uninstall(ctx, owner, "workspace-lifecycle-dependency", installation.InstallationID); !errors.Is(err, workspace.ErrDependency) {
+		t.Fatalf("canceled uninstall = %v, want dependency", err)
+	}
+}
+
 func integrationServices(t *testing.T, ctx context.Context) (*catalog.Service, *workspace.Service) {
 	t.Helper()
 	databaseURL := integrationDatabaseURL(t)
