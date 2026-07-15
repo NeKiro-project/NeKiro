@@ -53,8 +53,8 @@
 - [x] R012 Enforce Trace parent-before-child, no self-parent/cycle, and root-Task stability with negative corpus.
 - [x] R013 Re-run full verification and push the third Review remediation.
 
-- [ ] T023 Independent Review by a non-implementing agent. **Owner: root; intentionally not completed here.**
-- [ ] T024 Converge findings into tasks and resolve them. **Blocked by T023; intentionally not completed here.**
+- [x] T023 Independent Review by a non-implementing agent. **Evidence: PASS at head `b404d4e`; no P0-P2 findings remained.**
+- [x] T024 Converge findings into tasks and resolve them. **Evidence: clean outcome with 0 findings across 24 FR, 8 SC, 19 acceptance scenarios, 10 plan decisions, and 8 Constitution principles; pre-status-update tasks SHA256 `683AA1820E1ED3BA76B3F72EF3E68C903DF8C71965301C3F1462DD52B5616165`.**
 
 ## Dependencies
 
