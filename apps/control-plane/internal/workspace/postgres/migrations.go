@@ -100,6 +100,7 @@ func CheckSchema(ctx context.Context, db RowQuerier) error {
 	var workspacePresent, workspaceColumnsPresent, workspaceConstraintsPresent bool
 	var installationPresent, installationColumnsPresent, installationConstraintsPresent bool
 	var currentIndexPresent, orderIndexPresent bool
+	// PostgreSQL uses text_ops as the default btree class for varchar columns.
 	if err := db.QueryRow(ctx, `
 SELECT version,
        to_regclass('workspace.workspaces') IS NOT NULL,
@@ -255,9 +256,9 @@ SELECT version,
            FROM pg_index index_definition
            JOIN pg_class index_relation ON index_relation.oid = index_definition.indexrelid
            JOIN pg_am access_method ON access_method.oid = index_relation.relam
-           JOIN pg_opclass varchar_opclass ON varchar_opclass.opcmethod = access_method.oid
-               AND varchar_opclass.opcnamespace = 'pg_catalog'::regnamespace
-               AND varchar_opclass.opcname = 'varchar_ops'
+           JOIN pg_opclass text_opclass ON text_opclass.opcmethod = access_method.oid
+               AND text_opclass.opcnamespace = 'pg_catalog'::regnamespace
+               AND text_opclass.opcname = 'text_ops'
            WHERE index_definition.indexrelid = to_regclass('workspace.installations_current_agent_idx')
              AND index_definition.indrelid = to_regclass('workspace.installations')
              AND access_method.amname = 'btree'
@@ -266,8 +267,8 @@ SELECT version,
              AND index_definition.indkey = '2 3'::int2vector
              AND index_definition.indoption = '0 0'::int2vector
              AND index_definition.indclass = ARRAY[
-                 varchar_opclass.oid,
-                 varchar_opclass.oid
+                 text_opclass.oid,
+                 text_opclass.oid
              ]::oidvector
              AND index_definition.indcollation = ARRAY[
                  to_regcollation('pg_catalog."C"')::oid,
@@ -280,9 +281,9 @@ SELECT version,
            FROM pg_index index_definition
            JOIN pg_class index_relation ON index_relation.oid = index_definition.indexrelid
            JOIN pg_am access_method ON access_method.oid = index_relation.relam
-           JOIN pg_opclass varchar_opclass ON varchar_opclass.opcmethod = access_method.oid
-               AND varchar_opclass.opcnamespace = 'pg_catalog'::regnamespace
-               AND varchar_opclass.opcname = 'varchar_ops'
+           JOIN pg_opclass text_opclass ON text_opclass.opcmethod = access_method.oid
+               AND text_opclass.opcnamespace = 'pg_catalog'::regnamespace
+               AND text_opclass.opcname = 'text_ops'
            JOIN pg_opclass timestamptz_opclass ON timestamptz_opclass.opcmethod = access_method.oid
                AND timestamptz_opclass.opcnamespace = 'pg_catalog'::regnamespace
                AND timestamptz_opclass.opcname = 'timestamptz_ops'
@@ -294,9 +295,9 @@ SELECT version,
              AND index_definition.indkey = '2 8 1'::int2vector
              AND index_definition.indoption = '0 0 0'::int2vector
              AND index_definition.indclass = ARRAY[
-                 varchar_opclass.oid,
+                 text_opclass.oid,
                  timestamptz_opclass.oid,
-                 varchar_opclass.oid
+                 text_opclass.oid
              ]::oidvector
              AND index_definition.indcollation = ARRAY[
                  to_regcollation('pg_catalog."C"')::oid,
@@ -311,19 +312,7 @@ FROM workspace.schema_version`).Scan(
 		return fmt.Errorf("read workspace schema version: %w", err)
 	}
 	if version != ExpectedSchemaVersion || !workspacePresent || !workspaceColumnsPresent || !workspaceConstraintsPresent || !installationPresent || !installationColumnsPresent || !installationConstraintsPresent || !currentIndexPresent || !orderIndexPresent {
-		var currentIndexMetadata, orderIndexMetadata, expectedIndexMetadata string
-		metadataErr := db.QueryRow(ctx, `
-SELECT
-    COALESCE((SELECT format('key=%s option=%s class=%s collation=%s predicate=%s definition=%s', indkey::text, indoption::text, indclass::text, indcollation::text, pg_get_expr(indpred, indrelid), pg_get_indexdef(indexrelid)) FROM pg_index WHERE indexrelid = to_regclass('workspace.installations_current_agent_idx')), ''),
-    COALESCE((SELECT format('key=%s option=%s class=%s collation=%s predicate=%s definition=%s', indkey::text, indoption::text, indclass::text, indcollation::text, pg_get_expr(indpred, indrelid), pg_get_indexdef(indexrelid)) FROM pg_index WHERE indexrelid = to_regclass('workspace.installations_workspace_order_idx')), ''),
-    format('varchar_opclass=%s timestamptz_opclass=%s C_collation=%s',
-        (SELECT oid::text FROM pg_opclass WHERE opcmethod = (SELECT oid FROM pg_am WHERE amname = 'btree') AND opcnamespace = 'pg_catalog'::regnamespace AND opcname = 'varchar_ops'),
-        (SELECT oid::text FROM pg_opclass WHERE opcmethod = (SELECT oid FROM pg_am WHERE amname = 'btree') AND opcnamespace = 'pg_catalog'::regnamespace AND opcname = 'timestamptz_ops'),
-		to_regcollation('pg_catalog."C"')::text)`).Scan(&currentIndexMetadata, &orderIndexMetadata, &expectedIndexMetadata)
-		if metadataErr == nil {
-			return fmt.Errorf("%w: version=%d workspace=%t workspace_columns=%t workspace_constraints=%t installation=%t installation_columns=%t installation_constraints=%t current_index=%t order_index=%t current_index_metadata=%q order_index_metadata=%q expected_index_metadata=%q", ErrSchemaVersionMismatch, version, workspacePresent, workspaceColumnsPresent, workspaceConstraintsPresent, installationPresent, installationColumnsPresent, installationConstraintsPresent, currentIndexPresent, orderIndexPresent, currentIndexMetadata, orderIndexMetadata, expectedIndexMetadata)
-		}
-		return fmt.Errorf("%w: version=%d workspace=%t workspace_columns=%t workspace_constraints=%t installation=%t installation_columns=%t installation_constraints=%t current_index=%t order_index=%t metadata_error=%q", ErrSchemaVersionMismatch, version, workspacePresent, workspaceColumnsPresent, workspaceConstraintsPresent, installationPresent, installationColumnsPresent, installationConstraintsPresent, currentIndexPresent, orderIndexPresent, metadataErr)
+		return ErrSchemaVersionMismatch
 	}
 	return nil
 }
