@@ -70,6 +70,15 @@ var platformErrorV2Messages = map[PlatformErrorCode]string{
 	ErrorCodeInternal:             "The platform could not complete the request.",
 }
 
+var platformErrorV3Messages = func() map[PlatformErrorCode]string {
+	messages := make(map[PlatformErrorCode]string, len(platformErrorV2Messages)+1)
+	for code, message := range platformErrorV2Messages {
+		messages[code] = message
+	}
+	messages[ErrorCodeInstallationDisabled] = "The Agent installation is disabled."
+	return messages
+}()
+
 type PlatformErrorV2 struct {
 	Code         PlatformErrorCode `json:"code"`
 	Message      string            `json:"message"`
@@ -136,6 +145,70 @@ func NewCorrelatedPlatformErrorV2(
 	}
 	if err := validateSafeContractIdentifier("root task id", rootTaskID); err != nil {
 		return PlatformErrorV2{}, err
+	}
+	platformError.InvocationID = invocationID
+	platformError.RootTaskID = rootTaskID
+	return platformError, nil
+}
+
+type PlatformErrorV3 struct {
+	Code         PlatformErrorCode `json:"code"`
+	Message      string            `json:"message"`
+	TraceID      TraceID           `json:"traceId"`
+	InvocationID string            `json:"invocationId,omitempty"`
+	RootTaskID   string            `json:"rootTaskId,omitempty"`
+}
+
+func (platformError *PlatformErrorV3) UnmarshalJSON(data []byte) error {
+	type wirePlatformErrorV3 PlatformErrorV3
+	var decoded wirePlatformErrorV3
+	if err := unmarshalStrictResultContractObject(
+		data,
+		&decoded,
+		[]string{"code", "message", "traceId"},
+		nil,
+		[]string{"invocationId", "rootTaskId"},
+	); err != nil {
+		return fmt.Errorf("decode Platform Error v3: %w", err)
+	}
+	value := PlatformErrorV3(decoded)
+	validator, err := resultContractDecodeValidator()
+	if err != nil {
+		return err
+	}
+	if err := validator.ValidatePlatformErrorV3(value); err != nil {
+		return fmt.Errorf("decode Platform Error v3: %w", err)
+	}
+	*platformError = value
+	return nil
+}
+
+func NewPlatformErrorV3(code PlatformErrorCode, traceID TraceID) (PlatformErrorV3, error) {
+	if _, err := ParseTraceID(string(traceID)); err != nil {
+		return PlatformErrorV3{}, fmt.Errorf("invalid trace id")
+	}
+	message, exists := platformErrorV3Messages[code]
+	if !exists {
+		return PlatformErrorV3{}, fmt.Errorf("unknown platform error code %q", code)
+	}
+	return PlatformErrorV3{Code: code, Message: message, TraceID: traceID}, nil
+}
+
+func NewCorrelatedPlatformErrorV3(
+	code PlatformErrorCode,
+	traceID TraceID,
+	invocationID string,
+	rootTaskID string,
+) (PlatformErrorV3, error) {
+	platformError, err := NewPlatformErrorV3(code, traceID)
+	if err != nil {
+		return PlatformErrorV3{}, err
+	}
+	if err := validateSafeContractIdentifier("invocation id", invocationID); err != nil {
+		return PlatformErrorV3{}, err
+	}
+	if err := validateSafeContractIdentifier("root task id", rootTaskID); err != nil {
+		return PlatformErrorV3{}, err
 	}
 	platformError.InvocationID = invocationID
 	platformError.RootTaskID = rootTaskID
@@ -353,6 +426,7 @@ const (
 	invocationResultStreamEventSchemaID = "https://schemas.nekiro.dev/invocation-result-stream-event/v1"
 	invocationEventV02SchemaID          = "https://schemas.nekiro.dev/invocation-event/v0.2"
 	platformErrorV2SchemaID             = "https://schemas.nekiro.dev/platform-error/v2"
+	platformErrorV3SchemaID             = "https://schemas.nekiro.dev/platform-error/v3"
 )
 
 type ResultContractValidator struct {
@@ -360,6 +434,7 @@ type ResultContractValidator struct {
 	invocationResultStreamEvent *jsonschema.Schema
 	invocationEvent             *jsonschema.Schema
 	platformError               *jsonschema.Schema
+	platformErrorV3             *jsonschema.Schema
 }
 
 var resultContractDecodeState struct {
@@ -402,6 +477,7 @@ func NewResultContractValidator() (*ResultContractValidator, error) {
 	}{
 		{commonSchemaID, "schemas/common.v1.schema.json"},
 		{platformErrorV2SchemaID, "schemas/platform-error.v2.schema.json"},
+		{platformErrorV3SchemaID, "schemas/platform-error.v3.schema.json"},
 		{invocationResultSchemaID, "schemas/invocation-result.v1.schema.json"},
 		{invocationResultStreamEventSchemaID, "schemas/invocation-result-stream-event.v1.schema.json"},
 		{invocationEventV02SchemaID, "schemas/invocation-event.v0.2.schema.json"},
@@ -433,12 +509,17 @@ func NewResultContractValidator() (*ResultContractValidator, error) {
 	if err != nil {
 		return nil, fmt.Errorf("compile Platform Error v2 schema: %w", err)
 	}
+	platformErrorV3, err := compiler.Compile(platformErrorV3SchemaID)
+	if err != nil {
+		return nil, fmt.Errorf("compile Platform Error v3 schema: %w", err)
+	}
 
 	return &ResultContractValidator{
 		invocationResult:            invocationResult,
 		invocationResultStreamEvent: invocationResultStreamEvent,
 		invocationEvent:             invocationEvent,
 		platformError:               platformError,
+		platformErrorV3:             platformErrorV3,
 	}, nil
 }
 
@@ -491,6 +572,10 @@ func (v *ResultContractValidator) ValidatePlatformError(platformError PlatformEr
 	return validateMappedValue(v.platformError, platformError)
 }
 
+func (v *ResultContractValidator) ValidatePlatformErrorV3(platformError PlatformErrorV3) error {
+	return validateMappedValue(v.platformErrorV3, platformError)
+}
+
 func (v *ResultContractValidator) ValidateResolveAgentErrorCorrelation(
 	request ResolveAgentRequestV1,
 	platformError PlatformErrorV2,
@@ -499,6 +584,22 @@ func (v *ResultContractValidator) ValidateResolveAgentErrorCorrelation(
 		return err
 	}
 	if err := v.ValidatePlatformError(platformError); err != nil {
+		return err
+	}
+	if platformError.InvocationID != request.InvocationID || platformError.RootTaskID != request.RootTaskID || platformError.TraceID != request.TraceID {
+		return errors.New("resolve agent error correlation changed")
+	}
+	return nil
+}
+
+func (v *ResultContractValidator) ValidateResolveAgentErrorCorrelationV3(
+	request ResolveAgentRequestV2,
+	platformError PlatformErrorV3,
+) error {
+	if err := ValidateResolveAgentRequestV1(request); err != nil {
+		return err
+	}
+	if err := v.ValidatePlatformErrorV3(platformError); err != nil {
 		return err
 	}
 	if platformError.InvocationID != request.InvocationID || platformError.RootTaskID != request.RootTaskID || platformError.TraceID != request.TraceID {

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.nekiro.dev/workspace/v1",
+  "title": "NeKiro Workspace v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workspaceId",
+    "ownerId",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "workspaceId": { "$ref": "https://schemas.nekiro.dev/common/v1#/$defs/workspaceId" },
+    "ownerId": { "$ref": "https://schemas.nekiro.dev/common/v1#/$defs/ownerId" },
+    "createdAt": { "$ref": "https://schemas.nekiro.dev/common/v1#/$defs/dateTime" },
+    "updatedAt": { "$ref": "https://schemas.nekiro.dev/common/v1#/$defs/dateTime" }
+  }
+}

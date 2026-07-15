@@ -17,17 +17,19 @@ import (
 const (
 	commonSchemaID          = "https://schemas.nekiro.dev/common/v1"
 	agentCardSchemaID       = "https://schemas.nekiro.dev/agent-card/v0.2"
+	workspaceSchemaID       = "https://schemas.nekiro.dev/workspace/v1"
 	platformErrorSchemaID   = platformErrorV2SchemaID
-	installationSchemaID    = "https://schemas.nekiro.dev/installation/v1"
+	installationSchemaID    = "https://schemas.nekiro.dev/installation/v2"
 	invocationEventSchemaID = invocationEventV02SchemaID
 	a2aProfileSchemaID      = "https://schemas.nekiro.dev/a2a-profile/v0.2"
 )
 
-//go:embed schemas/*.json openapi/*.yaml a2a-profile/*.json a2a-profile/v0.3.0/*.json a2a-profile/v0.3.0/conformance/*.json a2a-profile/v0.3.0/conformance/*.sse agent-card/v0.2/semantic-rules.md agent-card/v0.2/conformance/*.json invocation/v1/semantic-rules.md invocation/v1/conformance/*.json
+//go:embed schemas/*.json openapi/*.yaml a2a-profile/*.json a2a-profile/v0.3.0/*.json a2a-profile/v0.3.0/conformance/*.json a2a-profile/v0.3.0/conformance/*.sse agent-card/v0.2/semantic-rules.md agent-card/v0.2/conformance/*.json invocation/v1/semantic-rules.md invocation/v1/conformance/*.json installation/v2/semantic-rules.md
 var contractFiles embed.FS
 
 type Validator struct {
 	agentCard                   *jsonschema.Schema
+	workspace                   *jsonschema.Schema
 	platformError               *jsonschema.Schema
 	installation                *jsonschema.Schema
 	invocationEvent             *jsonschema.Schema
@@ -81,7 +83,8 @@ func NewValidator() (*Validator, error) {
 	resources := map[string]string{
 		commonSchemaID:       "schemas/common.v1.schema.json",
 		agentCardSchemaID:    "schemas/agent-card.v0.2.schema.json",
-		installationSchemaID: "schemas/installation.v1.schema.json",
+		workspaceSchemaID:    "schemas/workspace.v1.schema.json",
+		installationSchemaID: "schemas/installation.v2.schema.json",
 		a2aProfileSchemaID:   "schemas/a2a-profile.v0.2.schema.json",
 	}
 
@@ -99,6 +102,10 @@ func NewValidator() (*Validator, error) {
 	if err != nil {
 		return nil, fmt.Errorf("compile Agent Card schema: %w", err)
 	}
+	workspace, err := compiler.Compile(workspaceSchemaID)
+	if err != nil {
+		return nil, fmt.Errorf("compile Workspace schema: %w", err)
+	}
 	installation, err := compiler.Compile(installationSchemaID)
 	if err != nil {
 		return nil, fmt.Errorf("compile installation schema: %w", err)
@@ -115,6 +122,7 @@ func NewValidator() (*Validator, error) {
 
 	return &Validator{
 		agentCard:                   agentCard,
+		workspace:                   workspace,
 		platformError:               resultContracts.platformError,
 		installation:                installation,
 		invocationEvent:             resultContracts.invocationEvent,
@@ -367,7 +375,66 @@ func rejectQuotedRegisterAgentCardLimitValues(data []byte) error {
 }
 
 func (v *Validator) ValidateInstallation(installation Installation) error {
-	return validateMappedValue(v.installation, installation)
+	if err := validateMappedValue(v.installation, installation); err != nil {
+		return err
+	}
+	return validateInstallationV2Semantics(installation)
+}
+
+func (v *Validator) ValidateWorkspace(workspace Workspace) error {
+	return validateMappedValue(v.workspace, workspace)
+}
+
+func (v *Validator) ValidateResolveAgentResponseForRequest(request ResolveAgentRequestV2, response ResolveAgentResponse) error {
+	if err := ValidateResolveAgentRequestV1(request); err != nil {
+		return err
+	}
+	if err := v.ValidateAgentCard(response.Card); err != nil {
+		return err
+	}
+	if response.Card.AgentID != request.AgentID || response.Card.Version != request.Version {
+		return errors.New("resolved Card identity does not match request")
+	}
+	if err := validateSafeContractIdentifier("installation id", response.Installation.InstallationID); err != nil {
+		return err
+	}
+	if response.Installation.WorkspaceID != request.WorkspaceID ||
+		response.Installation.AgentID != request.AgentID ||
+		response.Installation.InstalledVersion != request.Version ||
+		response.Installation.Status != "enabled" {
+		return errors.New("resolved Installation identity does not match request")
+	}
+	for index := 1; index < len(response.Installation.AcceptedPermissions); index++ {
+		if response.Installation.AcceptedPermissions[index-1] >= response.Installation.AcceptedPermissions[index] {
+			return errors.New("resolved Installation permissions are not canonical")
+		}
+	}
+	declaredPermissions := make(map[string]struct{}, len(response.Card.Permissions))
+	for _, permission := range response.Card.Permissions {
+		declaredPermissions[permission.ID] = struct{}{}
+	}
+	acceptedPermissions := make(map[string]struct{}, len(response.Installation.AcceptedPermissions))
+	for _, permission := range response.Installation.AcceptedPermissions {
+		if err := validateSafeContractIdentifier("accepted permission", permission); err != nil {
+			return err
+		}
+		if _, declared := declaredPermissions[permission]; !declared {
+			return errors.New("resolved Installation contains an undeclared permission")
+		}
+		acceptedPermissions[permission] = struct{}{}
+	}
+	for _, skill := range response.Card.Skills {
+		if skill.ID != request.Capability {
+			continue
+		}
+		for _, permission := range skill.RequiredPermissions {
+			if _, accepted := acceptedPermissions[permission]; !accepted {
+				return errors.New("resolved Installation does not authorize requested capability")
+			}
+		}
+		return nil
+	}
+	return errors.New("requested capability is not declared by resolved Card")
 }
 
 func (v *Validator) ValidateInvocationEvent(event InvocationEvent) error {
@@ -376,6 +443,10 @@ func (v *Validator) ValidateInvocationEvent(event InvocationEvent) error {
 
 func (v *Validator) ValidatePlatformError(platformError PlatformError) error {
 	return v.resultContracts.ValidatePlatformError(platformError)
+}
+
+func (v *Validator) ValidatePlatformErrorV3(platformError PlatformErrorV3) error {
+	return v.resultContracts.ValidatePlatformErrorV3(platformError)
 }
 
 func (v *Validator) ValidateInvocationResult(result InvocationResult) error {

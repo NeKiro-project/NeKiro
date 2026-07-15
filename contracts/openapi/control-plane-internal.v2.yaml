@@ -1,0 +1,209 @@
+openapi: 3.1.0
+info:
+  title: NeKiro Control Plane Internal API
+  version: 2.0.0
+  description: >-
+    Control Plane-owned operations called by the A2A Router. This version
+    separates failures before request correlation is trusted from failures
+    after strict correlation validation.
+servers:
+  - url: https://control-plane.internal.nekiro.dev
+    description: Control Plane internal destination
+paths:
+  /internal/v2/resolve-agent:
+    post:
+      operationId: resolveAgent
+      summary: Resolve an authorized exact Agent version
+      description: >-
+        Resolves Registry and Workspace-owned facts without allowing the Router
+        to read Control Plane storage directly. Once invocationId, rootTaskId,
+        and traceId pass strict validation, every later error repeats those
+        exact values. A malformed or missing correlation value cannot be
+        echoed; such a pre-correlation failure contains only a generated safe
+        traceId and the fixed error fields.
+      security:
+        - internalBearerAuth: []
+      requestBody:
+        required: true
+        x-nekiro-max-body-bytes: 1048576
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveAgentRequest"
+      responses:
+        "200":
+          description: Resolved exact Agent Card and enabled Installation facts
+          headers:
+            x-nek-trace-id:
+              $ref: "#/components/headers/TraceID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolveAgentResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+components:
+  securitySchemes:
+    internalBearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: >-
+        Control Plane-verified internal service credential. Northbound caller
+        credentials are not implicitly trusted for this operation.
+  headers:
+    TraceID:
+      description: >-
+        Exact request trace identifier after correlation validation, or a
+        generated safe trace identifier for a pre-correlation failure.
+      required: true
+      schema:
+        $ref: ../schemas/common.v1.schema.json#/$defs/traceId
+  responses:
+    BadRequest:
+      description: Invalid resolution request or correlation
+      headers:
+        x-nek-trace-id:
+          $ref: "#/components/headers/TraceID"
+      x-platform-error-codes: [VALIDATION_ERROR]
+      x-platform-error-correlation:
+        preCorrelation:
+          bodyFields: [code, message, traceId]
+          traceId: generated
+        postCorrelation:
+          source: request
+          exactFields: [invocationId, rootTaskId, traceId]
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/PreCorrelationPlatformError"
+              - $ref: "#/components/schemas/CorrelatedPlatformError"
+    Unauthenticated:
+      description: A valid trusted internal service credential is required
+      headers:
+        x-nek-trace-id:
+          $ref: "#/components/headers/TraceID"
+      x-platform-error-codes: [UNAUTHENTICATED]
+      x-platform-error-correlation:
+        source: generated
+        exactFields: [code, message, traceId]
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/PreCorrelationPlatformError"
+    Forbidden:
+      description: Installation or Agent version is disabled, or capability is not authorized
+      headers:
+        x-nek-trace-id:
+          $ref: "#/components/headers/TraceID"
+      x-platform-error-codes: [INSTALLATION_DISABLED, AGENT_DISABLED, CAPABILITY_NOT_ALLOWED]
+      x-platform-error-correlation:
+        source: request
+        exactFields: [invocationId, rootTaskId, traceId]
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/CorrelatedPlatformError"
+    NotFound:
+      description: No current Installation matches the requested Agent and exact version
+      headers:
+        x-nek-trace-id:
+          $ref: "#/components/headers/TraceID"
+      x-platform-error-codes: [AGENT_NOT_INSTALLED]
+      x-platform-error-correlation:
+        source: request
+        exactFields: [invocationId, rootTaskId, traceId]
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/CorrelatedPlatformError"
+    DependencyUnavailable:
+      description: A required Control Plane dependency failed
+      headers:
+        x-nek-trace-id:
+          $ref: "#/components/headers/TraceID"
+      x-platform-error-codes: [DEPENDENCY_ERROR]
+      x-platform-error-correlation:
+        source: request
+        exactFields: [invocationId, rootTaskId, traceId]
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/CorrelatedPlatformError"
+  schemas:
+    ResolveAgentRequest:
+      type: object
+      additionalProperties: false
+      required: [invocationId, rootTaskId, traceId, workspaceId, agentId, version, capability]
+      properties:
+        invocationId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/invocationId
+        rootTaskId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/taskId
+        traceId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/traceId
+        workspaceId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/workspaceId
+        agentId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/agentId
+        version:
+          $ref: ../schemas/common.v1.schema.json#/$defs/semver
+        capability:
+          $ref: ../schemas/common.v1.schema.json#/$defs/capabilityId
+    PreCorrelationPlatformError:
+      allOf:
+        - $ref: ../schemas/platform-error.v3.schema.json
+        - type: object
+          required: [code, message, traceId]
+          not:
+            anyOf:
+              - required: [invocationId]
+              - required: [rootTaskId]
+    CorrelatedPlatformError:
+      allOf:
+        - $ref: ../schemas/platform-error.v3.schema.json
+        - type: object
+          required: [invocationId, rootTaskId, traceId]
+    ResolveAgentResponse:
+      description: >-
+        The response is an exact authorization result. `card.agentId` and
+        `installation.agentId` MUST equal the request `agentId`; `card.version`
+        and `installation.installedVersion` MUST equal the request `version`;
+        and `installation.workspaceId` MUST equal the request `workspaceId`.
+      type: object
+      additionalProperties: false
+      required: [card, installation]
+      properties:
+        card:
+          $ref: ../schemas/agent-card.v0.2.schema.json
+        installation:
+          $ref: "#/components/schemas/ResolvedInstallation"
+    ResolvedInstallation:
+      type: object
+      additionalProperties: false
+      required: [installationId, workspaceId, agentId, installedVersion, acceptedPermissions, status]
+      properties:
+        installationId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/installationId
+        workspaceId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/workspaceId
+        agentId:
+          $ref: ../schemas/common.v1.schema.json#/$defs/agentId
+        installedVersion:
+          $ref: ../schemas/common.v1.schema.json#/$defs/semver
+        acceptedPermissions:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: ../schemas/common.v1.schema.json#/$defs/permissionId
+        status:
+          const: enabled

@@ -71,20 +71,20 @@ func TestInvocationEventV02RejectsMismatchedErrorCorrelation(t *testing.T) {
 }
 
 func TestDirectionalOpenAPIOwnership(t *testing.T) {
-	controlPlane := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v1.yaml"))
+	controlPlane := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v2.yaml"))
 	router := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v2.yaml"))
 
-	if controlPlane.Paths.Len() != 1 || controlPlane.Paths.Find("/internal/v1/resolve-agent") == nil {
+	if controlPlane.Paths.Len() != 1 || controlPlane.Paths.Find("/internal/v2/resolve-agent") == nil {
 		t.Fatalf("Control Plane internal paths = %v, want resolution only", controlPlane.Paths.Keys())
 	}
 	if controlPlane.Paths.Find("/internal/v2/invocations") != nil {
 		t.Fatal("Control Plane internal API contains Router-owned dispatch")
 	}
-	resolveAgent := controlPlane.Paths.Find("/internal/v1/resolve-agent").Post
+	resolveAgent := controlPlane.Paths.Find("/internal/v2/resolve-agent").Post
 	assertDeterministicErrorCodeStatuses(t, resolveAgent)
 	assertResponseErrorCode(t, resolveAgent, 404, "AGENT_NOT_INSTALLED")
 	assertResponseOmitsErrorCode(t, resolveAgent, 403, "AGENT_NOT_INSTALLED")
-	if router.Paths.Find("/internal/v1/resolve-agent") != nil {
+	if router.Paths.Find("/internal/v2/resolve-agent") != nil {
 		t.Fatal("Router internal API contains Control Plane-owned resolution")
 	}
 	for _, path := range []string{
@@ -110,15 +110,15 @@ func TestDirectionalOpenAPIOwnership(t *testing.T) {
 		t.Fatal("active internal API defines a localhost destination fallback")
 	}
 
-	resolvedCard := controlPlane.Paths.Find("/internal/v1/resolve-agent").Post.Responses.Status(200).Value.Content["application/json"].Schema.Value.Properties["card"]
+	resolvedCard := controlPlane.Paths.Find("/internal/v2/resolve-agent").Post.Responses.Status(200).Value.Content["application/json"].Schema.Value.Properties["card"]
 	if resolvedCard == nil || resolvedCard.Value == nil || resolvedCard.Value.Title != "NeKiro Agent Card v0.2" {
 		t.Fatal("Control Plane resolution does not use Agent Card v0.2")
 	}
 }
 
 func TestResolveAgentOpenAPIPreservesExistingCorrelation(t *testing.T) {
-	controlPlane := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v1.yaml"))
-	operation := controlPlane.Paths.Find("/internal/v1/resolve-agent").Post
+	controlPlane := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v2.yaml"))
+	operation := controlPlane.Paths.Find("/internal/v2/resolve-agent").Post
 	requestSchema := operation.RequestBody.Value.Content["application/json"].Schema
 	assertExactStringSet(t, "Resolve Agent required fields", requestSchema.Value.Required, []string{
 		"invocationId",
@@ -145,13 +145,18 @@ func TestResolveAgentOpenAPIPreservesExistingCorrelation(t *testing.T) {
 
 	responseCodes := map[int][]string{
 		400: {"VALIDATION_ERROR"},
-		403: {"FORBIDDEN", "AGENT_DISABLED", "CAPABILITY_NOT_ALLOWED"},
-		404: {"NOT_FOUND", "AGENT_NOT_INSTALLED"},
+		401: {"UNAUTHENTICATED"},
+		403: {"INSTALLATION_DISABLED", "AGENT_DISABLED", "CAPABILITY_NOT_ALLOWED"},
+		404: {"AGENT_NOT_INSTALLED"},
 		503: {"DEPENDENCY_ERROR"},
 	}
 	for status, expectedCodes := range responseCodes {
 		assertExactResponseErrorCodes(t, operation, status, expectedCodes)
 		response := operation.Responses.Status(status)
+		if status == 400 || status == 401 {
+			assertPreCorrelationResponse(t, status, response)
+			continue
+		}
 		assertExactResponseCorrelation(t, status, response, "request", []string{"invocationId", "rootTaskId", "traceId"})
 	}
 }
@@ -177,12 +182,12 @@ func TestRouterInternalReadAndDispatchUnavailableMappings(t *testing.T) {
 }
 
 func TestInvocationOpenAPIResultMediaAndStatusMapping(t *testing.T) {
-	northbound := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v2.yaml"))
+	northbound := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v3.yaml"))
 	router := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v2.yaml"))
 
-	assertDirectResultOperation(t, northbound, "/v2/workspaces/{workspaceId}/invocations")
+	assertDirectResultOperation(t, northbound, "/v3/workspaces/{workspaceId}/invocations")
 	assertDirectResultOperation(t, router, "/internal/v2/invocations")
-	northboundInvocation := northbound.Paths.Find("/v2/workspaces/{workspaceId}/invocations").Post
+	northboundInvocation := northbound.Paths.Find("/v3/workspaces/{workspaceId}/invocations").Post
 	routerInvocation := router.Paths.Find("/internal/v2/invocations").Post
 	assertDeterministicErrorCodeStatuses(t, northboundInvocation)
 	assertDeterministicErrorCodeStatuses(t, routerInvocation)
@@ -195,17 +200,17 @@ func TestInvocationOpenAPIResultMediaAndStatusMapping(t *testing.T) {
 
 	catalogCard := northbound.Components.Schemas["CatalogEntry"].Value.Properties["card"]
 	if catalogCard == nil || catalogCard.Value == nil || catalogCard.Value.Title != "NeKiro Agent Card v0.2" {
-		t.Fatal("Northbound v2 does not reference Agent Card v0.2")
+		t.Fatal("Northbound v3 does not reference Agent Card v0.2")
 	}
 	if strings.Contains(northbound.Servers[0].URL, "localhost") {
-		t.Fatal("Northbound v2 defines a localhost destination fallback")
+		t.Fatal("Northbound v3 defines a localhost destination fallback")
 	}
 }
 
 func TestInvocationPostCreationErrorsRequireExactCorrelation(t *testing.T) {
-	northbound := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v2.yaml"))
+	northbound := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v3.yaml"))
 	router := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v2.yaml"))
-	northboundInvocation := northbound.Paths.Find("/v2/workspaces/{workspaceId}/invocations").Post
+	northboundInvocation := northbound.Paths.Find("/v3/workspaces/{workspaceId}/invocations").Post
 	routerInvocation := router.Paths.Find("/internal/v2/invocations").Post
 
 	dispatchRequest := DispatchInvocationRequest{
@@ -296,8 +301,21 @@ func TestInvocationPostCreationErrorsRequireExactCorrelation(t *testing.T) {
 }
 
 func TestInvocationOpenAPIsExposeOnlyMetadataLedgerReads(t *testing.T) {
-	northbound := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v2.yaml"))
+	northbound := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v3.yaml"))
 	router := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v2.yaml"))
+
+	for _, operation := range []*openapi3.Operation{
+		northbound.Paths.Find("/v3/workspaces/{workspaceId}/invocations").Post,
+		northbound.Paths.Find("/v3/invocations/{invocationId}").Get,
+		northbound.Paths.Find("/v3/traces/{traceId}").Get,
+	} {
+		if operation == nil || operation.Security == nil || len(*operation.Security) != 1 {
+			t.Fatal("Northbound invocation operation is missing Bearer security")
+		}
+		if _, exists := (*operation.Security)[0]["bearerAuth"]; !exists {
+			t.Fatalf("Northbound invocation security = %#v, want bearerAuth", *operation.Security)
+		}
+	}
 
 	for _, document := range []*openapi3.T{northbound, router} {
 		for _, path := range document.Paths.Keys() {
@@ -308,7 +326,7 @@ func TestInvocationOpenAPIsExposeOnlyMetadataLedgerReads(t *testing.T) {
 		}
 	}
 
-	northboundLedger := northbound.Paths.Find("/v2/invocations/{invocationId}").Get.Responses.Status(200).Value.Content["application/json"].Schema.Value
+	northboundLedger := northbound.Paths.Find("/v3/invocations/{invocationId}").Get.Responses.Status(200).Value.Content["application/json"].Schema.Value
 	eventSchema := northboundLedger.Properties["events"].Value.Items
 	if eventSchema == nil || eventSchema.Value == nil || eventSchema.Value.Title != "NeKiro Invocation Event v0.2" {
 		t.Fatal("Northbound Ledger read is not backed by Invocation Event v0.2")
@@ -320,13 +338,13 @@ func TestInvocationOpenAPIsExposeOnlyMetadataLedgerReads(t *testing.T) {
 }
 
 func TestActiveOpenAPIErrorMappingsAreCompleteAndDeterministic(t *testing.T) {
-	northbound := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v2.yaml"))
-	controlPlaneInternal := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v1.yaml"))
+	northbound := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v3.yaml"))
+	controlPlaneInternal := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v2.yaml"))
 	routerInternal := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v2.yaml"))
 
 	for name, document := range map[string]*openapi3.T{
-		"Northbound v2":             northbound,
-		"Control Plane Internal v1": controlPlaneInternal,
+		"Northbound v3":             northbound,
+		"Control Plane Internal v2": controlPlaneInternal,
 		"Router Internal v2":        routerInternal,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -340,30 +358,34 @@ func TestActiveOpenAPIErrorMappingsAreCompleteAndDeterministic(t *testing.T) {
 		status int
 		codes  []string
 	}{
-		{path: "/v2/agents", method: "POST", status: 400, codes: []string{"VALIDATION_ERROR"}},
-		{path: "/v2/agents", method: "POST", status: 409, codes: []string{"CONFLICT"}},
-		{path: "/v2/agents/{agentId}/versions/{version}", method: "GET", status: 404, codes: []string{"NOT_FOUND"}},
-		{path: "/v2/agents/{agentId}/versions/{version}/publish", method: "POST", status: 404, codes: []string{"NOT_FOUND"}},
-		{path: "/v2/agents/{agentId}/versions/{version}/publish", method: "POST", status: 409, codes: []string{"CONFLICT"}},
-		{path: "/v2/agents/{agentId}/versions/{version}/disable", method: "POST", status: 404, codes: []string{"NOT_FOUND"}},
-		{path: "/v2/workspaces/{workspaceId}/installations", method: "POST", status: 400, codes: []string{"VALIDATION_ERROR"}},
-		{path: "/v2/workspaces/{workspaceId}/installations", method: "POST", status: 404, codes: []string{"NOT_FOUND"}},
-		{path: "/v2/workspaces/{workspaceId}/installations", method: "POST", status: 409, codes: []string{"CONFLICT"}},
-		{path: "/v2/workspaces/{workspaceId}/installations/{installationId}", method: "PATCH", status: 404, codes: []string{"NOT_FOUND"}},
-		{path: "/v2/workspaces/{workspaceId}/installations/{installationId}", method: "DELETE", status: 404, codes: []string{"NOT_FOUND"}},
-		{path: "/v2/workspaces/{workspaceId}/invocations", method: "POST", status: 400, codes: []string{"VALIDATION_ERROR"}},
-		{path: "/v2/workspaces/{workspaceId}/invocations", method: "POST", status: 401, codes: []string{"UNAUTHENTICATED"}},
-		{path: "/v2/workspaces/{workspaceId}/invocations", method: "POST", status: 403, codes: []string{"FORBIDDEN", "AGENT_DISABLED", "CAPABILITY_NOT_ALLOWED"}},
-		{path: "/v2/workspaces/{workspaceId}/invocations", method: "POST", status: 404, codes: []string{"NOT_FOUND", "AGENT_NOT_INSTALLED"}},
-		{path: "/v2/workspaces/{workspaceId}/invocations", method: "POST", status: 406, codes: []string{"NOT_ACCEPTABLE"}},
-		{path: "/v2/workspaces/{workspaceId}/invocations", method: "POST", status: 409, codes: []string{"CONFLICT", "CANCELED"}},
-		{path: "/v2/workspaces/{workspaceId}/invocations", method: "POST", status: 502, codes: []string{"AGENT_EXECUTION_FAILED", "A2A_PROTOCOL_ERROR"}},
-		{path: "/v2/workspaces/{workspaceId}/invocations", method: "POST", status: 503, codes: []string{"ROUTE_NOT_FOUND", "AGENT_UNAVAILABLE", "DEPENDENCY_ERROR"}},
-		{path: "/v2/workspaces/{workspaceId}/invocations", method: "POST", status: 504, codes: []string{"TIMEOUT"}},
-		{path: "/v2/invocations/{invocationId}", method: "GET", status: 404, codes: []string{"NOT_FOUND"}},
-		{path: "/v2/invocations/{invocationId}", method: "GET", status: 503, codes: []string{"DEPENDENCY_ERROR"}},
-		{path: "/v2/traces/{traceId}", method: "GET", status: 404, codes: []string{"NOT_FOUND"}},
-		{path: "/v2/traces/{traceId}", method: "GET", status: 503, codes: []string{"DEPENDENCY_ERROR"}},
+		{path: "/v3/agents", method: "POST", status: 400, codes: []string{"VALIDATION_ERROR"}},
+		{path: "/v3/agents", method: "POST", status: 409, codes: []string{"CONFLICT"}},
+		{path: "/v3/agents/{agentId}/versions/{version}", method: "GET", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v3/agents/{agentId}/versions/{version}/publish", method: "POST", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v3/agents/{agentId}/versions/{version}/publish", method: "POST", status: 409, codes: []string{"CONFLICT"}},
+		{path: "/v3/agents/{agentId}/versions/{version}/disable", method: "POST", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v3/workspaces/{workspaceId}/installations", method: "POST", status: 400, codes: []string{"VALIDATION_ERROR"}},
+		{path: "/v3/workspaces/{workspaceId}/installations", method: "POST", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v3/workspaces/{workspaceId}/installations", method: "POST", status: 409, codes: []string{"CONFLICT"}},
+		{path: "/v3/workspaces/{workspaceId}/installations/{installationId}", method: "PATCH", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v3/workspaces/{workspaceId}/installations/{installationId}", method: "DELETE", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v3/workspaces/{workspaceId}/invocations", method: "POST", status: 400, codes: []string{"VALIDATION_ERROR"}},
+		{path: "/v3/workspaces/{workspaceId}/invocations", method: "POST", status: 401, codes: []string{"UNAUTHENTICATED"}},
+		{path: "/v3/workspaces/{workspaceId}/invocations", method: "POST", status: 403, codes: []string{"FORBIDDEN", "AGENT_DISABLED", "CAPABILITY_NOT_ALLOWED"}},
+		{path: "/v3/workspaces/{workspaceId}/invocations", method: "POST", status: 404, codes: []string{"NOT_FOUND", "AGENT_NOT_INSTALLED"}},
+		{path: "/v3/workspaces/{workspaceId}/invocations", method: "POST", status: 406, codes: []string{"NOT_ACCEPTABLE"}},
+		{path: "/v3/workspaces/{workspaceId}/invocations", method: "POST", status: 409, codes: []string{"CONFLICT", "CANCELED"}},
+		{path: "/v3/workspaces/{workspaceId}/invocations", method: "POST", status: 502, codes: []string{"AGENT_EXECUTION_FAILED", "A2A_PROTOCOL_ERROR"}},
+		{path: "/v3/workspaces/{workspaceId}/invocations", method: "POST", status: 503, codes: []string{"ROUTE_NOT_FOUND", "AGENT_UNAVAILABLE", "DEPENDENCY_ERROR"}},
+		{path: "/v3/workspaces/{workspaceId}/invocations", method: "POST", status: 504, codes: []string{"TIMEOUT"}},
+		{path: "/v3/invocations/{invocationId}", method: "GET", status: 401, codes: []string{"UNAUTHENTICATED"}},
+		{path: "/v3/invocations/{invocationId}", method: "GET", status: 403, codes: []string{"FORBIDDEN", "AGENT_DISABLED", "CAPABILITY_NOT_ALLOWED"}},
+		{path: "/v3/invocations/{invocationId}", method: "GET", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v3/invocations/{invocationId}", method: "GET", status: 503, codes: []string{"DEPENDENCY_ERROR"}},
+		{path: "/v3/traces/{traceId}", method: "GET", status: 401, codes: []string{"UNAUTHENTICATED"}},
+		{path: "/v3/traces/{traceId}", method: "GET", status: 403, codes: []string{"FORBIDDEN", "AGENT_DISABLED", "CAPABILITY_NOT_ALLOWED"}},
+		{path: "/v3/traces/{traceId}", method: "GET", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v3/traces/{traceId}", method: "GET", status: 503, codes: []string{"DEPENDENCY_ERROR"}},
 	}
 	for _, testCase := range testCases {
 		operation := northbound.Paths.Find(testCase.path).GetOperation(testCase.method)
@@ -497,7 +519,7 @@ func assertAllOpenAPIErrorMappings(t *testing.T, document *openapi3.T) {
 				}
 				label := fmt.Sprintf("%s %s response %s", method, path, statusText)
 				for _, code := range responseErrorCodesFromRef(t, label, response) {
-					if _, known := platformErrorV2Messages[PlatformErrorCode(code)]; !known {
+					if _, known := platformErrorV3Messages[PlatformErrorCode(code)]; !known {
 						t.Fatalf("%s declares unknown error code %s", label, code)
 					}
 					if previousStatus, exists := seen[code]; exists {
@@ -511,7 +533,7 @@ func assertAllOpenAPIErrorMappings(t *testing.T, document *openapi3.T) {
 	for name, response := range document.Components.Responses {
 		label := fmt.Sprintf("component response %s", name)
 		for _, code := range responseErrorCodesFromRef(t, label, response) {
-			if _, known := platformErrorV2Messages[PlatformErrorCode(code)]; !known {
+			if _, known := platformErrorV3Messages[PlatformErrorCode(code)]; !known {
 				t.Fatalf("%s declares unknown error code %s", label, code)
 			}
 		}
@@ -577,6 +599,30 @@ func assertExactResponseCorrelation(
 	)
 }
 
+func assertPreCorrelationResponse(t *testing.T, status int, response *openapi3.ResponseRef) {
+	t.Helper()
+	if response == nil || response.Value == nil {
+		t.Fatalf("response %d is missing", status)
+	}
+	encoded, err := json.Marshal(response.Value.Extensions["x-platform-error-correlation"])
+	if err != nil {
+		t.Fatalf("marshal response %d pre-correlation contract: %v", status, err)
+	}
+	if status == 400 && !strings.Contains(string(encoded), "preCorrelation") {
+		t.Fatalf("response %d does not declare pre-correlation behavior: %s", status, encoded)
+	}
+	schema := response.Value.Content["application/json"].Schema
+	if schema == nil || schema.Value == nil {
+		t.Fatalf("response %d pre-correlation Platform Error schema is missing", status)
+	}
+	if status == 400 && len(schema.Value.OneOf) != 2 {
+		t.Fatalf("response %d must allow pre- and post-correlation errors", status)
+	}
+	if status == 401 && len(schema.Value.AllOf) != 2 {
+		t.Fatalf("response %d must compose the pre-correlation error schema", status)
+	}
+}
+
 func assertOpenAPIValueRejected(t *testing.T, schemaRef *openapi3.SchemaRef, value any) {
 	t.Helper()
 	if schemaRef == nil || schemaRef.Value == nil {
@@ -633,7 +679,9 @@ func loadResultOpenAPIDocument(t *testing.T, path string) *openapi3.T {
 				"/common/v1":                         "schemas/common.v1.schema.json",
 				"/agent-card/v0.2":                   "schemas/agent-card.v0.2.schema.json",
 				"/installation/v1":                   "schemas/installation.v1.schema.json",
+				"/installation/v2":                   "schemas/installation.v2.schema.json",
 				"/platform-error/v2":                 "schemas/platform-error.v2.schema.json",
+				"/platform-error/v3":                 "schemas/platform-error.v3.schema.json",
 				"/invocation-event/v0.2":             "schemas/invocation-event.v0.2.schema.json",
 				"/invocation-result/v1":              "schemas/invocation-result.v1.schema.json",
 				"/invocation-result-stream-event/v1": "schemas/invocation-result-stream-event.v1.schema.json",
