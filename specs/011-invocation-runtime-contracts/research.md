@@ -54,6 +54,23 @@
 
 Version only surfaces with changed accepted behavior. New v4/v3/v2 documents coexist as historical files, not runtime alternatives. The first runtime implements targets only because no deployed consumer exists.
 
+## Decision 10: Workspace-scoped projections, not raw reads
+
+**Decision**: Public and internal Invocation/Trace reads include Workspace in
+the path. Invocation reads return projection plus events; Trace reads return
+lineage projections.
+
+**Rejected**: Global ID reads and raw event-array responses, because they
+remove the Workspace authorization key and regress v3 consumer semantics.
+
+## Decision 11: Executable phase and media semantics
+
+**Decision**: Platform Error v4 has closed pre/correlated variants. Exported Go
+validators and a versioned corpus execute correlation, lifecycle, nested
+lineage, fixed messages, and one shared exact Accept matrix.
+
+**Rejected**: prose-only extensions or schema loading as sufficient evidence.
+
 ## Fallback Report
 
 ```text

@@ -15,7 +15,7 @@
     "traceId": { "$ref": "https://schemas.nekiro.dev/common/v1#/$defs/traceId" },
     "chunkIndex": { "type": "integer", "minimum": 0 },
     "chunk": {},
-    "error": { "$ref": "https://schemas.nekiro.dev/platform-error/v4" }
+    "error": { "$ref": "https://schemas.nekiro.dev/platform-error/v4#/$defs/correlated" }
   },
   "oneOf": [
     { "properties": { "type": { "const": "accepted" }, "status": { "const": "pending" } }, "not": { "anyOf": [{ "required": ["chunkIndex"] }, { "required": ["chunk"] }, { "required": ["error"] }] } },

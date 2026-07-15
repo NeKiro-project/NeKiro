@@ -16,7 +16,7 @@ Freeze the shared runtime boundary before parallel implementation. Add a distinc
 **Project Type**: Monorepo contract/design gate
 **Performance Goals**: No throughput SLO; deterministic byte/deadline bounds and one-terminal semantics
 **Constraints**: Zero fallback; historical artifacts immutable; no Router/Dispatch/Ledger runtime; secrets absent from contract facts
-**Scale/Scope**: Three HTTP directions, two new embedded error/event schema revisions, one ADR, one Go mapping file
+**Scale/Scope**: Three HTTP directions, Workspace-scoped detail/lineage reads, three embedded error/event schema revisions, one ADR, executable Go validators, and a versioned conformance corpus
 
 ## Constitution Check
 
@@ -36,7 +36,7 @@ Freeze the shared runtime boundary before parallel implementation. Add a distinc
 | Northbound Invocation API | `v4` | Adds required request cap source, 413 outcome, accepted boundary, and post-commit Ledger-failure delivery meaning to an already published invoke operation. |
 | Router Internal API | `v3` | Tightens service authentication, body/response bounds, accepted boundary, and dependency interruption behavior. |
 | Agent Router API | `v1` | New direction, caller class, trust derivation, and authentication boundary. |
-| Platform Error | `v4` | Adds distinct `AGENT_AUTH_UNSUPPORTED` and `PAYLOAD_TOO_LARGE` codes/messages. |
+| Platform Error | `v4` | Adds distinct `AGENT_AUTH_UNSUPPORTED`, request `PAYLOAD_TOO_LARGE`, and post-acceptance `AGENT_RESPONSE_TOO_LARGE`; splits pre-correlation and correlated shapes. |
 | Invocation Event | `v0.3` | Routing terminal facts must carry Platform Error v4 and its new unsupported-auth code. |
 | Result Stream Event | `v2` | Committed SSE must carry Platform Error v4 for unsupported-auth/size/dependency delivery. |
 | Invocation Result | `v1` | Success shape is unchanged. |
@@ -67,6 +67,9 @@ contracts/
 |-- schemas/invocation-event.v0.3.schema.json
 |-- schemas/invocation-result-stream-event.v2.schema.json
 |-- runtime_contracts.go
+|-- runtime_contracts_validation.go
+|-- invocation-runtime/v1/semantic-rules.md
+|-- invocation-runtime/v1/conformance/*.json
 `-- runtime_contracts_test.go
 
 docs/decisions/0006-invocation-runtime-trust-and-failure-policy.md
@@ -79,8 +82,8 @@ docs/contracts/compatibility.md
 
 1. Write target schemas and three directional OpenAPI documents.
 2. Record ADR and compatibility migration policy.
-3. Add Go DTO/constants without changing historical mapping aliases.
-4. Add focused contract tests and run full static/contract validation.
+3. Add Go DTO/constants and exported semantic validators without changing historical mapping aliases.
+4. Execute the versioned positive/negative corpus plus focused contract tests and full static/contract validation.
 5. Commit/push/open draft PR; leave independent Review and Converge unchecked.
 
 ## Post-Design Constitution Check

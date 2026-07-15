@@ -1,6 +1,9 @@
 package contracts
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 const (
 	NorthboundInvocationAPIVersion        = "4"
@@ -15,8 +18,9 @@ const (
 	RuntimeByteLimitMinimum  int64 = 1
 	RuntimeByteLimitMaximum  int64 = 2147483647
 
-	ErrorCodePayloadTooLarge      PlatformErrorCode = "PAYLOAD_TOO_LARGE"
-	ErrorCodeAgentAuthUnsupported PlatformErrorCode = "AGENT_AUTH_UNSUPPORTED"
+	ErrorCodePayloadTooLarge       PlatformErrorCode = "PAYLOAD_TOO_LARGE"
+	ErrorCodeAgentAuthUnsupported  PlatformErrorCode = "AGENT_AUTH_UNSUPPORTED"
+	ErrorCodeAgentResponseTooLarge PlatformErrorCode = "AGENT_RESPONSE_TOO_LARGE"
 )
 
 // NestedInvocationRequestV1 intentionally has no trusted caller, Workspace,
@@ -42,13 +46,21 @@ type DispatchInvocationRequestV3 struct {
 	Stream           bool            `json:"stream"`
 }
 
-type PlatformErrorV4 struct {
+type PreCorrelationPlatformErrorV4 struct {
+	Code    PlatformErrorCode `json:"code"`
+	Message string            `json:"message"`
+	TraceID TraceID           `json:"traceId"`
+}
+
+type CorrelatedPlatformErrorV4 struct {
 	Code         PlatformErrorCode `json:"code"`
 	Message      string            `json:"message"`
 	TraceID      TraceID           `json:"traceId"`
-	InvocationID string            `json:"invocationId,omitempty"`
-	RootTaskID   string            `json:"rootTaskId,omitempty"`
+	InvocationID string            `json:"invocationId"`
+	RootTaskID   string            `json:"rootTaskId"`
 }
+
+type PlatformErrorV4 = CorrelatedPlatformErrorV4
 
 type InvocationEventV03 struct {
 	SchemaVersion      string           `json:"schemaVersion"`
@@ -83,4 +95,31 @@ type InvocationResultStreamEventV2 struct {
 	ChunkIndex    *int64                `json:"chunkIndex,omitempty"`
 	Chunk         json.RawMessage       `json:"chunk,omitempty"`
 	Error         *PlatformErrorV4      `json:"error,omitempty"`
+}
+
+type InvocationRecordV4 struct {
+	InvocationID       string            `json:"invocationId"`
+	RootTaskID         string            `json:"rootTaskId"`
+	ParentInvocationID string            `json:"parentInvocationId,omitempty"`
+	TraceID            TraceID           `json:"traceId"`
+	Caller             Caller            `json:"caller"`
+	WorkspaceID        string            `json:"workspaceId"`
+	TargetAgentID      string            `json:"targetAgentId"`
+	AgentCardVersion   string            `json:"agentCardVersion"`
+	Capability         string            `json:"capability"`
+	Status             string            `json:"status"`
+	LatencyMS          *int64            `json:"latencyMs,omitempty"`
+	ErrorCode          PlatformErrorCode `json:"errorCode,omitempty"`
+	CreatedAt          time.Time         `json:"createdAt"`
+	UpdatedAt          time.Time         `json:"updatedAt"`
+}
+
+type InvocationDetailResponseV4 struct {
+	Invocation InvocationRecordV4   `json:"invocation"`
+	Events     []InvocationEventV03 `json:"events"`
+}
+
+type TraceResponseV4 struct {
+	TraceID     TraceID              `json:"traceId"`
+	Invocations []InvocationRecordV4 `json:"invocations"`
 }

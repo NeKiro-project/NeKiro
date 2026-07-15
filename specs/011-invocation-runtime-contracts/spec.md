@@ -14,6 +14,9 @@
 - Q: What is an accepted Invocation? A: The successful Router-owned `created` event commit. Before it, no Ledger fact and no Agent side effect exist.
 - Q: How is a post-Agent Ledger failure represented? A: The live response is explicit non-success; committed audit history stays at its last non-terminal fact. Router does not fabricate a terminal Ledger fact and does not retry.
 - Q: Where do deadline and size values come from? A: Required, strictly parsed deployment configuration with documented ranges and no defaults. The effective Agent deadline and content limits are the stricter configured/Card limits.
+- Q: How are Invocation and Trace reads authorized? A: Both Northbound and Router metadata routes carry an explicit Workspace path. Northbound returns the v4 projection-plus-events and lineage projections, never an unscoped raw event array.
+- Q: Which errors carry Invocation correlation? A: Pre-acceptance/pre-child errors use the three-field pre-correlation shape. Every post-acceptance HTTP or in-band error uses the five-field correlated shape with exact Invocation/root Task/Trace values.
+- Q: How are media and upstream oversize outcomes executed? A: One shared strict Accept matrix applies to all three invoke surfaces. Configured Agent response and A2A event limits are required with no default; post-acceptance overflow is `AGENT_RESPONSE_TOO_LARGE` via HTTP 502 or an SSE failed event.
 
 ## User Scenarios & Testing
 
@@ -67,6 +70,19 @@ An operator can run invocation transport with explicit deadlines and byte bounds
 3. **Given** `task-not-cancelable`, **When** local cancellation or timeout has won, **Then** the local outcome remains canceled or timed out and the protocol error does not replace it.
 4. **Given** competing Agent, disconnect, and deadline outcomes, **When** one valid terminal Ledger commit wins, **Then** later outcomes create no event or response.
 5. **Given** an oversized request, response, A2A event, or SSE data event, **When** its configured/Card limit is crossed, **Then** processing stops with an explicit size failure and no truncated success.
+6. **Given** a JSON or SSE request, **When** `stream` and the exact supported `Accept` value disagree, **Then** the request fails before acceptance with `NOT_ACCEPTABLE`; supported wildcard behavior is identical at every invoke boundary.
+
+### User Story 5 - Workspace-scoped audit inspection (Priority: P1)
+
+A Workspace owner can inspect one Invocation projection with its ordered events or one Trace lineage without presenting an unscoped global identifier.
+
+**Independent Test**: Validate both public and internal read paths, request parameters, and response DTO schemas against exact Workspace-scoped positive and cross-Workspace negative cases.
+
+**Acceptance Scenarios**:
+
+1. **Given** an owned Workspace and Invocation, **When** the owner reads it through v4, **Then** the response contains one metadata projection plus ordered Event 0.3 facts.
+2. **Given** an owned Workspace and Trace, **When** the owner reads it through v4, **Then** the response contains the Trace ID and ordered Invocation projections preserving parent-child lineage.
+3. **Given** an Invocation/Trace outside the supplied Workspace, **When** either public or internal read is attempted, **Then** the operation does not return raw global facts.
 
 ### Edge Cases
 
@@ -101,6 +117,11 @@ An operator can run invocation transport with explicit deadlines and byte bounds
 - **FR-017**: Each SSE event MUST be one UTF-8 JSON value on exactly one `data:` line followed by one blank line; CR/LF in JSON is escaped, multi-line data is rejected, and every event is flushed.
 - **FR-018**: Invocation metadata contracts MUST exclude input, output, chunks, credentials, endpoints, raw dependency errors, and runtime telemetry.
 - **FR-019**: Breaking auth, shape, error, and framing changes MUST receive new versions and migration notes; historical artifacts MUST remain unchanged and MUST NOT be runtime fallbacks.
+- **FR-020**: Invocation and Trace metadata reads MUST be Workspace-scoped at both Northbound and Router internal boundaries and MUST return versioned projection/detail and lineage shapes rather than raw unscoped event arrays.
+- **FR-021**: Platform Error v4 MUST expose distinct executable pre-correlation and correlated schemas; every accepted Invocation failure MUST require exact Invocation ID, root Task ID, and Trace ID.
+- **FR-022**: Runtime contract consumers MUST expose executable v4/0.3/v2 validators for schema, fixed code/message, nested lineage correlation, lifecycle transitions, stable context, sequence/chunk ordering, and first-terminal semantics, backed by positive and negative corpus fixtures.
+- **FR-023**: Router Agent response and A2A event limits MUST be required no-default sources. Overflow after acceptance MUST use distinct `AGENT_RESPONSE_TOO_LARGE` as HTTP 502 or an in-band failed event and MUST NOT be compressed into request-size, protocol, unavailable, or success.
+- **FR-024**: All three invoke directions MUST share one executable media negotiation rule: `stream=false` accepts exactly `application/json`, `application/*`, or `*/*`; `stream=true` accepts exactly `text/event-stream`; all other or multi-value forms fail before acceptance with `NOT_ACCEPTABLE`.
 
 ### Key Entities
 
@@ -127,6 +148,8 @@ An operator can run invocation transport with explicit deadlines and byte bounds
 - **SC-004**: The contract state matrix permits cancellation/timeout from all three non-terminal stages, declares one committed terminal winner, and caps A2A cancellation propagation at one request.
 - **SC-005**: Every public/internal body, Agent response, A2A event, and SSE event boundary declares a required no-default byte-limit source and one-line framing rule that can be executed by later runtime tests.
 - **SC-006**: Historical contract files remain byte-identical, every new contract validates, and all focused/full contract/static checks pass.
+- **SC-007**: Contract tests reject 100% of unscoped metadata routes and validate both detail and lineage response DTOs against Workspace-scoped v4 schemas.
+- **SC-008**: The versioned conformance corpus contains positive and negative cases for media negotiation, nested correlation, lifecycle transition, error correlation, and fixed code/message, and every case is executed by exported validator entry points.
 
 ## Assumptions
 

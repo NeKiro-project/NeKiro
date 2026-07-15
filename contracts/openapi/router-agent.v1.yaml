@@ -27,6 +27,7 @@ paths:
         - agentBearerAuth: []
       parameters:
         - $ref: "#/components/parameters/ResultAccept"
+      x-nekiro-media-negotiation: invocation-result-v1
       requestBody:
         required: true
         x-nekiro-max-body-bytes-source: required-router-agent-request-limit
@@ -53,6 +54,9 @@ paths:
               x-nekiro-sse-framing: single-data-line-blank-line-flush
               x-nekiro-max-event-bytes-source: required-router-sse-event-limit
               x-nekiro-limit-default: false
+          x-nekiro-max-agent-response-bytes-source: required-router-agent-response-limit
+          x-nekiro-max-a2a-event-bytes-source: required-router-a2a-event-limit
+          x-nekiro-limit-default: false
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -95,47 +99,58 @@ components:
         input:
           $ref: ../schemas/common.v1.schema.json#/$defs/jsonObject
         stream: { type: boolean }
+    PreCorrelationPlatformError:
+      $ref: ../schemas/platform-error.v4.schema.json#/$defs/preCorrelation
+    CorrelatedPlatformError:
+      $ref: ../schemas/platform-error.v4.schema.json#/$defs/correlated
+    PhasePlatformError:
+      x-nekiro-phase-boundary: successful-created-commit
+      x-nekiro-pre-acceptance-schema: PreCorrelationPlatformError
+      x-nekiro-post-acceptance-schema: CorrelatedPlatformError
+      oneOf:
+        - $ref: "#/components/schemas/PreCorrelationPlatformError"
+        - $ref: "#/components/schemas/CorrelatedPlatformError"
   responses:
     BadRequest:
       description: Malformed or structurally invalid request; no child correlation exists
       x-platform-error-codes: [VALIDATION_ERROR]
-      content: { application/json: { schema: { $ref: ../schemas/platform-error.v4.schema.json } } }
+      content: { application/json: { schema: { $ref: "#/components/schemas/PreCorrelationPlatformError" } } }
     Unauthenticated:
       description: Missing or invalid Agent credential; no child correlation exists
       x-platform-error-codes: [UNAUTHENTICATED]
-      content: { application/json: { schema: { $ref: ../schemas/platform-error.v4.schema.json } } }
+      content: { application/json: { schema: { $ref: "#/components/schemas/PreCorrelationPlatformError" } } }
     Forbidden:
       description: Authenticated Agent does not match the committed parent target
       x-platform-error-codes: [FORBIDDEN]
-      content: { application/json: { schema: { $ref: ../schemas/platform-error.v4.schema.json } } }
+      content: { application/json: { schema: { $ref: "#/components/schemas/PreCorrelationPlatformError" } } }
     ParentNotFound:
       description: Parent Invocation is absent from the trusted Ledger boundary
       x-platform-error-codes: [NOT_FOUND]
-      content: { application/json: { schema: { $ref: ../schemas/platform-error.v4.schema.json } } }
+      content: { application/json: { schema: { $ref: "#/components/schemas/PreCorrelationPlatformError" } } }
     NotAcceptable:
       description: stream and Accept disagree before acceptance
       x-platform-error-codes: [NOT_ACCEPTABLE]
-      content: { application/json: { schema: { $ref: ../schemas/platform-error.v4.schema.json } } }
+      content: { application/json: { schema: { $ref: "#/components/schemas/PreCorrelationPlatformError" } } }
     Conflict:
       description: Parent is not running or child was canceled after acceptance and before response commitment
       x-platform-error-codes: [CONFLICT, CANCELED]
-      content: { application/json: { schema: { $ref: ../schemas/platform-error.v4.schema.json } } }
+      content: { application/json: { schema: { $ref: "#/components/schemas/PhasePlatformError" } } }
     PayloadTooLarge:
       description: Agent-facing request exceeds the required configured body limit before acceptance
       x-platform-error-codes: [PAYLOAD_TOO_LARGE]
-      content: { application/json: { schema: { $ref: ../schemas/platform-error.v4.schema.json } } }
+      content: { application/json: { schema: { $ref: "#/components/schemas/PreCorrelationPlatformError" } } }
     AgentFailure:
       description: >-
         Agent failure, protocol failure, or unsupported Card authentication
         after acceptance. AGENT_AUTH_UNSUPPORTED is exact and never remapped to
         route, unavailable, dependency, or anonymous behavior.
-      x-platform-error-codes: [AGENT_AUTH_UNSUPPORTED, AGENT_EXECUTION_FAILED, A2A_PROTOCOL_ERROR]
-      content: { application/json: { schema: { $ref: ../schemas/platform-error.v4.schema.json } } }
+      x-platform-error-codes: [AGENT_AUTH_UNSUPPORTED, AGENT_RESPONSE_TOO_LARGE, AGENT_EXECUTION_FAILED, A2A_PROTOCOL_ERROR]
+      content: { application/json: { schema: { $ref: "#/components/schemas/CorrelatedPlatformError" } } }
     Unavailable:
       description: Route, Agent, or required dependency failed
       x-platform-error-codes: [ROUTE_NOT_FOUND, AGENT_UNAVAILABLE, DEPENDENCY_ERROR]
-      content: { application/json: { schema: { $ref: ../schemas/platform-error.v4.schema.json } } }
+      content: { application/json: { schema: { $ref: "#/components/schemas/PhasePlatformError" } } }
     Timeout:
       description: Required effective deadline expired before response commitment
       x-platform-error-codes: [TIMEOUT]
-      content: { application/json: { schema: { $ref: ../schemas/platform-error.v4.schema.json } } }
+      content: { application/json: { schema: { $ref: "#/components/schemas/PhasePlatformError" } } }

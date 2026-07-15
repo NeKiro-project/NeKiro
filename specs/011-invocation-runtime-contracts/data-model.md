@@ -58,3 +58,13 @@ The encoded event is one UTF-8 line; JSON escaping prevents literal CR/LF. The b
 ## Persistent Content Exclusion
 
 Ledger facts may contain only stable correlation/routing metadata, sequence/timestamp, status, byte counts, latency, and fixed safe error code/message. They never contain input, output, chunk values, endpoint, credentials, raw dependency data, or Runtime telemetry.
+
+## Read Projections
+
+- `InvocationDetailResponseV4`: one Workspace-bound `InvocationRecordV4` and
+  its ordered Event 0.3 facts.
+- `TraceResponseV4`: one Workspace-bound Trace ID and ordered
+  `InvocationRecordV4` projections. Parent IDs preserve lineage.
+- `InvocationRecordV4` retains exact correlation, caller, Workspace, target,
+  Card version, capability, current status, optional terminal latency/error,
+  and created/updated timestamps. It contains no Agent content.

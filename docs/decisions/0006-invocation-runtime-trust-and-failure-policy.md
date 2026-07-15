@@ -43,6 +43,13 @@ made. The outcome is HTTP 502 before response commitment or a correlated
 route-not-found, unavailable, dependency failure, anonymous access, or empty
 credentials.
 
+Platform Error v4 has two closed shapes. `preCorrelation` contains only code,
+fixed message, and safe boundary Trace. `correlated` additionally requires
+Invocation ID and root Task ID. Every HTTP or in-band failure after the
+successful `created` commit uses `correlated`; these identifiers are never
+optional after acceptance. Responses that can occur on either side of the
+boundary use an explicit phase union and runtime selects by commit state.
+
 ### Acceptance and Ledger persistence
 
 The successful Router-owned `created` append/projection transaction is the
@@ -89,13 +96,48 @@ and exact Card limits.
 
 Oversized request bodies fail before acceptance with HTTP 413 Platform Error v4
 `PAYLOAD_TOO_LARGE`. Oversize detected after acceptance must commit the exact
-non-success terminal before returning it; a Ledger failure follows the
+non-success terminal `AGENT_RESPONSE_TOO_LARGE` before returning HTTP 502 or an
+in-band `failed` event; a Ledger failure follows the
 interruption rule above. No truncation is a success.
+
+Router Agent-response and A2A-event byte limits are separate required
+no-default settings in the same strict `1..2147483647` range. Neither is
+inferred from the request/SSE limit. The resolved Card output bound also
+participates in the effective Agent response limit.
 
 Every result event is compact UTF-8 JSON on exactly one `data:` line followed
 by exactly one blank line and an immediate flush. Literal CR/LF is JSON escaped.
 Multiple data lines, other SSE fields, malformed JSON, oversized data values,
 missing blank delimiters, and EOF without a terminal result event are invalid.
+
+### Shared media negotiation
+
+All Northbound, Router Internal, and Agent Router invoke operations execute one
+strict rule. `stream=false` accepts exactly one ASCII media range equal to
+`application/json`, `application/*`, or `*/*`. `stream=true` accepts exactly
+`text/event-stream`. Blank values, parameters, comma-separated alternatives,
+case variants, whitespace variants, and every other value fail before
+acceptance with `NOT_ACCEPTABLE`. The versioned conformance corpus is the
+executable source for this matrix.
+
+### Workspace-scoped metadata reads
+
+Northbound v4 and Router Internal v3 Invocation/Trace reads require
+`workspaceId` in the path. Invocation reads return a projection plus ordered
+Event 0.3 facts. Trace reads return `traceId` plus ordered Invocation
+projections preserving parent-child lineage. The supplied Workspace is the
+query-isolation key; global raw-event routes do not exist. This restores the
+v3 projection/lineage behavior while making Workspace-first authorization
+structurally required.
+
+### Executable semantics
+
+The Go consumer exports validators for Platform Error v4 pre/correlated
+shapes, Invocation Event 0.3, Result Stream Event v2, nested child correlation,
+lifecycle sequences, and media negotiation. A versioned positive/negative
+corpus covers fixed code/message pairs, required post-acceptance correlation,
+stable lineage/context, legal transitions, event/chunk order, first terminal,
+and the media matrix. JSON Schema alone is not treated as lifecycle evidence.
 
 ## Compatibility
 
@@ -107,6 +149,8 @@ missing blank delimiters, and EOF without a terminal result event are invalid.
 - Agent Router v1 is new.
 - Platform Error v4, Invocation Event 0.3, and Result Stream Event v2 are
   required because new exact errors are embedded in those facts/frames.
+- Northbound v3 unscoped Invocation/Trace reads migrate to Workspace-scoped v4
+  detail/lineage paths; v4 does not return raw event arrays.
 - Invocation Result v1, Control Plane Internal v2, Agent Card 0.2, A2A Profile
   Schema 0.2, and A2A protocol 0.3.0 are unchanged.
 

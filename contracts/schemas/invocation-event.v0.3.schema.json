@@ -24,7 +24,7 @@
     "chunkIndex": { "type": "integer", "minimum": 0 },
     "chunkBytes": { "type": "integer", "minimum": 0 },
     "latencyMs": { "type": "integer", "minimum": 0 },
-    "error": { "$ref": "https://schemas.nekiro.dev/platform-error/v4" }
+    "error": { "$ref": "https://schemas.nekiro.dev/platform-error/v4#/$defs/correlated" }
   },
   "allOf": [
     { "if": { "properties": { "type": { "const": "created" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": "pending" } }, "not": { "anyOf": [{ "required": ["chunkIndex"] }, { "required": ["chunkBytes"] }, { "required": ["latencyMs"] }, { "required": ["error"] }] } } },

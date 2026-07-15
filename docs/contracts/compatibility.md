@@ -35,7 +35,7 @@ and Workspace surfaces:
 | Northbound Invocation API | invocation routes in Control Plane `v3` | invocation-only `v4` | Breaking acceptance, size, error, and persistence-interruption semantics; Catalog/Workspace/Installation remain on v3 |
 | Router Internal API | `v1` / `v2` | `v3` | Breaking service-auth, acceptance, size, and post-side-effect failure semantics |
 | Agent Router API | none | `v1` | New authenticated Agent-SDK direction and parent-derived trust model |
-| Platform Error | `v1` / `v2` / `v3` | `v4` for invocation runtime | Breaking/additive enum impact: exact unsupported-auth and payload-size outcomes |
+| Platform Error | `v1` / `v2` / `v3` | `v4` for invocation runtime | Breaking closed pre/correlated shapes and exact unsupported-auth/request-size/Agent-response-size outcomes |
 | Invocation Event | `0.1` / `0.2` | `0.3` | Breaking embedded Platform Error v4 revision |
 | Result Stream Event | `v1` | `v2` | Breaking embedded Platform Error v4 revision |
 
@@ -124,15 +124,26 @@ historical artifacts remain unchanged migration evidence.
 
 - Keep Catalog, Workspace, and Installation clients on
   `control-plane.v3.yaml`. Use `control-plane-invocation.v4.yaml` at the same
-  Gateway destination only for `/v4/.../invocations`, `/v4/invocations/...`,
-  and `/v4/traces/...`. The invocation-only document is not a second fact for
+  Gateway destination only for `/v4/workspaces/{workspaceId}/invocations...`
+  and `/v4/workspaces/{workspaceId}/traces/...`. The invocation-only document is not a second fact for
   the v3-owned domains.
 - Control Plane Dispatch uses Router Internal v3. Agent SDKs use Agent Router
   v1 with an Agent-bound credential; the caller classes and credentials are not
   interchangeable.
 - Adopt Platform Error v4, Invocation Event 0.3, and Result Stream Event v2
-  together. Treat HTTP 413 as `PAYLOAD_TOO_LARGE` and HTTP 502/in-band failed
-  as `AGENT_AUTH_UNSUPPORTED` when that exact code is present.
+  together. Treat pre-acceptance HTTP 413 as `PAYLOAD_TOO_LARGE`; treat HTTP
+  502/in-band failed as `AGENT_AUTH_UNSUPPORTED` or
+  `AGENT_RESPONSE_TOO_LARGE` only when that exact code is present. After
+  acceptance the correlated error shape is mandatory.
+- Replace unscoped v3 `/v3/invocations/{invocationId}` and
+  `/v3/traces/{traceId}` reads with Workspace-scoped
+  `/v4/workspaces/{workspaceId}/invocations/{invocationId}` and
+  `/v4/workspaces/{workspaceId}/traces/{traceId}`. Consume the Invocation
+  detail projection/events and Trace lineage projection responses; v4 does not
+  expose raw event arrays.
+- Use the exact shared Accept matrix: non-stream JSON accepts
+  `application/json`, `application/*`, or `*/*`; stream accepts only
+  `text/event-stream`. Do not normalize or fall back from unsupported values.
 - Configure every deadline/size value explicitly. Omission or invalid text is a
   startup/readiness failure and has no migration default.
 - Treat successful `created` commit as acceptance. A post-side-effect

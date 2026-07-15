@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"id":"json-exact","stream":false,"accept":"application/json","valid":true,"mode":"json"},
+    {"id":"json-subtype-wildcard","stream":false,"accept":"application/*","valid":true,"mode":"json"},
+    {"id":"json-wildcard","stream":false,"accept":"*/*","valid":true,"mode":"json"},
+    {"id":"sse-exact","stream":true,"accept":"text/event-stream","valid":true,"mode":"sse"},
+    {"id":"stream-json-mismatch","stream":true,"accept":"application/json","valid":false},
+    {"id":"json-sse-mismatch","stream":false,"accept":"text/event-stream","valid":false},
+    {"id":"parameter-rejected","stream":false,"accept":"application/json; charset=utf-8","valid":false},
+    {"id":"list-rejected","stream":false,"accept":"application/json, */*","valid":false},
+    {"id":"case-rejected","stream":false,"accept":"Application/JSON","valid":false},
+    {"id":"blank-rejected","stream":false,"accept":"","valid":false}
+  ]
+}

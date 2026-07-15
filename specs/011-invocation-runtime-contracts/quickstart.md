@@ -9,8 +9,11 @@
 Expected evidence:
 
 - Agent-facing DTO cannot carry caller, Workspace, root/Trace, child ID, Card version, endpoint, or credential.
+- Invocation and Trace reads require Workspace paths and validate projection/detail and lineage DTOs.
 - Wrong caller class/auth is rejected before owned behavior by the declared security schemes.
 - `AGENT_AUTH_UNSUPPORTED` and `PAYLOAD_TOO_LARGE` are distinct fixed errors.
+- Post-acceptance overflow is correlated `AGENT_RESPONSE_TOO_LARGE`; pre-correlation and correlated errors are mutually exclusive.
+- The runtime conformance corpus executes media, fixed-message, nested-lineage, and lifecycle positive/negative cases.
 - New event schemas preserve exact correlation and metadata-only content.
 - Every runtime limit is required and has no default.
 - SSE one-line framing, flushing, acceptance, and interruption rules are explicit.

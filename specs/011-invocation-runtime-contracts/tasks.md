@@ -36,6 +36,17 @@
 - [x] T020 Run focused contract tests.
 - [x] T021 Run full contract, repository, vet, formatting, and diff checks.
 - [x] T022 Confirm repo-local identity, commit logical changes, push branch, and open a draft PR referencing #20 and #19 with evidence.
+
+## Phase 4A: Independent Review Remediation
+
+- [x] R001 Return Review findings to Spec/Plan/Tasks/ADR/compatibility before contract changes.
+- [x] R002 Restore Workspace-scoped Invocation detail and Trace lineage response contracts and migration guidance.
+- [x] R003 Split Platform Error v4 pre-correlation/correlated shapes and apply them by acceptance phase.
+- [x] R004 Freeze Agent response/A2A event no-default limits, post-acceptance oversize mapping, and shared strict media negotiation.
+- [x] R005 Add exported runtime schema/semantic validators, rules, and positive/negative conformance corpus.
+- [x] R006 Add mapped DTO/OpenAPI/schema/corpus tests after remediation implementation.
+- [ ] R007 Run focused/full/static verification, commit, push PR #32, and report finding locations.
+
 - [ ] T023 Independent Review by a non-implementing agent. **Owner: root; intentionally not completed here.**
 - [ ] T024 Converge findings into tasks and resolve them. **Blocked by T023; intentionally not completed here.**
 
@@ -55,6 +66,10 @@ T007/T008 are parallel after the shared error schema. T009/T010/T011 are paralle
 | FR-013..FR-017 | T009-T012, T018 |
 | FR-018 | T006-T014, T016 |
 | FR-019 | T012-T013, T019 |
+| FR-020 | R002, R006 |
+| FR-021 | R003, R005-R006 |
+| FR-022 | R005-R006 |
+| FR-023..FR-024 | R004-R006 |
 
 ## Fallback Report
 

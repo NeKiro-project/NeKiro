@@ -1,0 +1,19 @@
+{
+  "cases": [
+    {
+      "id":"nested-valid","valid":true,
+      "parent":{"invocationId":"parent-1","rootTaskId":"task-1","traceId":"trace-1","caller":{"type":"user","id":"user-1"},"workspaceId":"workspace-1","targetAgentId":"agent-a","agentCardVersion":"1.0.0","capability":"orchestrate","status":"running","createdAt":"2026-07-16T00:00:00Z","updatedAt":"2026-07-16T00:00:01Z"},
+      "child":{"schemaVersion":"0.3","eventId":"event-child-1","sequence":0,"occurredAt":"2026-07-16T00:00:02Z","type":"created","status":"pending","invocationId":"child-1","rootTaskId":"task-1","parentInvocationId":"parent-1","traceId":"trace-1","caller":{"type":"agent","id":"agent-a"},"workspaceId":"workspace-1","targetAgentId":"agent-b","agentCardVersion":"2.0.0","capability":"summarize"}
+    },
+    {
+      "id":"nested-root-mismatch","valid":false,
+      "parent":{"invocationId":"parent-1","rootTaskId":"task-1","traceId":"trace-1","caller":{"type":"user","id":"user-1"},"workspaceId":"workspace-1","targetAgentId":"agent-a","agentCardVersion":"1.0.0","capability":"orchestrate","status":"running","createdAt":"2026-07-16T00:00:00Z","updatedAt":"2026-07-16T00:00:01Z"},
+      "child":{"schemaVersion":"0.3","eventId":"event-child-2","sequence":0,"occurredAt":"2026-07-16T00:00:02Z","type":"created","status":"pending","invocationId":"child-1","rootTaskId":"task-other","parentInvocationId":"parent-1","traceId":"trace-1","caller":{"type":"agent","id":"agent-a"},"workspaceId":"workspace-1","targetAgentId":"agent-b","agentCardVersion":"2.0.0","capability":"summarize"}
+    },
+    {
+      "id":"nested-caller-mismatch","valid":false,
+      "parent":{"invocationId":"parent-1","rootTaskId":"task-1","traceId":"trace-1","caller":{"type":"user","id":"user-1"},"workspaceId":"workspace-1","targetAgentId":"agent-a","agentCardVersion":"1.0.0","capability":"orchestrate","status":"running","createdAt":"2026-07-16T00:00:00Z","updatedAt":"2026-07-16T00:00:01Z"},
+      "child":{"schemaVersion":"0.3","eventId":"event-child-3","sequence":0,"occurredAt":"2026-07-16T00:00:02Z","type":"created","status":"pending","invocationId":"child-1","rootTaskId":"task-1","parentInvocationId":"parent-1","traceId":"trace-1","caller":{"type":"agent","id":"agent-other"},"workspaceId":"workspace-1","targetAgentId":"agent-b","agentCardVersion":"2.0.0","capability":"summarize"}
+    }
+  ]
+}
