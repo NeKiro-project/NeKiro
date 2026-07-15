@@ -45,7 +45,7 @@
 - [x] R004 Freeze Agent response/A2A event no-default limits, post-acceptance oversize mapping, and shared strict media negotiation.
 - [x] R005 Add exported runtime schema/semantic validators, rules, and positive/negative conformance corpus.
 - [x] R006 Add mapped DTO/OpenAPI/schema/corpus tests after remediation implementation.
-- [ ] R007 Run focused/full/static verification, commit, push PR #32, and report finding locations.
+- [x] R007 Run focused/full/static verification, commit, push PR #32, and report finding locations.
 
 - [ ] T023 Independent Review by a non-implementing agent. **Owner: root; intentionally not completed here.**
 - [ ] T024 Converge findings into tasks and resolve them. **Blocked by T023; intentionally not completed here.**
