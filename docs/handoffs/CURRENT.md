@@ -35,14 +35,15 @@ exact A2A dispatch and transient result delivery:
 - Available contracts: Invocation runtime semantic rules, Router Internal v3,
   Router Agent v1, result stream event v2, invocation event v0.3, and platform
   error v4.
-- Current Spec 016 progress: T001-T006 are complete. The Router now wires an
+- Current Spec 016 progress: T001-T008 are complete. The Router now wires an
   explicit non-streaming A2A transport into dispatch, maps a validated
-  `stream=false` request to one A2A `message/send`, returns a transient
-  Invocation Result v1 payload, and has mapped handler plus Runtime B context
-  propagation tests.
-- Pending Spec 016 work: T007-T010 must add metadata-only Ledger lifecycle
-  orchestration and explicit transport failure classification before final
-  verification, independent Review, and Converge.
+  `stream=false` request to one A2A `message/send`, appends metadata-only
+  Ledger lifecycle facts for accepted non-streaming dispatch, and returns the
+  transient Invocation Result v1 payload only after the terminal success fact
+  is committed.
+- Pending Spec 016 work: T009-T010 must add explicit transport failure
+  classification/fallback evidence before final verification, independent
+  Review, and Converge.
 - Open risk: Spec 014 real PostgreSQL integration remains environment-pending;
   use non-integration Ledger evidence unless a PostgreSQL test database becomes
   available.
