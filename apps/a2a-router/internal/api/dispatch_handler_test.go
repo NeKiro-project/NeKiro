@@ -25,15 +25,31 @@ func (stub authStub) Authenticate(*http.Request) (auth.Caller, error) {
 }
 
 type resolverStub struct {
-	request contracts.ResolveAgentRequest
-	calls   int
-	err     error
+	request  contracts.ResolveAgentRequest
+	response contracts.ResolveAgentResponse
+	calls    int
+	err      error
 }
 
 func (stub *resolverStub) Resolve(_ context.Context, request contracts.ResolveAgentRequest) (contracts.ResolveAgentResponse, error) {
 	stub.calls++
 	stub.request = request
-	return contracts.ResolveAgentResponse{}, stub.err
+	return stub.response, stub.err
+}
+
+type transportStub struct {
+	dispatch contracts.DispatchInvocationRequestV3
+	resolved contracts.ResolveAgentResponse
+	result   json.RawMessage
+	calls    int
+	err      error
+}
+
+func (stub *transportStub) SendNonStreaming(_ context.Context, dispatch contracts.DispatchInvocationRequestV3, resolved contracts.ResolveAgentResponse) (json.RawMessage, error) {
+	stub.calls++
+	stub.dispatch = dispatch
+	stub.resolved = resolved
+	return stub.result, stub.err
 }
 
 func TestDispatchRejectsInvalidRequestsBeforeResolution(t *testing.T) {
@@ -100,6 +116,30 @@ func TestDispatchAcceptsExactSemVerBuildMetadata(t *testing.T) {
 	}
 }
 
+func TestDispatchUsesNonStreamingTransportAndReturnsInvocationResult(t *testing.T) {
+	resolved := contracts.ResolveAgentResponse{Card: dispatchResolvedCard("https://agent.example/a2a")}
+	resolver := &resolverStub{response: resolved}
+	transport := &transportStub{result: json.RawMessage("{\"kind\":\"message\",\"messageId\":\"agent-message\",\"role\":\"agent\",\"parts\":[{\"kind\":\"data\",\"data\":{\"ok\":true}}]}")}
+	handler := newDispatchTransportTestHandler(t, authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, 4096)
+	response := invokeDispatch(handler, "application/json", "application/json", validDispatchBody(false))
+	if response.Code != http.StatusOK || resolver.calls != 1 || transport.calls != 1 {
+		t.Fatalf("status=%d resolver=%d transport=%d body=%s", response.Code, resolver.calls, transport.calls, response.Body.String())
+	}
+	var result contracts.InvocationResult
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode result: %v body=%s", err, response.Body.String())
+	}
+	if result.SchemaVersion != contracts.InvocationResultSchemaVersion || result.InvocationID != "inv-a" || result.RootTaskID != "task-a" || result.TraceID != "trace-a" || result.Status != "succeeded" || response.Header().Get(TraceHeader) != "trace-a" {
+		t.Fatalf("result=%#v headers=%#v", result, response.Header())
+	}
+	if string(result.Result) != string(transport.result) {
+		t.Fatalf("result payload=%s want %s", result.Result, transport.result)
+	}
+	if transport.dispatch.InvocationID != "inv-a" || len(transport.dispatch.Input) == 0 || transport.resolved.Card.AgentID != "agent-a" {
+		t.Fatalf("transport dispatch=%#v resolved=%#v", transport.dispatch, transport.resolved)
+	}
+}
+
 func TestDispatchPreservesTypedResolutionFailures(t *testing.T) {
 	body := []byte(`{"code":"CAPABILITY_NOT_ALLOWED","message":"The requested capability is not allowed.","traceId":"trace-control","invocationId":"inv-a","rootTaskId":"task-a"}`)
 	resolver := &resolverStub{err: &resolution.Failure{StatusCode: http.StatusForbidden, Code: contracts.ErrorCodeCapabilityNotAllowed, TraceID: "trace-control", Body: body}}
@@ -147,6 +187,17 @@ func newDispatchTestHandler(t *testing.T, authenticator Authenticator, resolver 
 	return mux
 }
 
+func newDispatchTransportTestHandler(t *testing.T, authenticator Authenticator, resolver Resolver, transport NonStreamingTransport, limit int64) http.Handler {
+	t.Helper()
+	handler, err := NewDispatchHandlerWithTransport(authenticator, resolver, transport, limit, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+	return mux
+}
+
 func invokeDispatch(handler http.Handler, contentType, accept, body string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(http.MethodPost, "/internal/v3/invocations", strings.NewReader(body))
 	request.Header.Set("Content-Type", contentType)
@@ -161,4 +212,13 @@ func validDispatchBody(stream bool) string {
 		return `{"invocationId":"inv-a","rootTaskId":"task-a","traceId":"trace-a","caller":{"type":"user","id":"owner-a"},"workspaceId":"workspace-a","targetAgentId":"agent-a","agentCardVersion":"1.0.0","capability":"capability-a","input":{"q":"x"},"stream":true}`
 	}
 	return `{"invocationId":"inv-a","rootTaskId":"task-a","traceId":"trace-a","caller":{"type":"user","id":"owner-a"},"workspaceId":"workspace-a","targetAgentId":"agent-a","agentCardVersion":"1.0.0","capability":"capability-a","input":{"q":"x"},"stream":false}`
+}
+
+func dispatchResolvedCard(endpoint string) contracts.AgentCard {
+	return contracts.AgentCard{
+		AgentID: "agent-a", Version: "1.0.0",
+		Protocol:       contracts.AgentProtocol{Type: "a2a", Version: contracts.A2AProtocolVersion, Transport: "JSONRPC", Endpoint: endpoint},
+		Authentication: contracts.AgentAuthentication{Type: "none"},
+		Skills:         []contracts.AgentSkill{{ID: "capability-a"}},
+	}
 }

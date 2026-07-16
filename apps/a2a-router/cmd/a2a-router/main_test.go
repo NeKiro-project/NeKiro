@@ -25,7 +25,7 @@ func TestNewHandlerAssemblesReadinessWithoutDependencyProbe(t *testing.T) {
 		InternalRequestLimitBytes:      1024,
 		ControlPlaneResponseLimitBytes: 2048,
 		ResolutionDeadline:             time.Second,
-	}, failingDoer{})
+	}, failingDoer{}, &http.Client{})
 	if err != nil {
 		t.Fatal(err)
 	}
