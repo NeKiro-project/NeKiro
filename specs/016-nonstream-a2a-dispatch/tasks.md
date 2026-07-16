@@ -8,16 +8,22 @@ implementation work, per project policy.
 
 ## Phase 1: Setup
 
-- [ ] T001 Create the Router non-streaming transport package skeleton in `apps/a2a-router/internal/transport/a2a/` with explicit dependencies and no fallback endpoint/default credential behavior.
+- [X] T001 Create the Router non-streaming transport package skeleton in `apps/a2a-router/internal/transport/a2a/` with explicit dependencies and no fallback endpoint/default credential behavior.
 
 ---
 
 ## Phase 2: Foundational Mapping
 
-- [ ] T002 Define focused Router-side interfaces for non-streaming Agent transport and metadata-only Ledger append ordering in `apps/a2a-router/internal/api/dispatch_handler.go` without importing Control Plane internals.
-- [ ] T003 Map resolved Agent endpoint/profile/auth facts into a strict non-streaming transport target in `apps/a2a-router/internal/transport/a2a/`, rejecting unsupported states explicitly.
+- [X] T002 Define focused Router-side interfaces for non-streaming Agent transport and metadata-only Ledger append ordering in `apps/a2a-router/internal/api/dispatch_handler.go` without importing Control Plane internals.
+- [X] T003 Map resolved Agent endpoint/profile/auth facts into a strict non-streaming transport target in `apps/a2a-router/internal/transport/a2a/`, rejecting unsupported states explicitly.
 
 **Checkpoint**: Router can represent an exact resolved non-streaming target but still has no Agent side effect.
+
+Checkpoint evidence: `apps/a2a-router/internal/transport/a2a` now validates
+resolved target endpoint/profile/auth/capability without fallback endpoints or
+default credentials. `dispatch_handler.go` now declares narrow non-streaming
+transport and Ledger append interfaces for later wiring, without Control Plane
+internal imports or Agent side effects.
 
 ---
 
