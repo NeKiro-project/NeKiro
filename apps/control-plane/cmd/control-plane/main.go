@@ -121,7 +121,7 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	routerClient, err := invocation.NewRouterClient(&http.Client{}, invocationConfig.RouterInternalURL, invocationConfig.RouterBearerToken)
+	routerClient, err := invocation.NewRouterClient(newRouterHTTPClient(), invocationConfig.RouterInternalURL, invocationConfig.RouterBearerToken)
 	if err != nil {
 		return err
 	}
@@ -129,7 +129,15 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	metadataReadService, err := invocation.NewMetadataReadService(workspaceService, routerClient)
+	if err != nil {
+		return err
+	}
 	invocationHandler, err := gateway.NewInvocationHandler(authenticator, invocationService, traces, logger, invocationConfig.PublicRequestLimitBytes, invocationConfig.SSEEventLimitBytes, time.Duration(invocationConfig.DeadlineMS)*time.Millisecond)
+	if err != nil {
+		return err
+	}
+	invocationReadHandler, err := gateway.NewInvocationReadHandler(authenticator, metadataReadService, traces, logger, time.Duration(invocationConfig.DeadlineMS)*time.Millisecond, invocationConfig.MetadataResponseLimitBytes)
 	if err != nil {
 		return err
 	}
@@ -137,10 +145,11 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 	catalogHandler.RegisterRoutes(mux)
 	workspaceHandler.RegisterRoutes(mux)
 	invocationHandler.RegisterRoutes(mux)
+	invocationReadHandler.RegisterRoutes(mux)
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddress,
-		Handler:           mux,
+		Handler:           gateway.NewCORSHandler(mux, cfg.CORSAllowedOrigins),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -165,6 +174,19 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 			return fmt.Errorf("shutdown control plane: %w", err)
 		}
 		return nil
+	}
+}
+
+// newRouterHTTPClient performs exactly one request to the configured Router
+// destination. Redirects would otherwise cause net/http to issue a second
+// request, potentially to an alternate origin, while preserving the original
+// bearer credential. The Router boundary has no redirect policy, so surface
+// the response to the caller instead.
+func newRouterHTTPClient() *http.Client {
+	return &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
 }
 

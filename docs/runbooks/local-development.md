@@ -33,8 +33,15 @@ Every current variable is required:
 | `NEKIRO_DEV_AUTH_PRINCIPALS_JSON` | Strict local principal array containing `id` and lowercase SHA-256 `tokenSha256` only |
 | `NEKIRO_INTERNAL_AUTH_MODE` | Explicit internal service authentication mode; currently `development-static` |
 | `NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON` | Separate strict principal array for Router/internal callers |
+| `NEKIRO_CORS_ALLOWED_ORIGINS` | Comma-separated explicit browser origins allowed to call the local Control Plane, for example `http://127.0.0.1:3000` |
 | `CONTROL_PLANE_PORT` | Available host loopback port for the Control Plane |
 | `A2A_ROUTER_PORT` | Available host loopback port for the A2A Router |
+| `NEKIRO_ROUTER_INTERNAL_URL` | Fixed Router v3 dispatch URL used by the Control Plane; Compose sets the service origin |
+| `NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN` | Raw local token the Control Plane presents to the Router; keep it out of logs and commits |
+| `NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES` | Maximum northbound invocation request body size |
+| `NEKIRO_GATEWAY_SSE_EVENT_MAX_BYTES` | Maximum northbound SSE event/frame size |
+| `NEKIRO_GATEWAY_METADATA_RESPONSE_MAX_BYTES` | Maximum Router metadata response body size buffered for validation |
+| `NEKIRO_GATEWAY_INVOCATION_DEADLINE_MS` | Gateway invocation and metadata read deadline in milliseconds |
 | `NEKIRO_ROUTER_LISTEN_ADDRESS` | Router bind address and port for host-process serving |
 | `NEKIRO_ROUTER_SERVICE_PRINCIPALS_JSON` | Strict principal array trusted by the Router's internal endpoint |
 | `NEKIRO_CONTROL_PLANE_RESOLVE_URL` | Control Plane exact-resolution URL used by the Router |
@@ -43,6 +50,7 @@ Every current variable is required:
 | `NEKIRO_ROUTER_CONTROL_PLANE_RESPONSE_LIMIT_BYTES` | Maximum Control Plane resolution response size |
 | `NEKIRO_ROUTER_AGENT_RESPONSE_LIMIT_BYTES` | Maximum non-streaming Agent response size |
 | `NEKIRO_ROUTER_A2A_EVENT_LIMIT_BYTES` | Maximum A2A event size reserved for the streaming profile |
+| `NEKIRO_ROUTER_SSE_EVENT_LIMIT_BYTES` | Maximum serialized SSE event/frame size; independent from the A2A event limit |
 | `NEKIRO_ROUTER_RESOLUTION_DEADLINE_MS` | Resolution deadline in milliseconds |
 
 Choose non-empty values locally. Do not commit `.env`, reuse these credentials
@@ -91,6 +99,13 @@ $env:NEKIRO_AUTH_MODE = 'development-static'
 $env:NEKIRO_DEV_AUTH_PRINCIPALS_JSON = '<strict principal JSON from .env>'
 $env:NEKIRO_INTERNAL_AUTH_MODE = 'development-static'
 $env:NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON = '<separate strict internal principal JSON from .env>'
+$env:NEKIRO_CORS_ALLOWED_ORIGINS = 'http://127.0.0.1:3000'
+$env:NEKIRO_ROUTER_INTERNAL_URL = 'http://127.0.0.1:18081/internal/v3/invocations'
+$env:NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN = '<raw token matching the configured Router principal digest>'
+$env:NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES = '1048576'
+$env:NEKIRO_GATEWAY_SSE_EVENT_MAX_BYTES = '1048576'
+$env:NEKIRO_GATEWAY_METADATA_RESPONSE_MAX_BYTES = '1048576'
+$env:NEKIRO_GATEWAY_INVOCATION_DEADLINE_MS = '30000'
 go run ./apps/control-plane/cmd/control-plane migrate up
 go run ./apps/control-plane/cmd/control-plane serve
 ```
@@ -136,6 +151,7 @@ $env:NEKIRO_ROUTER_INTERNAL_REQUEST_LIMIT_BYTES = '1048576'
 $env:NEKIRO_ROUTER_CONTROL_PLANE_RESPONSE_LIMIT_BYTES = '1048576'
 $env:NEKIRO_ROUTER_AGENT_RESPONSE_LIMIT_BYTES = '1048576'
 $env:NEKIRO_ROUTER_A2A_EVENT_LIMIT_BYTES = '1048576'
+$env:NEKIRO_ROUTER_SSE_EVENT_LIMIT_BYTES = '1048576'
 $env:NEKIRO_ROUTER_RESOLUTION_DEADLINE_MS = '5000'
 go run ./apps/a2a-router/cmd/a2a-router serve
 ```

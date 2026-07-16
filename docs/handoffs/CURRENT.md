@@ -25,6 +25,26 @@ variables remains intentionally outside this child Spec and belongs to the
 parent acceptance task. Fallback delta for this slice remains `removed 0,
 retained 0, added 0, net 0`.
 
+## Spec 018 Invocation and Trace Metadata Reads
+
+Spec 018 now implements the next `Record` read slice. The Router process wires
+authenticated Internal v3 GET routes through the existing LedgerHandler and
+Ledger Store; the Control Plane extends the same-origin Router client with
+one-attempt Invocation/Trace reads, authorizes the Workspace owner through the
+Workspace service before Router access, and exposes the Northbound v4 scoped
+read routes. Router 404 remains public `NOT_FOUND`; internal auth, wrong media,
+transport, 5xx, and deadline failures become safe `DEPENDENCY_ERROR` responses.
+Successful reads contain only validated Invocation/Trace metadata and Event
+0.3 facts; no result content, credentials, retry, cache, or alternate route is
+introduced.
+
+Spec 018 focused/full tests, vet, WSL race, Compose config, diff check, and
+forbidden-content scan pass. The second independent Review found no remaining
+P0/P1/P2 issues; Converge is complete. The production Router client rejects
+redirects, metadata responses are bounded and schema/record validated, and
+Compose/runbook wiring includes every required Control Plane-to-Router value.
+The ignored local `.env` may still need manual refresh with those new values.
+
 ## Repository State
 
 - Upstream repository: https://github.com/NeKiro-project/NeKiro.git

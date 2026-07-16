@@ -73,6 +73,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/InvocationDetailResponseV4" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "503": { $ref: "#/components/responses/Unavailable" }
   /internal/v3/workspaces/{workspaceId}/traces/{traceId}:
@@ -92,6 +93,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/TraceResponseV4" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "503": { $ref: "#/components/responses/Unavailable" }
 components:
