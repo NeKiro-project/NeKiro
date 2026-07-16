@@ -20,9 +20,12 @@ are forwarded live, including the approved Router trace header. Router
 URL/token, public body/SSE limits, and deadline configuration are required with
 no defaults.
 
-Spec 012 verification and convergence evidence passed on its source branch;
-the integration is being re-run against the current Router/Streaming branch.
-Fallback delta for this slice remains `removed 0, retained 0, added 0, net 0`.
+Spec 012 verification and convergence evidence passed on its source branch and
+was rerun against the current Router/Streaming branch: full tests, vet, and
+WSL race checks pass. Deployment/Compose wiring for the new Gateway runtime
+variables remains intentionally outside this child Spec and belongs to the
+parent acceptance task. Fallback delta for this slice remains `removed 0,
+retained 0, added 0, net 0`.
 
 ## Repository State
 
@@ -53,8 +56,11 @@ not assume a previous Windows path exists.
   eleven native Sub-issues [#20](https://github.com/NeKiro-project/NeKiro/issues/20)
   through [#30](https://github.com/NeKiro-project/NeKiro/issues/30), with native
   dependency relations matching Spec 010 `tasks.md`.
-- Workspace parent Issue #2 is closed. Spec 010 T001 contract review may start;
-  T002-T010 remain blocked by their recorded dependency graph.
+- Workspace parent Issue #2 and Spec 010 T001 are complete. Spec 012 delivers
+  T002 Control Plane Invocation Dispatch; the Router foundation, Ledger,
+  Runtime B sample, and T006/T007 transport slices are also present on this
+  branch. T008 Invocation/Trace reads, T009 SDK/nested Router calls, T010 the
+  second Runtime caller, and T011 integrated acceptance remain open.
 - Frontend remains paused and is not included in Spec 010.
 
 ## Issue #9 Acceptance Closure
@@ -252,8 +258,8 @@ independently across 4 files and produced zero comments.
 
 ## Runtime Boundary
 
-Implemented Control Plane runtime currently covers the Catalog and Workspace
-boundaries:
+Implemented Control Plane runtime currently covers Catalog, Workspace, and the
+public Invocation Dispatch boundary:
 
 ```text
 Register -> Publish -> Discover -> Disable
@@ -261,16 +267,17 @@ Register -> Publish -> Discover -> Disable
 
 Workspace adds `Create/Read -> Install -> Inspect -> Disable/Enable ->
 Uninstall -> Reinstall` and internal exact resolution over the controlled
-Catalog port.
+Catalog port. The v4 Gateway invoke route authorizes an exact installation and
+forwards live JSON/SSE results through the Router.
 
 Workspace persistence, owner policy, Installation selection/lifecycle, and
 internal exact resolution are implemented. Invocation Dispatch, A2A Router,
 Ledger, SDK/runtime behavior, live sample Agents, Frontend, and the complete
 E2E loop remain unimplemented.
 
-Do not infer Invocation/Router runtime availability from active schemas or
-OpenAPI paths. Continue future implementation with a fresh Spec/worktree for
-Invocation Dispatch and the A2A Router after Issue #9 is accepted.
+Do not infer metadata reads, SDK/nested calls, or the complete acceptance
+demonstration from active schemas or OpenAPI paths; those remain future work
+under fresh child Specs.
 
 ## Recovery
 
