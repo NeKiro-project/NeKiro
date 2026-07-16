@@ -1,27 +1,48 @@
-# Current Handoff: Workspace Closure and Invocation Planning
+# Current Handoff: Invocation Ledger Checkpoint
 
 **Updated**: 2026-07-16 (Asia/Hong_Kong)
 
-**State**: Issue #9 and readiness hardening PR #18 are merged with green project
-closure CI jobs. Workspace parent Issue #2 is independently reviewed and
-closed.
-Invocation Dispatch, Router, Ledger, SDK, Sample Agents, Frontend, and the
-Agent-facing E2E loop remain unimplemented. Spec 010 now plans the next backend
-`Invoke -> Record` parent and is ready for its T001 contract gate.
+**State**: Workspace closure is complete. Invocation runtime contracts,
+Control Plane Dispatch, and Router Foundation have local implementation
+branches. Invocation Ledger is implemented on `codex/014-invocation-ledger`
+and non-integration verified, but its real PostgreSQL integration run,
+independent Review, and Converge remain open.
 
 ## Repository State
 
 - Upstream repository: `https://github.com/NeKiro-project/NeKiro.git`
 - Fork remote: `https://github.com/XnLemon/NeKiro.git`
-- Branch: `codex/010-invocation-routing-ledger`
-- Base: `upstream/main` at `5f94565`
+- Branch: `codex/014-invocation-ledger`
+- Base: `origin/main` at `99e52aa`
 - Required local Git identity: `Nene7ko_ <1604009816@qq.com>`
 - Frontend remains paused.
 
-PR #18 merged as upstream commit `5f94565`, which is the planning branch base.
-The planning commit hash is intentionally not recorded because this file is
-part of that commit. Resolve the repository root on the current machine; do
-not assume a previous Windows path exists.
+Resolve the repository root on the current machine; do not assume a previous
+Windows path exists.
+
+## Spec 014 Invocation Ledger Progress
+
+Spec 014 owns the Router-side metadata-only `Record` boundary:
+
+- Explicit Ledger migration/readiness, append-only events, transactional
+  projection, nested parent lineage checks, restart-safe Workspace-scoped
+  Invocation/Trace reads, and Router Internal v3 read adapter are implemented
+  in `apps/a2a-router/internal/ledger` and `apps/a2a-router/internal/api`.
+- PostgreSQL integration tests exist for lifecycle atomicity, strict readiness,
+  nested lineage, restart/order/isolation, prohibited content columns,
+  dependency failure, and concurrency.
+- Non-integration verification passed: `go test ./apps/a2a-router/internal/ledger ./apps/a2a-router/internal/api`,
+  `go test ./...`, `go vet ./...`, and `git diff --check`.
+- Real integration verification is still pending: `NEKIRO_TEST_DATABASE_URL`
+  is unset and Docker daemon access failed while attempting to start a
+  disposable PostgreSQL 17 container.
+
+Open Spec 014 gates:
+
+- T012: run formatting/unit/integration/race/vet/full/fallback checks once a
+  real PostgreSQL test database is available.
+- T013: independent Review by a non-implementing agent.
+- T014: Converge review findings and repeat Review.
 
 ## Spec 013 A2A Router Foundation Progress
 
