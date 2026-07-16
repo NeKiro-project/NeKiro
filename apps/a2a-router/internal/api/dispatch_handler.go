@@ -1,0 +1,309 @@
+package api
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+
+	semver "github.com/Masterminds/semver/v3"
+	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/auth"
+	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/resolution"
+	"github.com/Nene7ko/NeKiro/contracts"
+)
+
+const TraceHeader = "x-nek-trace-id"
+
+type Authenticator interface {
+	Authenticate(*http.Request) (auth.Caller, error)
+}
+
+type Resolver interface {
+	Resolve(context.Context, contracts.ResolveAgentRequest) (contracts.ResolveAgentResponse, error)
+}
+
+type DispatchHandler struct {
+	authenticator Authenticator
+	resolver      Resolver
+	requestLimit  int64
+	deadline      time.Duration
+}
+
+func NewDispatchHandler(authenticator Authenticator, resolver Resolver, requestLimit int64, deadline time.Duration) (*DispatchHandler, error) {
+	if authenticator == nil || resolver == nil || requestLimit < contracts.RuntimeByteLimitMinimum || requestLimit > contracts.RuntimeByteLimitMaximum || deadline < time.Duration(contracts.RuntimeDeadlineMinimumMS)*time.Millisecond || deadline > time.Duration(contracts.RuntimeDeadlineMaximumMS)*time.Millisecond {
+		return nil, errors.New("Router dispatch dependencies are required")
+	}
+	return &DispatchHandler{authenticator: authenticator, resolver: resolver, requestLimit: requestLimit, deadline: deadline}, nil
+}
+
+func (handler *DispatchHandler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /internal/v3/invocations", handler.dispatch)
+}
+
+func (handler *DispatchHandler) dispatch(writer http.ResponseWriter, request *http.Request) {
+	if _, err := handler.authenticator.Authenticate(request); err != nil {
+		handler.writeGeneratedPreError(writer, authErrorCode(err))
+		return
+	}
+	if request.Header.Get("Content-Type") != "application/json" {
+		handler.writeGeneratedPreError(writer, contracts.ErrorCodeValidationError)
+		return
+	}
+	dispatchRequest, err := handler.readRequest(request)
+	if err != nil {
+		code := contracts.ErrorCodeValidationError
+		if errors.Is(err, errPayloadTooLarge) {
+			code = contracts.ErrorCodePayloadTooLarge
+		}
+		handler.writeGeneratedPreError(writer, code)
+		return
+	}
+	if _, err := contracts.NegotiateInvocationResultMode(dispatchRequest.Stream, request.Header.Get("Accept")); err != nil {
+		handler.writePreError(writer, dispatchRequest.TraceID, contracts.ErrorCodeNotAcceptable)
+		return
+	}
+	if err := validateDispatch(dispatchRequest); err != nil {
+		handler.writePreError(writer, dispatchRequest.TraceID, contracts.ErrorCodeValidationError)
+		return
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), handler.deadline)
+	defer cancel()
+	_, err = handler.resolver.Resolve(ctx, contracts.ResolveAgentRequest{
+		InvocationID: dispatchRequest.InvocationID, RootTaskID: dispatchRequest.RootTaskID,
+		TraceID: dispatchRequest.TraceID, WorkspaceID: dispatchRequest.WorkspaceID,
+		AgentID: dispatchRequest.TargetAgentID, Version: dispatchRequest.AgentCardVersion,
+		Capability: dispatchRequest.Capability,
+	})
+	if err != nil {
+		code := contracts.ErrorCodeDependency
+		var failure *resolution.Failure
+		if errors.As(err, &failure) {
+			writeRawJSON(writer, failure.StatusCode, failure.TraceID, failure.Body)
+			return
+		} else if errors.Is(err, context.DeadlineExceeded) {
+			code = contracts.ErrorCodeTimeout
+		}
+		handler.writeCorrelatedError(writer, dispatchRequest, code)
+		return
+	}
+	handler.writeCorrelatedError(writer, dispatchRequest, contracts.ErrorCodeRouteNotFound)
+}
+
+var errPayloadTooLarge = errors.New("Router dispatch payload is too large")
+
+func (handler *DispatchHandler) readRequest(request *http.Request) (contracts.DispatchInvocationRequestV3, error) {
+	if request.ContentLength > handler.requestLimit {
+		return contracts.DispatchInvocationRequestV3{}, errPayloadTooLarge
+	}
+	data, err := io.ReadAll(io.LimitReader(request.Body, handler.requestLimit+1))
+	if closeErr := request.Body.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return contracts.DispatchInvocationRequestV3{}, err
+	}
+	if int64(len(data)) > handler.requestLimit {
+		return contracts.DispatchInvocationRequestV3{}, errPayloadTooLarge
+	}
+	if err := rejectDuplicateMembers(data); err != nil {
+		return contracts.DispatchInvocationRequestV3{}, err
+	}
+	var value contracts.DispatchInvocationRequestV3
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&value); err != nil {
+		return contracts.DispatchInvocationRequestV3{}, err
+	}
+	if err := requireEOF(decoder); err != nil {
+		return contracts.DispatchInvocationRequestV3{}, err
+	}
+	return value, nil
+}
+
+func validateDispatch(value contracts.DispatchInvocationRequestV3) error {
+	for _, identifier := range []string{value.InvocationID, value.RootTaskID, value.WorkspaceID, value.TargetAgentID, value.Capability, value.Caller.ID} {
+		if !validIdentifier(identifier) {
+			return errors.New("dispatch identifier is invalid")
+		}
+	}
+	if _, err := semver.StrictNewVersion(value.AgentCardVersion); err != nil {
+		return errors.New("dispatch Agent Card version is invalid")
+	}
+	if _, err := contracts.ParseTraceID(string(value.TraceID)); err != nil {
+		return err
+	}
+	if value.Caller.Type != "user" {
+		return errors.New("dispatch caller is invalid")
+	}
+	var input map[string]json.RawMessage
+	if json.Unmarshal(value.Input, &input) != nil || input == nil {
+		return errors.New("dispatch input must be object")
+	}
+	return nil
+}
+
+func (handler *DispatchHandler) writeGeneratedPreError(writer http.ResponseWriter, code contracts.PlatformErrorCode) {
+	traceID, err := newTraceID()
+	if err != nil {
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	handler.writePreError(writer, traceID, code)
+}
+
+func (handler *DispatchHandler) writePreError(writer http.ResponseWriter, traceID contracts.TraceID, code contracts.PlatformErrorCode) {
+	status := errorStatus(code)
+	payload, err := contracts.NewPreCorrelationPlatformErrorV4(code, traceID)
+	if err != nil {
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(writer, status, traceID, payload)
+}
+
+func (handler *DispatchHandler) writeCorrelatedError(writer http.ResponseWriter, request contracts.DispatchInvocationRequestV3, code contracts.PlatformErrorCode) {
+	status := errorStatus(code)
+	payload, err := contracts.NewCorrelatedPlatformErrorV4(code, request.TraceID, request.InvocationID, request.RootTaskID)
+	if err != nil {
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(writer, status, request.TraceID, payload)
+}
+
+func writeJSON(writer http.ResponseWriter, status int, traceID contracts.TraceID, payload any) {
+	writer.Header().Set("Content-Type", "application/json")
+	writer.Header().Set(TraceHeader, string(traceID))
+	writer.WriteHeader(status)
+	_ = json.NewEncoder(writer).Encode(payload)
+}
+
+func writeRawJSON(writer http.ResponseWriter, status int, traceID contracts.TraceID, body []byte) {
+	writer.Header().Set("Content-Type", "application/json")
+	writer.Header().Set(TraceHeader, string(traceID))
+	writer.WriteHeader(status)
+	_, _ = writer.Write(body)
+}
+
+func authErrorCode(err error) contracts.PlatformErrorCode {
+	if errors.Is(err, auth.ErrForbidden) {
+		return contracts.ErrorCodeForbidden
+	}
+	return contracts.ErrorCodeUnauthenticated
+}
+
+func errorStatus(code contracts.PlatformErrorCode) int {
+	switch code {
+	case contracts.ErrorCodeValidationError:
+		return http.StatusBadRequest
+	case contracts.ErrorCodeUnauthenticated:
+		return http.StatusUnauthorized
+	case contracts.ErrorCodeForbidden, contracts.ErrorCodeCapabilityNotAllowed, contracts.ErrorCodeInstallationDisabled, contracts.ErrorCodeAgentDisabled:
+		return http.StatusForbidden
+	case contracts.ErrorCodeAgentNotInstalled, contracts.ErrorCodeNotFound:
+		return http.StatusNotFound
+	case contracts.ErrorCodeNotAcceptable:
+		return http.StatusNotAcceptable
+	case contracts.ErrorCodePayloadTooLarge:
+		return http.StatusRequestEntityTooLarge
+	case contracts.ErrorCodeTimeout:
+		return http.StatusGatewayTimeout
+	default:
+		return http.StatusServiceUnavailable
+	}
+}
+
+var traceSource io.Reader = rand.Reader
+
+func newTraceID() (contracts.TraceID, error) {
+	data := make([]byte, 16)
+	if _, err := io.ReadFull(traceSource, data); err != nil {
+		return "", err
+	}
+	return contracts.TraceID("trc_" + hex.EncodeToString(data) + "_1"), nil
+}
+
+func validIdentifier(value string) bool {
+	if len(value) < 1 || len(value) > 128 {
+		return false
+	}
+	for index, character := range []byte(value) {
+		if character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || character == '.' || character == '_' || character == ':' || character == '-' {
+			if index > 0 || character != '.' && character != '_' && character != ':' && character != '-' {
+				continue
+			}
+		}
+		return false
+	}
+	return true
+}
+
+type jsonFrame struct {
+	object    bool
+	expecting bool
+	members   map[string]struct{}
+}
+
+func requireEOF(decoder *json.Decoder) error {
+	var trailing any
+	err := decoder.Decode(&trailing)
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return errors.New("unexpected trailing JSON value")
+}
+
+func rejectDuplicateMembers(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var stack []jsonFrame
+	for {
+		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		switch value := token.(type) {
+		case json.Delim:
+			switch value {
+			case '{':
+				stack = append(stack, jsonFrame{object: true, expecting: true, members: map[string]struct{}{}})
+			case '[':
+				stack = append(stack, jsonFrame{})
+			case '}', ']':
+				stack = stack[:len(stack)-1]
+				markValueConsumed(stack)
+			}
+		case string:
+			if len(stack) > 0 && stack[len(stack)-1].object && stack[len(stack)-1].expecting {
+				current := &stack[len(stack)-1]
+				if _, exists := current.members[value]; exists {
+					return fmt.Errorf("duplicate member %q", value)
+				}
+				current.members[value] = struct{}{}
+				current.expecting = false
+			} else {
+				markValueConsumed(stack)
+			}
+		default:
+			markValueConsumed(stack)
+		}
+	}
+}
+
+func markValueConsumed(stack []jsonFrame) {
+	if len(stack) > 0 && stack[len(stack)-1].object {
+		stack[len(stack)-1].expecting = true
+	}
+}

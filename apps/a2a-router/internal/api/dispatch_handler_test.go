@@ -1,0 +1,164 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/auth"
+	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/resolution"
+	"github.com/Nene7ko/NeKiro/contracts"
+)
+
+type authStub struct {
+	caller auth.Caller
+	err    error
+}
+
+func (stub authStub) Authenticate(*http.Request) (auth.Caller, error) {
+	return stub.caller, stub.err
+}
+
+type resolverStub struct {
+	request contracts.ResolveAgentRequest
+	calls   int
+	err     error
+}
+
+func (stub *resolverStub) Resolve(_ context.Context, request contracts.ResolveAgentRequest) (contracts.ResolveAgentResponse, error) {
+	stub.calls++
+	stub.request = request
+	return contracts.ResolveAgentResponse{}, stub.err
+}
+
+func TestDispatchRejectsInvalidRequestsBeforeResolution(t *testing.T) {
+	tests := []struct {
+		name        string
+		authErr     error
+		contentType string
+		accept      string
+		body        string
+		limit       int64
+		status      int
+		code        contracts.PlatformErrorCode
+	}{
+		{name: "missing auth", authErr: auth.ErrUnauthenticated, contentType: "text/plain", accept: "", body: "bad", limit: 1024, status: 401, code: contracts.ErrorCodeUnauthenticated},
+		{name: "wrong content type", contentType: "text/plain", accept: "application/json", body: validDispatchBody(false), limit: 1024, status: 400, code: contracts.ErrorCodeValidationError},
+		{name: "duplicate field", contentType: "application/json", accept: "application/json", body: `{"invocationId":"inv-a","invocationId":"inv-b","rootTaskId":"task-a","traceId":"trace-a","caller":{"type":"user","id":"owner-a"},"workspaceId":"workspace-a","targetAgentId":"agent-a","agentCardVersion":"1.0.0","capability":"capability-a","input":{},"stream":false}`, limit: 1024, status: 400, code: contracts.ErrorCodeValidationError},
+		{name: "accept mismatch", contentType: "application/json", accept: "text/event-stream", body: validDispatchBody(false), limit: 1024, status: 406, code: contracts.ErrorCodeNotAcceptable},
+		{name: "payload too large", contentType: "application/json", accept: "application/json", body: validDispatchBody(false), limit: 10, status: 413, code: contracts.ErrorCodePayloadTooLarge},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolver := &resolverStub{}
+			handler := newDispatchTestHandler(t, authStub{caller: auth.Caller{ID: "control-plane"}, err: test.authErr}, resolver, test.limit)
+			response := invokeDispatch(handler, test.contentType, test.accept, test.body)
+			if response.Code != test.status || resolver.calls != 0 {
+				t.Fatalf("status=%d calls=%d body=%s", response.Code, resolver.calls, response.Body.String())
+			}
+			var platformError contracts.PreCorrelationPlatformErrorV4
+			if err := json.Unmarshal(response.Body.Bytes(), &platformError); err != nil || platformError.Code != test.code {
+				t.Fatalf("error=%#v decode=%v", platformError, err)
+			}
+			var document map[string]any
+			_ = json.Unmarshal(response.Body.Bytes(), &document)
+			if _, exists := document["invocationId"]; exists {
+				t.Fatal("pre-correlation error contains invocationId")
+			}
+		})
+	}
+}
+
+func TestDispatchResolvesExactRequestAndReturnsRouteNotFoundPlaceholder(t *testing.T) {
+	resolver := &resolverStub{}
+	handler := newDispatchTestHandler(t, authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, 4096)
+	response := invokeDispatch(handler, "application/json", "application/json", validDispatchBody(false))
+	if response.Code != http.StatusServiceUnavailable || resolver.calls != 1 {
+		t.Fatalf("status=%d calls=%d body=%s", response.Code, resolver.calls, response.Body.String())
+	}
+	if resolver.request.InvocationID != "inv-a" || resolver.request.RootTaskID != "task-a" || resolver.request.TraceID != "trace-a" || resolver.request.WorkspaceID != "workspace-a" || resolver.request.AgentID != "agent-a" || resolver.request.Version != "1.0.0" || resolver.request.Capability != "capability-a" {
+		t.Fatalf("resolve request=%#v", resolver.request)
+	}
+	var platformError contracts.CorrelatedPlatformErrorV4
+	if json.Unmarshal(response.Body.Bytes(), &platformError) != nil || platformError.Code != contracts.ErrorCodeRouteNotFound || platformError.InvocationID != "inv-a" || platformError.RootTaskID != "task-a" || response.Header().Get(TraceHeader) != "trace-a" {
+		t.Fatalf("error=%#v headers=%#v", platformError, response.Header())
+	}
+}
+
+func TestDispatchAcceptsExactSemVerBuildMetadata(t *testing.T) {
+	resolver := &resolverStub{}
+	handler := newDispatchTestHandler(t, authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, 4096)
+	body := strings.Replace(validDispatchBody(false), `"agentCardVersion":"1.0.0"`, `"agentCardVersion":"1.0.0+build.7"`, 1)
+	response := invokeDispatch(handler, "application/json", "application/json", body)
+	if response.Code != http.StatusServiceUnavailable || resolver.request.Version != "1.0.0+build.7" {
+		t.Fatalf("status=%d version=%q body=%s", response.Code, resolver.request.Version, response.Body.String())
+	}
+}
+
+func TestDispatchPreservesTypedResolutionFailures(t *testing.T) {
+	body := []byte(`{"code":"CAPABILITY_NOT_ALLOWED","message":"The requested capability is not allowed.","traceId":"trace-control","invocationId":"inv-a","rootTaskId":"task-a"}`)
+	resolver := &resolverStub{err: &resolution.Failure{StatusCode: http.StatusForbidden, Code: contracts.ErrorCodeCapabilityNotAllowed, TraceID: "trace-control", Body: body}}
+	handler := newDispatchTestHandler(t, authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, 4096)
+	response := invokeDispatch(handler, "application/json", "application/json", validDispatchBody(false))
+	if response.Code != http.StatusForbidden || response.Body.String() != string(body) || response.Header().Get(TraceHeader) != "trace-control" || resolver.calls != 1 {
+		t.Fatalf("status=%d body=%q headers=%#v calls=%d", response.Code, response.Body.String(), response.Header(), resolver.calls)
+	}
+}
+
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) { return 0, errors.New("entropy unavailable") }
+
+func TestDispatchFailsClosedWhenPreCorrelationTraceCannotBeGenerated(t *testing.T) {
+	previous := traceSource
+	traceSource = errReader{}
+	defer func() { traceSource = previous }()
+	resolver := &resolverStub{}
+	handler := newDispatchTestHandler(t, authStub{err: auth.ErrUnauthenticated}, resolver, 4096)
+	response := invokeDispatch(handler, "application/json", "application/json", validDispatchBody(false))
+	if response.Code != http.StatusInternalServerError || resolver.calls != 0 || strings.Contains(response.Body.String(), "trc_00000000000000000000000000000000_1") {
+		t.Fatalf("status=%d calls=%d body=%q", response.Code, resolver.calls, response.Body.String())
+	}
+}
+
+func TestDispatchMapsResolutionDependencyWithoutRetry(t *testing.T) {
+	resolver := &resolverStub{err: errors.New("offline")}
+	handler := newDispatchTestHandler(t, authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, 4096)
+	response := invokeDispatch(handler, "application/json", "application/json", validDispatchBody(false))
+	var platformError contracts.CorrelatedPlatformErrorV4
+	if response.Code != http.StatusServiceUnavailable || json.Unmarshal(response.Body.Bytes(), &platformError) != nil || platformError.Code != contracts.ErrorCodeDependency || resolver.calls != 1 {
+		t.Fatalf("status=%d error=%#v calls=%d", response.Code, platformError, resolver.calls)
+	}
+}
+
+func newDispatchTestHandler(t *testing.T, authenticator Authenticator, resolver Resolver, limit int64) http.Handler {
+	t.Helper()
+	handler, err := NewDispatchHandler(authenticator, resolver, limit, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+	return mux
+}
+
+func invokeDispatch(handler http.Handler, contentType, accept, body string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodPost, "/internal/v3/invocations", strings.NewReader(body))
+	request.Header.Set("Content-Type", contentType)
+	request.Header.Set("Accept", accept)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}
+
+func validDispatchBody(stream bool) string {
+	if stream {
+		return `{"invocationId":"inv-a","rootTaskId":"task-a","traceId":"trace-a","caller":{"type":"user","id":"owner-a"},"workspaceId":"workspace-a","targetAgentId":"agent-a","agentCardVersion":"1.0.0","capability":"capability-a","input":{"q":"x"},"stream":true}`
+	}
+	return `{"invocationId":"inv-a","rootTaskId":"task-a","traceId":"trace-a","caller":{"type":"user","id":"owner-a"},"workspaceId":"workspace-a","targetAgentId":"agent-a","agentCardVersion":"1.0.0","capability":"capability-a","input":{"q":"x"},"stream":false}`
+}
