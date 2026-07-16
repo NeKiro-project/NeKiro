@@ -110,12 +110,12 @@ unit tests can assert ordering without a PostgreSQL dependency.
   `apps/a2a-router/internal/api/dispatch_handler_test.go`,
   `apps/a2a-router/internal/transport/a2a/**`,
   `apps/a2a-router/cmd/a2a-router/**`,
-  `apps/a2a-router/internal/config/**`, the narrow Runtime B HTTP media-type
-  adapter, and focused test fixtures.
+  `apps/a2a-router/internal/config/**`, `deploy/compose.yaml`, the narrow
+  Runtime B HTTP media-type adapter, and focused test fixtures.
 - Referenced but not re-owned: `apps/a2a-router/internal/ledger/**` and
   `contracts/**`.
 - Not owned: Control Plane internals, SDK, Runtime A, streaming/cancellation,
-  Console, deployment migration orchestration, or contract version changes.
+  Console, or contract version changes.
 
 Converge additions require `NEKIRO_DATABASE_URL`,
 `NEKIRO_ROUTER_AGENT_RESPONSE_LIMIT_BYTES`, and

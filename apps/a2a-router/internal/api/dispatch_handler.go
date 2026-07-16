@@ -134,14 +134,21 @@ func (handler *DispatchHandler) dispatch(writer http.ResponseWriter, request *ht
 		return
 	}
 	if handler.transport != nil && !dispatchRequest.Stream {
+		targetErr := handler.transport.ValidateNonStreamingTarget(dispatchRequest, resolved)
+		if targetErr != nil {
+			if handler.ledger != nil {
+				handler.dispatchNonStreamingWithLedger(ctx, writer, dispatchRequest, resolved, targetErr)
+				return
+			}
+			handler.writeCorrelatedError(writer, dispatchRequest, dispatchErrorCode(targetErr))
+			return
+		}
 		if err := handler.transport.ValidateNonStreamingInput(dispatchRequest, resolved); err != nil {
 			handler.writePreError(writer, dispatchRequest.TraceID, dispatchErrorCode(err))
 			return
 		}
-	}
-	if handler.transport != nil && !dispatchRequest.Stream {
 		if handler.ledger != nil {
-			handler.dispatchNonStreamingWithLedger(ctx, writer, dispatchRequest, resolved)
+			handler.dispatchNonStreamingWithLedger(ctx, writer, dispatchRequest, resolved, nil)
 			return
 		}
 		result, err := handler.transport.SendNonStreaming(ctx, dispatchRequest, resolved)
@@ -250,7 +257,7 @@ func (handler *DispatchHandler) writeInvocationResult(writer http.ResponseWriter
 	writeJSON(writer, http.StatusOK, request.TraceID, payload)
 }
 
-func (handler *DispatchHandler) dispatchNonStreamingWithLedger(ctx context.Context, writer http.ResponseWriter, request contracts.DispatchInvocationRequestV3, resolved contracts.ResolveAgentResponse) {
+func (handler *DispatchHandler) dispatchNonStreamingWithLedger(ctx context.Context, writer http.ResponseWriter, request contracts.DispatchInvocationRequestV3, resolved contracts.ResolveAgentResponse, targetErr error) {
 	startedAt := time.Now().UTC().Truncate(time.Microsecond)
 	for _, event := range []contracts.InvocationEventV03{
 		lifecycleEvent(request, 0, "created", "pending", startedAt),
@@ -261,8 +268,8 @@ func (handler *DispatchHandler) dispatchNonStreamingWithLedger(ctx context.Conte
 			return
 		}
 	}
-	if err := handler.transport.ValidateNonStreamingTarget(request, resolved); err != nil {
-		code := dispatchErrorCode(err)
+	if targetErr != nil {
+		code := dispatchErrorCode(targetErr)
 		event, buildErr := terminalLifecycleEvent(request, 2, "failed", "failed", startedAt.Add(2*time.Microsecond), 0, code)
 		if buildErr != nil || handler.ledger.Append(ctx, event) != nil {
 			handler.writeCorrelatedError(writer, request, contracts.ErrorCodeDependency)

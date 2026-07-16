@@ -263,7 +263,10 @@ func TestDispatchWithLedgerPreTransportFailureSkipsAgentCall(t *testing.T) {
 
 func TestDispatchWithLedgerRecordsTargetValidationFailureWithoutStartingAgent(t *testing.T) {
 	resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: dispatchResolvedCard("https://agent.example/a2a")}}
-	transport := &transportStub{targetErr: codedTransportError{code: contracts.ErrorCodeAgentAuthUnsupported}}
+	transport := &inputPreflightTransportStub{
+		transportStub: transportStub{targetErr: codedTransportError{code: contracts.ErrorCodeAgentAuthUnsupported}},
+		preflightErr:  codedTransportError{code: contracts.ErrorCodePayloadTooLarge},
+	}
 	ledger := &ledgerRecorder{}
 	handler := newDispatchLedgerTestHandler(t, authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096)
 
@@ -279,6 +282,9 @@ func TestDispatchWithLedgerRecordsTargetValidationFailureWithoutStartingAgent(t 
 	}
 	if transport.calls != 0 {
 		t.Fatalf("transport calls=%d, want 0", transport.calls)
+	}
+	if transport.preflightCalls != 0 {
+		t.Fatalf("input preflight calls=%d, want 0", transport.preflightCalls)
 	}
 }
 
