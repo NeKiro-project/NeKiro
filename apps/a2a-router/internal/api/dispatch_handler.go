@@ -29,25 +29,17 @@ type Resolver interface {
 }
 
 type NonStreamingTransport interface {
-	SendNonStreaming(context.Context, NonStreamingTransportRequest) (NonStreamingTransportResult, error)
+	SendNonStreaming(context.Context, contracts.DispatchInvocationRequestV3, contracts.ResolveAgentResponse) (json.RawMessage, error)
 }
 
 type InvocationLedgerAppender interface {
 	Append(context.Context, contracts.InvocationEventV03) error
 }
 
-type NonStreamingTransportRequest struct {
-	Dispatch contracts.DispatchInvocationRequestV3
-	Resolved contracts.ResolveAgentResponse
-}
-
-type NonStreamingTransportResult struct {
-	Result json.RawMessage
-}
-
 type DispatchHandler struct {
 	authenticator Authenticator
 	resolver      Resolver
+	transport     NonStreamingTransport
 	requestLimit  int64
 	deadline      time.Duration
 }
@@ -57,6 +49,18 @@ func NewDispatchHandler(authenticator Authenticator, resolver Resolver, requestL
 		return nil, errors.New("Router dispatch dependencies are required")
 	}
 	return &DispatchHandler{authenticator: authenticator, resolver: resolver, requestLimit: requestLimit, deadline: deadline}, nil
+}
+
+func NewDispatchHandlerWithTransport(authenticator Authenticator, resolver Resolver, transport NonStreamingTransport, requestLimit int64, deadline time.Duration) (*DispatchHandler, error) {
+	handler, err := NewDispatchHandler(authenticator, resolver, requestLimit, deadline)
+	if err != nil {
+		return nil, err
+	}
+	if transport == nil {
+		return nil, errors.New("Router non-streaming transport is required")
+	}
+	handler.transport = transport
+	return handler, nil
 }
 
 func (handler *DispatchHandler) RegisterRoutes(mux *http.ServeMux) {
@@ -91,7 +95,7 @@ func (handler *DispatchHandler) dispatch(writer http.ResponseWriter, request *ht
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), handler.deadline)
 	defer cancel()
-	_, err = handler.resolver.Resolve(ctx, contracts.ResolveAgentRequest{
+	resolved, err := handler.resolver.Resolve(ctx, contracts.ResolveAgentRequest{
 		InvocationID: dispatchRequest.InvocationID, RootTaskID: dispatchRequest.RootTaskID,
 		TraceID: dispatchRequest.TraceID, WorkspaceID: dispatchRequest.WorkspaceID,
 		AgentID: dispatchRequest.TargetAgentID, Version: dispatchRequest.AgentCardVersion,
@@ -107,6 +111,19 @@ func (handler *DispatchHandler) dispatch(writer http.ResponseWriter, request *ht
 			code = contracts.ErrorCodeTimeout
 		}
 		handler.writeCorrelatedError(writer, dispatchRequest, code)
+		return
+	}
+	if handler.transport != nil && !dispatchRequest.Stream {
+		result, err := handler.transport.SendNonStreaming(ctx, dispatchRequest, resolved)
+		if err != nil {
+			code := contracts.ErrorCodeDependency
+			if errors.Is(err, context.DeadlineExceeded) {
+				code = contracts.ErrorCodeTimeout
+			}
+			handler.writeCorrelatedError(writer, dispatchRequest, code)
+			return
+		}
+		handler.writeInvocationResult(writer, dispatchRequest, result)
 		return
 	}
 	handler.writeCorrelatedError(writer, dispatchRequest, contracts.ErrorCodeRouteNotFound)
@@ -192,6 +209,18 @@ func (handler *DispatchHandler) writeCorrelatedError(writer http.ResponseWriter,
 		return
 	}
 	writeJSON(writer, status, request.TraceID, payload)
+}
+
+func (handler *DispatchHandler) writeInvocationResult(writer http.ResponseWriter, request contracts.DispatchInvocationRequestV3, result json.RawMessage) {
+	payload := contracts.InvocationResult{
+		SchemaVersion: contracts.InvocationResultSchemaVersion,
+		InvocationID:  request.InvocationID,
+		RootTaskID:    request.RootTaskID,
+		TraceID:       request.TraceID,
+		Status:        "succeeded",
+		Result:        result,
+	}
+	writeJSON(writer, http.StatusOK, request.TraceID, payload)
 }
 
 func writeJSON(writer http.ResponseWriter, status int, traceID contracts.TraceID, payload any) {

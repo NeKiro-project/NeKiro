@@ -1,6 +1,7 @@
 package a2a
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -44,6 +45,40 @@ func TestClientSendMessageCallsRuntimeBWithPlatformContext(t *testing.T) {
 	assertHeader(t, captured, HeaderInvocationID, "inv-a")
 	assertHeader(t, captured, HeaderRootTaskID, "task-a")
 	assertHeader(t, captured, HeaderParentInvocationID, "parent-a")
+	assertHeader(t, captured, HeaderWorkspaceID, "workspace-a")
+}
+
+func TestClientSendNonStreamingMapsDispatchToRuntimeB(t *testing.T) {
+	captured := make(http.Header)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		captured = request.Header.Clone()
+		runtimeb.NewHTTPHandler(runtimeb.NewHandler()).ServeHTTP(writer, request)
+	}))
+	t.Cleanup(server.Close)
+
+	client, err := NewClient(server.Client())
+	if err != nil {
+		t.Fatalf("NewClient = %v", err)
+	}
+	result, err := client.SendNonStreaming(t.Context(), contracts.DispatchInvocationRequestV3{
+		InvocationID: "inv-a", RootTaskID: "task-a", TraceID: "trace-a",
+		Caller: contracts.Caller{Type: "user", ID: "owner-a"}, WorkspaceID: "workspace-a",
+		TargetAgentID: "agent-a", AgentCardVersion: "1.0.0", Capability: "capability-a",
+		Input: json.RawMessage("{\"fixture\":\"success\",\"value\":{\"exact\":true}}"),
+	}, contracts.ResolveAgentResponse{Card: targetCard(server.URL, "none", "capability-a")})
+	if err != nil {
+		t.Fatalf("SendNonStreaming = %v", err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(result, &document); err != nil {
+		t.Fatalf("decode result: %v body=%s", err, result)
+	}
+	if document["kind"] != "message" || document["role"] != "agent" {
+		t.Fatalf("result document = %#v", document)
+	}
+	assertHeader(t, captured, HeaderTraceID, "trace-a")
+	assertHeader(t, captured, HeaderInvocationID, "inv-a")
+	assertHeader(t, captured, HeaderRootTaskID, "task-a")
 	assertHeader(t, captured, HeaderWorkspaceID, "workspace-a")
 }
 

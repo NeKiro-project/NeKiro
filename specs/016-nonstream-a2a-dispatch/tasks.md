@@ -34,8 +34,21 @@ internal imports or Agent side effects.
 **Independent Test**: Runtime B `httptest` endpoint receives one call with platform context and the Router returns the deterministic result.
 
 - [X] T004 [US1] Implement A2A `message/send` client behavior in `apps/a2a-router/internal/transport/a2a/`.
-- [ ] T005 [US1] Wire successful non-streaming transport into `apps/a2a-router/internal/api/dispatch_handler.go` while preserving existing validation/resolution failures.
-- [ ] T006 [US1] Add mapped Runtime B success and context propagation tests in `apps/a2a-router/internal/api/dispatch_handler_test.go` and/or `apps/a2a-router/internal/transport/a2a/` tests.
+- [X] T005 [US1] Wire successful non-streaming transport into `apps/a2a-router/internal/api/dispatch_handler.go` while preserving existing validation/resolution failures.
+- [X] T006 [US1] Add mapped Runtime B success and context propagation tests in `apps/a2a-router/internal/api/dispatch_handler_test.go` and/or `apps/a2a-router/internal/transport/a2a/` tests.
+
+Checkpoint evidence: `NewDispatchHandlerWithTransport` now injects the
+Router-owned non-streaming A2A transport while the existing constructor keeps
+the previous placeholder path for pre-existing validation and resolution tests.
+`apps/a2a-router/internal/transport/a2a/nonstreaming.go` maps a validated
+dispatch request and exact resolved Card into one A2A `message/send` call and
+returns a transient Invocation Result v1 payload without result persistence.
+Focused verification passed:
+`go test -count=1 ./apps/a2a-router/internal/api ./apps/a2a-router/internal/transport/a2a ./agents/runtime-b`.
+Interim static verification also passed after the T005-T006 patch:
+`go test -count=1 ./apps/a2a-router/... ./agents/runtime-b/...`,
+`go test ./...`, `go vet ./...`, `git diff --check`, and a focused
+Router dispatch/transport fallback scan with no hits.
 
 ---
 
@@ -87,7 +100,7 @@ T001 -> T002 -> T003 -> T004 -> T005 -> T006 -> T007 -> T008 -> T009 -> T010 -> 
 
 ## Completion State
 
-- Implementation and mapped tests: pending
+- Implementation and mapped tests: T005-T006 complete; T007-T010 pending
 - Independent Review: pending
 - Converge: pending
 - Fallback delta: pending final implementation audit
