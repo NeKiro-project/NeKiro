@@ -28,6 +28,23 @@ type Resolver interface {
 	Resolve(context.Context, contracts.ResolveAgentRequest) (contracts.ResolveAgentResponse, error)
 }
 
+type NonStreamingTransport interface {
+	SendNonStreaming(context.Context, NonStreamingTransportRequest) (NonStreamingTransportResult, error)
+}
+
+type InvocationLedgerAppender interface {
+	Append(context.Context, contracts.InvocationEventV03) error
+}
+
+type NonStreamingTransportRequest struct {
+	Dispatch contracts.DispatchInvocationRequestV3
+	Resolved contracts.ResolveAgentResponse
+}
+
+type NonStreamingTransportResult struct {
+	Result json.RawMessage
+}
+
 type DispatchHandler struct {
 	authenticator Authenticator
 	resolver      Resolver
