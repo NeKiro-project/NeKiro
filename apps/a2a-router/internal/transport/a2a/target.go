@@ -19,6 +19,8 @@ type Target struct {
 	AuthType       string
 	MaxInputBytes  int64
 	MaxOutputBytes int64
+	TimeoutMS      int64
+	Streaming      bool
 }
 
 func NewTarget(resolved contracts.ResolveAgentResponse, capability string) (Target, error) {
@@ -61,6 +63,7 @@ func NewTarget(resolved contracts.ResolveAgentResponse, capability string) (Targ
 		Endpoint: card.Protocol.Endpoint, Protocol: card.Protocol.Type,
 		Transport: card.Protocol.Transport, AuthType: card.Authentication.Type,
 		MaxInputBytes: maxInputBytes, MaxOutputBytes: maxOutputBytes,
+		TimeoutMS: card.Limits.TimeoutMS, Streaming: card.Limits.Streaming,
 	}, nil
 }
 

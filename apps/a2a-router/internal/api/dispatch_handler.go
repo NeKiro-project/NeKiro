@@ -10,16 +10,22 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"net/http"
 	"time"
 
 	semver "github.com/Masterminds/semver/v3"
 	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/auth"
 	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/resolution"
+	streammodel "github.com/Nene7ko/NeKiro/apps/a2a-router/internal/stream"
 	"github.com/Nene7ko/NeKiro/contracts"
 )
 
 const TraceHeader = "x-nek-trace-id"
+
+// ledgerCommitGrace bounds the one terminal-fact persistence attempt after a
+// caller deadline/cancellation without turning it into an unbounded write.
+const ledgerCommitGrace = time.Second
 
 type Authenticator interface {
 	Authenticate(*http.Request) (auth.Caller, error)
@@ -35,6 +41,81 @@ type NonStreamingTransport interface {
 	ValidateNonStreamingInput(contracts.DispatchInvocationRequestV3, contracts.ResolveAgentResponse) error
 }
 
+type StreamingTransport interface {
+	SendStreaming(context.Context, contracts.DispatchInvocationRequestV3, contracts.ResolveAgentResponse) iter.Seq2[streammodel.Event, error]
+	ValidateStreamingTarget(contracts.DispatchInvocationRequestV3, contracts.ResolveAgentResponse) error
+	ValidateStreamingInput(contracts.DispatchInvocationRequestV3, contracts.ResolveAgentResponse) error
+}
+
+var errSSEFrameTooLarge = errors.New("SSE event exceeds the configured limit")
+
+type sseFrameError struct {
+	code  contracts.PlatformErrorCode
+	cause error
+}
+
+func (err *sseFrameError) Error() string                                  { return err.cause.Error() }
+func (err *sseFrameError) Unwrap() error                                  { return err.cause }
+func (err *sseFrameError) PlatformErrorCode() contracts.PlatformErrorCode { return err.code }
+
+type resultStreamWriter struct {
+	writer    http.ResponseWriter
+	flusher   http.Flusher
+	limit     int64
+	committed bool
+}
+
+func newResultStreamWriter(writer http.ResponseWriter, limit int64) (*resultStreamWriter, error) {
+	if writer == nil {
+		return nil, errors.New("SSE response writer is required")
+	}
+	flusher, ok := writer.(http.Flusher)
+	if !ok {
+		return nil, errors.New("SSE streaming is not supported")
+	}
+	if limit < contracts.RuntimeByteLimitMinimum || limit > contracts.RuntimeByteLimitMaximum {
+		return nil, errors.New("SSE event limit is invalid")
+	}
+	return &resultStreamWriter{writer: writer, flusher: flusher, limit: limit}, nil
+}
+
+func (writer *resultStreamWriter) Write(event contracts.InvocationResultStreamEventV2) error {
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return &sseFrameError{code: contracts.ErrorCodeA2AProtocol, cause: err}
+	}
+	if bytes.IndexByte(payload, '\n') >= 0 || bytes.IndexByte(payload, '\r') >= 0 {
+		return &sseFrameError{code: contracts.ErrorCodeA2AProtocol, cause: errors.New("SSE JSON contains a physical line break")}
+	}
+	frame := make([]byte, 0, len(payload)+len("data: \n\n"))
+	frame = append(frame, "data: "...)
+	frame = append(frame, payload...)
+	frame = append(frame, '\n', '\n')
+	if int64(len(frame)) > writer.limit {
+		return &sseFrameError{code: contracts.ErrorCodeAgentResponseTooLarge, cause: errSSEFrameTooLarge}
+	}
+	if !writer.committed {
+		header := writer.writer.Header()
+		header.Set("Content-Type", "text/event-stream")
+		header.Set("Cache-Control", "no-cache")
+		header.Set("Connection", "keep-alive")
+		header.Set("X-Accel-Buffering", "no")
+		writer.writer.WriteHeader(http.StatusOK)
+		writer.committed = true
+	}
+	count, writeErr := writer.writer.Write(frame)
+	if writeErr != nil {
+		return writeErr
+	}
+	if count != len(frame) {
+		return io.ErrShortWrite
+	}
+	if err := http.NewResponseController(writer.writer).Flush(); err != nil {
+		return err
+	}
+	return nil
+}
+
 type InvocationLedgerAppender interface {
 	Append(context.Context, contracts.InvocationEventV03) error
 }
@@ -44,19 +125,26 @@ type platformErrorCoder interface {
 }
 
 type DispatchHandler struct {
-	authenticator Authenticator
-	resolver      Resolver
-	transport     NonStreamingTransport
-	ledger        InvocationLedgerAppender
-	requestLimit  int64
-	deadline      time.Duration
+	authenticator      Authenticator
+	resolver           Resolver
+	transport          NonStreamingTransport
+	streaming          StreamingTransport
+	ledger             InvocationLedgerAppender
+	requestLimit       int64
+	deadline           time.Duration
+	sseEventLimitBytes int64
+	streamValidator    *contracts.RuntimeContractValidator
 }
 
 func NewDispatchHandler(authenticator Authenticator, resolver Resolver, requestLimit int64, deadline time.Duration) (*DispatchHandler, error) {
 	if authenticator == nil || resolver == nil || requestLimit < contracts.RuntimeByteLimitMinimum || requestLimit > contracts.RuntimeByteLimitMaximum || deadline < time.Duration(contracts.RuntimeDeadlineMinimumMS)*time.Millisecond || deadline > time.Duration(contracts.RuntimeDeadlineMaximumMS)*time.Millisecond {
 		return nil, errors.New("Router dispatch dependencies are required")
 	}
-	return &DispatchHandler{authenticator: authenticator, resolver: resolver, requestLimit: requestLimit, deadline: deadline}, nil
+	streamValidator, err := contracts.NewRuntimeContractValidator()
+	if err != nil {
+		return nil, fmt.Errorf("Router runtime stream validator is unavailable: %w", err)
+	}
+	return &DispatchHandler{authenticator: authenticator, resolver: resolver, requestLimit: requestLimit, deadline: deadline, streamValidator: streamValidator}, nil
 }
 
 func NewDispatchHandlerWithTransport(authenticator Authenticator, resolver Resolver, transport NonStreamingTransport, requestLimit int64, deadline time.Duration) (*DispatchHandler, error) {
@@ -68,6 +156,9 @@ func NewDispatchHandlerWithTransport(authenticator Authenticator, resolver Resol
 		return nil, errors.New("Router non-streaming transport is required")
 	}
 	handler.transport = transport
+	if streaming, ok := transport.(StreamingTransport); ok {
+		handler.streaming = streaming
+	}
 	return handler, nil
 }
 
@@ -80,6 +171,23 @@ func NewDispatchHandlerWithTransportAndLedger(authenticator Authenticator, resol
 		return nil, errors.New("Router invocation ledger appender is required")
 	}
 	handler.ledger = ledger
+	return handler, nil
+}
+
+func NewDispatchHandlerWithTransportAndLedgerAndStreaming(authenticator Authenticator, resolver Resolver, transport NonStreamingTransport, ledger InvocationLedgerAppender, sseEventLimitBytes int64, requestLimit int64, deadline time.Duration) (*DispatchHandler, error) {
+	handler, err := NewDispatchHandlerWithTransportAndLedger(authenticator, resolver, transport, ledger, requestLimit, deadline)
+	if err != nil {
+		return nil, err
+	}
+	streaming, ok := transport.(StreamingTransport)
+	if !ok {
+		return nil, errors.New("Router streaming transport is required")
+	}
+	if sseEventLimitBytes < contracts.RuntimeByteLimitMinimum || sseEventLimitBytes > contracts.RuntimeByteLimitMaximum {
+		return nil, errors.New("Router SSE event limit is invalid")
+	}
+	handler.streaming = streaming
+	handler.sseEventLimitBytes = sseEventLimitBytes
 	return handler, nil
 }
 
@@ -131,6 +239,43 @@ func (handler *DispatchHandler) dispatch(writer http.ResponseWriter, request *ht
 			code = contracts.ErrorCodeTimeout
 		}
 		handler.writeCorrelatedError(writer, dispatchRequest, code)
+		return
+	}
+	if handler.transport != nil && dispatchRequest.Stream {
+		if handler.streaming == nil || handler.ledger == nil {
+			handler.writeCorrelatedError(writer, dispatchRequest, contracts.ErrorCodeRouteNotFound)
+			return
+		}
+		streamingPreflight, ok := handler.transport.(StreamingTransport)
+		if !ok {
+			handler.writeCorrelatedError(writer, dispatchRequest, contracts.ErrorCodeRouteNotFound)
+			return
+		}
+		targetErr := streamingPreflight.ValidateStreamingTarget(dispatchRequest, resolved)
+		inputValidator := streamingPreflight.ValidateStreamingInput
+		if targetErr != nil {
+			handler.dispatchNonStreamingWithLedger(ctx, writer, dispatchRequest, resolved, targetErr)
+			return
+		}
+		if err := inputValidator(dispatchRequest, resolved); err != nil {
+			handler.writePreError(writer, dispatchRequest.TraceID, dispatchErrorCode(err))
+			return
+		}
+		streamCtx := ctx
+		streamCancel := func() {}
+		if resolved.Card.Limits.TimeoutMS > 0 {
+			cardDeadline := time.Duration(resolved.Card.Limits.TimeoutMS) * time.Millisecond
+			if cardDeadline < handler.deadline {
+				var localCancel context.CancelFunc
+				streamCtx, localCancel = context.WithTimeout(ctx, cardDeadline)
+				streamCancel = localCancel
+				defer localCancel()
+			}
+		}
+		handler.dispatchStreamingWithLedger(streamCtx, func() {
+			cancel()
+			streamCancel()
+		}, writer, dispatchRequest, resolved)
 		return
 	}
 	if handler.transport != nil && !dispatchRequest.Stream {
@@ -311,6 +456,288 @@ func (handler *DispatchHandler) dispatchNonStreamingWithLedger(ctx context.Conte
 		return
 	}
 	handler.writeInvocationResult(writer, request, result)
+}
+
+func (handler *DispatchHandler) dispatchStreamingWithLedger(ctx context.Context, cancel context.CancelFunc, response http.ResponseWriter, request contracts.DispatchInvocationRequestV3, resolved contracts.ResolveAgentResponse) {
+	startedAt := time.Now().UTC().Truncate(time.Microsecond)
+	appendEvent := func(event contracts.InvocationEventV03) error {
+		appendCtx, release := ledgerContext(ctx)
+		defer release()
+		return handler.ledger.Append(appendCtx, event)
+	}
+	for _, event := range []contracts.InvocationEventV03{
+		lifecycleEvent(request, 0, "created", "pending", startedAt),
+		lifecycleEvent(request, 1, "routing", "routing", startedAt.Add(time.Microsecond)),
+		lifecycleEvent(request, 2, "started", "running", startedAt.Add(2*time.Microsecond)),
+	} {
+		if err := appendEvent(event); err != nil {
+			handler.writeCorrelatedError(response, request, contracts.ErrorCodeDependency)
+			return
+		}
+	}
+
+	streamSequence, err := contracts.NewRuntimeResultStreamSequenceValidator(handler.streamValidator, request.InvocationID, request.RootTaskID, request.TraceID)
+	if err != nil {
+		handler.writeCorrelatedError(response, request, contracts.ErrorCodeInternal)
+		return
+	}
+	streamWriter, err := newResultStreamWriter(response, handler.sseEventLimitBytes)
+	if err != nil {
+		handler.appendStreamingTerminal(ctx, request, 3, startedAt, 0, contracts.ErrorCodeDependency, "failed", "failed")
+		handler.writeCorrelatedError(response, request, contracts.ErrorCodeDependency)
+		return
+	}
+	response.Header().Set(TraceHeader, string(request.TraceID))
+	accepted := contracts.InvocationResultStreamEventV2{
+		SchemaVersion: contracts.RuntimeResultStreamEventSchemaVersion,
+		Sequence:      0,
+		Type:          contracts.ResultStreamEventAccepted,
+		Status:        "pending",
+		InvocationID:  request.InvocationID,
+		RootTaskID:    request.RootTaskID,
+		TraceID:       request.TraceID,
+	}
+	if err := streamSequence.Accept(accepted); err != nil {
+		handler.writeCorrelatedError(response, request, contracts.ErrorCodeInternal)
+		return
+	}
+	if err := streamWriter.Write(accepted); err != nil {
+		code := streamWriteErrorCode(ctx, err)
+		if !streamWriter.committed {
+			handler.appendStreamingTerminal(ctx, request, 3, startedAt, 0, code, "failed", "failed")
+			handler.writeCorrelatedError(response, request, code)
+		} else {
+			handler.finishStreamingFailure(ctx, cancel, streamWriter, streamSequence, request, startedAt, 1, 3, code)
+		}
+		return
+	}
+
+	sequence := int64(1)
+	chunkIndex := int64(0)
+	ledgerSequence := int64(3)
+	for event, eventErr := range handler.streaming.SendStreaming(ctx, request, resolved) {
+		if eventErr != nil {
+			code := streamErrorCode(ctx, eventErr)
+			handler.finishStreamingFailure(ctx, cancel, streamWriter, streamSequence, request, startedAt, sequence, ledgerSequence, code)
+			return
+		}
+		if len(event.Payload) == 0 || !json.Valid(event.Payload) {
+			handler.finishStreamingFailure(ctx, cancel, streamWriter, streamSequence, request, startedAt, sequence, ledgerSequence, contracts.ErrorCodeA2AProtocol)
+			return
+		}
+		streamChunkIndex := chunkIndex
+		chunk := contracts.InvocationResultStreamEventV2{
+			SchemaVersion: contracts.RuntimeResultStreamEventSchemaVersion,
+			Sequence:      sequence,
+			Type:          contracts.ResultStreamEventChunk,
+			Status:        "running",
+			InvocationID:  request.InvocationID,
+			RootTaskID:    request.RootTaskID,
+			TraceID:       request.TraceID,
+			ChunkIndex:    &streamChunkIndex,
+			Chunk:         append(json.RawMessage(nil), event.Payload...),
+		}
+		if err := streamSequence.Accept(chunk); err != nil {
+			handler.finishStreamingFailure(ctx, cancel, streamWriter, streamSequence, request, startedAt, sequence, ledgerSequence, contracts.ErrorCodeA2AProtocol)
+			return
+		}
+		chunkBytes := int64(len(event.Payload))
+		ledgerChunkIndex := chunkIndex
+		ledgerChunkBytes := chunkBytes
+		ledgerChunk := lifecycleEvent(request, ledgerSequence, "stream", "running", startedAt.Add(time.Duration(ledgerSequence)*time.Microsecond))
+		ledgerChunk.ChunkIndex = &ledgerChunkIndex
+		ledgerChunk.ChunkBytes = &ledgerChunkBytes
+		if err := appendEvent(ledgerChunk); err != nil {
+			handler.finishStreamingFailureWithoutLedger(ctx, cancel, streamWriter, streamSequence, request, sequence+1, contracts.ErrorCodeDependency)
+			return
+		}
+		if err := streamWriter.Write(chunk); err != nil {
+			handler.finishStreamingFailure(ctx, cancel, streamWriter, streamSequence, request, startedAt, sequence+1, ledgerSequence+1, streamWriteErrorCode(ctx, err))
+			return
+		}
+		sequence++
+		chunkIndex++
+		ledgerSequence++
+
+		if event.TerminalType == "" {
+			continue
+		}
+		if ctx.Err() != nil {
+			handler.finishStreamingFailure(ctx, cancel, streamWriter, streamSequence, request, startedAt, sequence, ledgerSequence, streamErrorCode(ctx, ctx.Err()))
+			return
+		}
+		terminalType, terminalStatus := streamTerminalType(event.TerminalType, event.TerminalStatus)
+		var terminal contracts.InvocationResultStreamEventV2
+		if terminalType == contracts.ResultStreamEventCompleted {
+			terminal = contracts.InvocationResultStreamEventV2{
+				SchemaVersion: contracts.RuntimeResultStreamEventSchemaVersion,
+				Sequence:      sequence, Type: terminalType, Status: terminalStatus,
+				InvocationID: request.InvocationID, RootTaskID: request.RootTaskID, TraceID: request.TraceID,
+			}
+		} else {
+			code := event.ErrorCode
+			if code == "" {
+				handler.finishStreamingFailure(ctx, cancel, streamWriter, streamSequence, request, startedAt, sequence, ledgerSequence, contracts.ErrorCodeA2AProtocol)
+				return
+			}
+			terminal, err = streamFailureEvent(request, sequence, terminalType, terminalStatus, code)
+			if err != nil {
+				handler.finishStreamingFailureWithoutLedger(ctx, cancel, streamWriter, streamSequence, request, sequence, contracts.ErrorCodeInternal)
+				return
+			}
+		}
+		if terminal.Type == contracts.ResultStreamEventCompleted {
+			ledgerTerminal := lifecycleEvent(request, ledgerSequence, "succeeded", "succeeded", startedAt.Add(time.Duration(ledgerSequence)*time.Microsecond))
+			latency := time.Since(startedAt).Milliseconds()
+			ledgerTerminal.LatencyMS = &latency
+			if err := appendEvent(ledgerTerminal); err != nil {
+				handler.finishStreamingFailureWithoutLedger(ctx, cancel, streamWriter, streamSequence, request, sequence, contracts.ErrorCodeDependency)
+				return
+			}
+		} else {
+			code := terminal.Error.Code
+			if err := handler.appendStreamingTerminal(ctx, request, ledgerSequence, startedAt, time.Since(startedAt).Milliseconds(), code, string(terminal.Type), terminal.Status); err != nil {
+				handler.finishStreamingFailureWithoutLedger(ctx, cancel, streamWriter, streamSequence, request, sequence, contracts.ErrorCodeDependency)
+				return
+			}
+		}
+		if err := streamSequence.Accept(terminal); err != nil {
+			handler.finishStreamingFailureWithoutLedger(ctx, cancel, streamWriter, streamSequence, request, sequence, contracts.ErrorCodeA2AProtocol)
+			return
+		}
+		if err := streamWriter.Write(terminal); err != nil {
+			cancel()
+			return
+		}
+		_ = streamSequence.Finish()
+		return
+	}
+
+	code := contracts.ErrorCodeA2AProtocol
+	if ctx.Err() != nil {
+		code = streamErrorCode(ctx, ctx.Err())
+	}
+	handler.finishStreamingFailure(ctx, cancel, streamWriter, streamSequence, request, startedAt, sequence, ledgerSequence, code)
+}
+
+func ledgerContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx.Err() == nil {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), ledgerCommitGrace)
+}
+
+func (handler *DispatchHandler) appendStreamingTerminal(ctx context.Context, request contracts.DispatchInvocationRequestV3, sequence int64, startedAt time.Time, latency int64, code contracts.PlatformErrorCode, eventType, status string) error {
+	event, err := terminalLifecycleEvent(request, sequence, eventType, status, startedAt.Add(time.Duration(sequence)*time.Microsecond), latency, code)
+	if err != nil {
+		return err
+	}
+	appendCtx, release := ledgerContext(ctx)
+	defer release()
+	return handler.ledger.Append(appendCtx, event)
+}
+
+func (handler *DispatchHandler) finishStreamingFailure(ctx context.Context, cancel context.CancelFunc, writer *resultStreamWriter, sequence *contracts.RuntimeResultStreamSequenceValidator, request contracts.DispatchInvocationRequestV3, startedAt time.Time, streamSequence, ledgerSequence int64, code contracts.PlatformErrorCode) {
+	typeValue, status := streamFailureType(code)
+	event, err := streamFailureEvent(request, streamSequence, typeValue, status, code)
+	if err != nil {
+		cancel()
+		return
+	}
+	if err := handler.appendStreamingTerminal(ctx, request, ledgerSequence, startedAt, time.Since(startedAt).Milliseconds(), code, string(typeValue), status); err != nil {
+		handler.finishStreamingFailureWithoutLedger(ctx, cancel, writer, sequence, request, streamSequence, contracts.ErrorCodeDependency)
+		return
+	}
+	if err := sequence.Accept(event); err != nil {
+		cancel()
+		return
+	}
+	if err := writer.Write(event); err != nil {
+		cancel()
+		return
+	}
+	_ = sequence.Finish()
+}
+
+func (handler *DispatchHandler) finishStreamingFailureWithoutLedger(ctx context.Context, cancel context.CancelFunc, writer *resultStreamWriter, sequence *contracts.RuntimeResultStreamSequenceValidator, request contracts.DispatchInvocationRequestV3, streamSequence int64, code contracts.PlatformErrorCode) {
+	typeValue, status := streamFailureType(code)
+	event, err := streamFailureEvent(request, streamSequence, typeValue, status, code)
+	if err != nil {
+		cancel()
+		return
+	}
+	if err := sequence.Accept(event); err != nil {
+		cancel()
+		return
+	}
+	if err := writer.Write(event); err != nil {
+		cancel()
+		return
+	}
+	_ = sequence.Finish()
+}
+
+func streamFailureEvent(request contracts.DispatchInvocationRequestV3, sequence int64, eventType contracts.ResultStreamEventType, status string, code contracts.PlatformErrorCode) (contracts.InvocationResultStreamEventV2, error) {
+	platformError, err := contracts.NewCorrelatedPlatformErrorV4(code, request.TraceID, request.InvocationID, request.RootTaskID)
+	if err != nil {
+		return contracts.InvocationResultStreamEventV2{}, err
+	}
+	return contracts.InvocationResultStreamEventV2{
+		SchemaVersion: contracts.RuntimeResultStreamEventSchemaVersion,
+		Sequence:      sequence, Type: eventType, Status: status,
+		InvocationID: request.InvocationID, RootTaskID: request.RootTaskID, TraceID: request.TraceID,
+		Error: &platformError,
+	}, nil
+}
+
+func streamFailureType(code contracts.PlatformErrorCode) (contracts.ResultStreamEventType, string) {
+	switch code {
+	case contracts.ErrorCodeTimeout:
+		return contracts.ResultStreamEventTimedOut, "timed_out"
+	case contracts.ErrorCodeCanceled:
+		return contracts.ResultStreamEventCanceled, "canceled"
+	default:
+		return contracts.ResultStreamEventFailed, "failed"
+	}
+}
+
+func streamTerminalType(eventType contracts.ResultStreamEventType, status string) (contracts.ResultStreamEventType, string) {
+	switch eventType {
+	case contracts.ResultStreamEventCompleted:
+		return contracts.ResultStreamEventCompleted, "succeeded"
+	case contracts.ResultStreamEventCanceled:
+		return contracts.ResultStreamEventCanceled, "canceled"
+	case contracts.ResultStreamEventTimedOut:
+		return contracts.ResultStreamEventTimedOut, "timed_out"
+	default:
+		if status == "canceled" {
+			return contracts.ResultStreamEventCanceled, status
+		}
+		return contracts.ResultStreamEventFailed, "failed"
+	}
+}
+
+func streamErrorCode(ctx context.Context, err error) contracts.PlatformErrorCode {
+	if errors.Is(err, streammodel.ErrInterrupted) {
+		return contracts.ErrorCodeA2AProtocol
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+		return contracts.ErrorCodeTimeout
+	}
+	if errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled) {
+		return contracts.ErrorCodeCanceled
+	}
+	return dispatchErrorCode(err)
+}
+
+func streamWriteErrorCode(ctx context.Context, err error) contracts.PlatformErrorCode {
+	if ctx.Err() != nil {
+		return streamErrorCode(ctx, ctx.Err())
+	}
+	if dispatchErrorCode(err) == contracts.ErrorCodeAgentResponseTooLarge {
+		return contracts.ErrorCodeAgentResponseTooLarge
+	}
+	return contracts.ErrorCodeDependency
 }
 
 func lifecycleEvent(request contracts.DispatchInvocationRequestV3, sequence int64, eventType, status string, occurredAt time.Time) contracts.InvocationEventV03 {

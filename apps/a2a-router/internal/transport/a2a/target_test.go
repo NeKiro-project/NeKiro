@@ -71,6 +71,6 @@ func targetCard(endpoint, authType, capability string) contracts.AgentCard {
 		Protocol:       contracts.AgentProtocol{Type: "a2a", Version: contracts.A2AProtocolVersion, Transport: "JSONRPC", Endpoint: endpoint},
 		Authentication: contracts.AgentAuthentication{Type: authType},
 		Skills:         []contracts.AgentSkill{{ID: capability}},
-		Limits:         contracts.AgentLimits{MaxInputBytes: "4096", MaxOutputBytes: "4096"},
+		Limits:         contracts.AgentLimits{TimeoutMS: 1000, MaxInputBytes: "4096", MaxOutputBytes: "4096", Streaming: true},
 	}
 }

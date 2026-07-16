@@ -101,6 +101,20 @@ tests, vet, diff checks, WSL race tests, and Compose config validation passed;
 no retry, cache, alternate endpoint, default credential, or fallback endpoint
 was added.
 
+## Spec 017 Streaming A2A Delivery Progress
+
+The Router now supports the validated `stream=true` /
+`text/event-stream` path with bounded one-event-at-a-time SSE reading,
+trusted platform headers, strict JSON-RPC envelope/ID validation, ordered
+Result Stream Event v2 frames, metadata-only Ledger lifecycle facts, and
+terminal persistence before clean terminal output. Deadline/disconnect
+cancellation makes at most one bounded `tasks/cancel` attempt for a known
+task; timeout, cancellation, interrupted EOF, overflow, protocol, endpoint,
+writer, and Ledger failures remain distinct and correlated. Focused streaming
+tests, full tests, vet, diff checks, WSL race tests, and Compose config
+validation passed. No retry, cache, alternate endpoint, result persistence,
+or fallback credential was added.
+
 ## Spec 013 A2A Router Foundation Progress
 
 Spec 013 now adds the first standalone Data Plane Router foundation on branch

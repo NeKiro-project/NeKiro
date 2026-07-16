@@ -80,6 +80,24 @@ func (client *Client) ValidateNonStreamingInput(dispatch contracts.DispatchInvoc
 	return nil
 }
 
+func (client *Client) ValidateStreamingTarget(dispatch contracts.DispatchInvocationRequestV3, resolved contracts.ResolveAgentResponse) error {
+	target, err := NewTarget(resolved, dispatch.Capability)
+	if err != nil {
+		return err
+	}
+	if !target.Streaming {
+		return classify(contracts.ErrorCodeRouteNotFound, errors.New("resolved Agent Card does not enable streaming"))
+	}
+	if target.TimeoutMS < contracts.RuntimeDeadlineMinimumMS || target.TimeoutMS > contracts.RuntimeDeadlineMaximumMS {
+		return classify(contracts.ErrorCodeA2AProtocol, errors.New("resolved Agent streaming timeout is invalid"))
+	}
+	return nil
+}
+
+func (client *Client) ValidateStreamingInput(dispatch contracts.DispatchInvocationRequestV3, resolved contracts.ResolveAgentResponse) error {
+	return client.ValidateNonStreamingInput(dispatch, resolved)
+}
+
 func messageSendParams(dispatch contracts.DispatchInvocationRequestV3) (*a2ago.MessageSendParams, error) {
 	var input map[string]json.RawMessage
 	if err := json.Unmarshal(dispatch.Input, &input); err != nil {
