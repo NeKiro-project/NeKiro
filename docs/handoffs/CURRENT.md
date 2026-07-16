@@ -7,6 +7,21 @@ streaming A2A delivery is implemented, independently reviewed, and converged
 through T001-T021 on this branch. Frontend, SDK, nested cross-runtime E2E, and
 broader platform closure remain pending.
 
+## Spec 012 Control Plane Invocation Dispatch
+
+Spec 012 is now integrated into this branch from its independently reviewed
+implementation. Gateway exposes `POST /v4/workspaces/{workspaceId}/invocations`,
+validates the public request, and authorizes the exact enabled installation
+through the Workspace boundary before creating root correlation and sending
+one authenticated Router Internal v3 request. JSON and bounded SSE responses
+are forwarded live, including the approved Router trace header. Router
+URL/token, public body/SSE limits, and deadline configuration are required with
+no defaults.
+
+Spec 012 verification and convergence evidence passed on its source branch;
+the integration is being re-run against the current Router/Streaming branch.
+Fallback delta for this slice remains `removed 0, retained 0, added 0, net 0`.
+
 ## Repository State
 
 - Upstream repository: https://github.com/NeKiro-project/NeKiro.git
@@ -449,4 +464,3 @@ Before modifying runtime code, read in full:
 Do not modify `pnpm-lock.yaml`, relax `minimumReleaseAge`, add a fallback data
 source, or begin Spec 010 runtime implementation before T001/#20 freezes and
 merges the shared contract and failure policy.
-
