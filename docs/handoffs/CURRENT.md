@@ -23,6 +23,32 @@ The planning commit hash is intentionally not recorded because this file is
 part of that commit. Resolve the repository root on the current machine; do
 not assume a previous Windows path exists.
 
+## Spec 013 A2A Router Foundation Progress
+
+Spec 013 now adds the first standalone Data Plane Router foundation on branch
+`codex/013-router-foundation`:
+
+- Created `specs/013-a2a-router-foundation/` with Spec, Plan, research,
+  data model, contract guide, quickstart, checklist, and executable tasks.
+- Added `apps/a2a-router` process assembly, strict no-default config,
+  Router service bearer auth, readiness handler, Router Internal v3 dispatch
+  validation, Control Plane Internal v2 resolution client, and correlated
+  `ROUTE_NOT_FOUND` post-resolution placeholder.
+- Preserves boundaries: no Control Plane internal imports, no Agent endpoint
+  call, no Ledger path/write, no retry/cache/alternate source, and no shared
+  contract mutation.
+- Local verification passed: focused Router tests, `go test ./...`,
+  `go vet ./...`, and `git diff --check`.
+
+Independent Review-R1 found and converged three blockers: duplicate
+`Authorization` header acceptance, reconstructed Control Plane resolution
+errors, and a fabricated entropy-failure trace fallback. The fixes require
+exactly one Authorization value, preserve exact Control Plane failure
+status/body/trace through the Router, and fail closed when pre-correlation
+trace entropy is unavailable. Focused Router tests, `go test ./...`,
+`go vet ./...`, and `git diff --check` passed after convergence. Follow-up
+Review returned PASS with no remaining P0-P2 blocker.
+
 ## Workspace Closure and Next Plan
 
 - PR #18 run `29442651978` passes `workspace-integration`, `go-quality`,
