@@ -35,7 +35,7 @@ exact A2A dispatch and transient result delivery:
 - Available contracts: Invocation runtime semantic rules, Router Internal v3,
   Router Agent v1, result stream event v2, invocation event v0.3, and platform
   error v4.
-- Current Spec 016 progress: T001-T016 are complete for the non-stream slice.
+- Current Spec 016 progress: T001-T016 and T018 are complete for the non-stream slice.
   The Router now wires an
   explicit non-streaming A2A transport into dispatch, maps a validated
   `stream=false` request to one A2A `message/send`, appends metadata-only
@@ -58,9 +58,9 @@ exact A2A dispatch and transient result delivery:
   `NEKIRO_ROUTER_A2A_EVENT_LIMIT_BYTES`; non-stream input/output uses the
   configured/Card minimum and response overflow maps to
   `AGENT_RESPONSE_TOO_LARGE`.
-- Pending follow-ups: T017 streaming A2A/SSE event limits and T018 exhaustive
-  active A2A negative corpus tests. T016 now provides the deployment-owned
-  `migrate up` command and Compose ordering before Router `serve`.
+- Pending follow-up: T017 streaming A2A/SSE event limits. T016 now provides the
+  deployment-owned `migrate up` command and Compose ordering before Router
+  `serve`; T018 now provides the explicit active A2A negative corpus.
 - Open risk: Spec 014 real PostgreSQL integration remains environment-pending;
   use non-integration Ledger evidence unless a PostgreSQL test database becomes
   available.
@@ -86,6 +86,12 @@ endpoint/profile/auth/capability errors therefore retain correlated failure
 semantics and Ledger terminal facts even when the input is oversized; valid
 targets still reject oversized input before Ledger acceptance. Fresh standards
 and spec reviews after this fix found no blocking issue.
+
+T018 evidence: `TestClientRejectsActiveA2ANegativeCorpus` rejects missing
+`result`/`error`, boolean/object/array response IDs, and trailing JSON data as
+`A2A_PROTOCOL_ERROR`. The active transport suite also covers duplicate and
+unknown envelope members, invalid version/media type, ID mismatch, and
+result/error XOR. T017 remains deferred to a separate streaming Spec 017.
 
 ## Recently Closed Gates
 
