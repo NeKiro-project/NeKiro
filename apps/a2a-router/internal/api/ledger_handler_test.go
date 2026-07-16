@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/auth"
 	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/ledger"
 	"github.com/Nene7ko/NeKiro/contracts"
 )
@@ -100,6 +101,59 @@ func TestNewLedgerHandlerRequiresReader(t *testing.T) {
 	}
 	if !errors.Is(ledger.ErrDependency, ledger.ErrDependency) {
 		t.Fatal("dependency sentinel is not stable")
+	}
+}
+
+func TestLedgerHandlerRegistersAuthenticatedV3ReadRoutes(t *testing.T) {
+	detail := handlerDetail(t)
+	reader := fakeLedgerReader{
+		detail: detail,
+		trace:  contracts.TraceResponseV4{TraceID: detail.Invocation.TraceID, Invocations: []contracts.InvocationRecordV4{detail.Invocation}},
+	}
+	handler, err := NewLedgerHandler(reader)
+	if err != nil {
+		t.Fatalf("construct Ledger handler: %v", err)
+	}
+	mux := http.NewServeMux()
+	if err := handler.RegisterRoutes(mux, authStub{caller: auth.Caller{ID: "control-plane"}}); err != nil {
+		t.Fatalf("register Ledger routes: %v", err)
+	}
+	invocationRequest := httptest.NewRequest(http.MethodGet, "/internal/v3/workspaces/workspace-a/invocations/inv-handler", nil)
+	invocationResponse := httptest.NewRecorder()
+	mux.ServeHTTP(invocationResponse, invocationRequest)
+	if invocationResponse.Code != http.StatusOK || invocationResponse.Header().Get(TraceHeader) == "" {
+		t.Fatalf("Invocation route status/trace = %d/%q", invocationResponse.Code, invocationResponse.Header().Get(TraceHeader))
+	}
+	traceRequest := httptest.NewRequest(http.MethodGet, "/internal/v3/workspaces/workspace-a/traces/trace-handler", nil)
+	traceResponse := httptest.NewRecorder()
+	mux.ServeHTTP(traceResponse, traceRequest)
+	if traceResponse.Code != http.StatusOK || traceResponse.Header().Get(TraceHeader) == "" {
+		t.Fatalf("Trace route status/trace = %d/%q", traceResponse.Code, traceResponse.Header().Get(TraceHeader))
+	}
+	unauthenticated := httptest.NewRecorder()
+	unauthenticatedRequest := httptest.NewRequest(http.MethodGet, "/internal/v3/workspaces/workspace-a/traces/trace-handler", nil)
+	unauthenticatedAuthenticator := authStub{err: auth.ErrUnauthenticated}
+	unauthenticatedMux := http.NewServeMux()
+	if err := handler.RegisterRoutes(unauthenticatedMux, unauthenticatedAuthenticator); err != nil {
+		t.Fatalf("register unauthenticated Ledger routes: %v", err)
+	}
+	unauthenticatedMux.ServeHTTP(unauthenticated, unauthenticatedRequest)
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated read status = %d", unauthenticated.Code)
+	}
+	forbidden := httptest.NewRecorder()
+	forbiddenMux := http.NewServeMux()
+	if err := handler.RegisterRoutes(forbiddenMux, authStub{err: auth.ErrForbidden}); err != nil {
+		t.Fatalf("register forbidden Ledger routes: %v", err)
+	}
+	forbiddenMux.ServeHTTP(forbidden, httptest.NewRequest(http.MethodGet, "/internal/v3/workspaces/workspace-a/traces/trace-handler", nil))
+	if forbidden.Code != http.StatusForbidden {
+		t.Fatalf("forbidden read status = %d", forbidden.Code)
+	}
+	invalid := httptest.NewRecorder()
+	mux.ServeHTTP(invalid, httptest.NewRequest(http.MethodGet, "/internal/v3/workspaces/bad%20workspace/traces/trace-handler", nil))
+	if invalid.Code != http.StatusNotFound {
+		t.Fatalf("invalid read status = %d", invalid.Code)
 	}
 }
 

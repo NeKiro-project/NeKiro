@@ -326,6 +326,9 @@ func (v *RuntimeResultStreamSequenceValidator) Finish() error {
 }
 
 func (v *RuntimeContractValidator) ValidateInvocationDetailResponseV4(workspaceID string, detail InvocationDetailResponseV4) error {
+	if err := validateInvocationRecordV4(detail.Invocation); err != nil {
+		return fmt.Errorf("validate Invocation projection: %w", err)
+	}
 	if detail.Invocation.WorkspaceID != workspaceID {
 		return errors.New("invocation projection Workspace does not match the authorized Workspace")
 	}
@@ -364,6 +367,9 @@ func ValidateTraceResponseV4(workspaceID string, traceID TraceID, response Trace
 	rootTaskID := response.Invocations[0].RootTaskID
 	identities := make(map[string]struct{}, len(response.Invocations))
 	for _, invocation := range response.Invocations {
+		if err := validateInvocationRecordV4(invocation); err != nil {
+			return fmt.Errorf("validate Trace Invocation projection: %w", err)
+		}
 		if invocation.WorkspaceID != workspaceID || invocation.TraceID != traceID {
 			return errors.New("trace Invocation is outside the authorized Workspace or Trace")
 		}
@@ -382,6 +388,57 @@ func ValidateTraceResponseV4(workspaceID string, traceID TraceID, response Trace
 			}
 		}
 		identities[invocation.InvocationID] = struct{}{}
+	}
+	return nil
+}
+
+// validateInvocationRecordV4 mirrors the active language-neutral
+// InvocationRecordV4 schema. Projection reads are decoded into Go structs, so
+// schema validation of the surrounding response cannot distinguish an omitted
+// required field from its zero value; enforce those required fields and their
+// primitive constraints explicitly before exposing a 200 response.
+func validateInvocationRecordV4(record InvocationRecordV4) error {
+	for name, value := range map[string]string{
+		"invocation id":   record.InvocationID,
+		"root task id":    record.RootTaskID,
+		"workspace id":    record.WorkspaceID,
+		"target agent id": record.TargetAgentID,
+		"capability":      record.Capability,
+		"caller id":       record.Caller.ID,
+	} {
+		if err := validateSafeContractIdentifier(name, value); err != nil {
+			return err
+		}
+	}
+	if record.ParentInvocationID != "" {
+		if err := validateSafeContractIdentifier("parent invocation id", record.ParentInvocationID); err != nil {
+			return err
+		}
+	}
+	if _, err := ParseTraceID(string(record.TraceID)); err != nil {
+		return err
+	}
+	if record.Caller.Type != "user" && record.Caller.Type != "agent" && record.Caller.Type != "service" {
+		return errors.New("caller type is invalid")
+	}
+	if _, err := semver.StrictNewVersion(record.AgentCardVersion); err != nil {
+		return fmt.Errorf("agent card version is invalid: %w", err)
+	}
+	switch record.Status {
+	case "pending", "routing", "running", "succeeded", "failed", "canceled", "timed_out":
+	default:
+		return errors.New("invocation status is invalid")
+	}
+	if record.LatencyMS != nil && *record.LatencyMS < 0 {
+		return errors.New("invocation latency must be non-negative")
+	}
+	if record.ErrorCode != "" {
+		if _, exists := platformErrorV4Messages[record.ErrorCode]; !exists {
+			return errors.New("invocation error code is invalid")
+		}
+	}
+	if record.CreatedAt.IsZero() || record.UpdatedAt.IsZero() {
+		return errors.New("invocation projection timestamps are required")
 	}
 	return nil
 }

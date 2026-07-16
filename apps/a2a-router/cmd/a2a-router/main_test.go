@@ -22,6 +22,12 @@ func (failingDoer) Do(*http.Request) (*http.Response, error) {
 type ledgerAppenderStub struct{}
 
 func (ledgerAppenderStub) Append(context.Context, contracts.InvocationEventV03) error { return nil }
+func (ledgerAppenderStub) GetInvocation(context.Context, string, string) (contracts.InvocationDetailResponseV4, error) {
+	return contracts.InvocationDetailResponseV4{}, nil
+}
+func (ledgerAppenderStub) GetTrace(context.Context, string, contracts.TraceID) (contracts.TraceResponseV4, error) {
+	return contracts.TraceResponseV4{}, nil
+}
 
 func TestRunRequiresExplicitCommandAndMigrationDirection(t *testing.T) {
 	tests := []struct {
@@ -65,5 +71,10 @@ func TestNewHandlerAssemblesReadinessWithoutDependencyProbe(t *testing.T) {
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d", response.Code)
+	}
+	readResponse := httptest.NewRecorder()
+	handler.ServeHTTP(readResponse, httptest.NewRequest(http.MethodGet, "/internal/v3/workspaces/workspace-a/invocations/inv-a", nil))
+	if readResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("metadata read route status=%d, want 401", readResponse.Code)
 	}
 }

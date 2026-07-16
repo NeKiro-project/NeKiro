@@ -228,6 +228,22 @@ func TestRuntimeContractWorkspaceScopedProjectionAndLineageReads(t *testing.T) {
 	if ValidateTraceResponseV4("workspace-1", "trace-1", trace) == nil {
 		t.Fatal("cross-Workspace Trace projection was accepted")
 	}
+
+	missingTimestamp := detail
+	missingTimestamp.Invocation.CreatedAt = time.Time{}
+	if validator.ValidateInvocationDetailResponseV4("workspace-1", missingTimestamp) == nil {
+		t.Fatal("Invocation projection with a missing required timestamp was accepted")
+	}
+	missingVersion := TraceResponseV4{TraceID: "trace-1", Invocations: []InvocationRecordV4{record}}
+	missingVersion.Invocations[0].AgentCardVersion = ""
+	if ValidateTraceResponseV4("workspace-1", "trace-1", missingVersion) == nil {
+		t.Fatal("Trace projection with a missing required Agent Card version was accepted")
+	}
+	secretCode := TraceResponseV4{TraceID: "trace-1", Invocations: []InvocationRecordV4{record}}
+	secretCode.Invocations[0].ErrorCode = PlatformErrorCode("raw-secret-detail")
+	if ValidateTraceResponseV4("workspace-1", "trace-1", secretCode) == nil {
+		t.Fatal("Trace projection with an unknown error code was accepted")
+	}
 }
 
 func TestRuntimeContractExecutableConformanceCorpus(t *testing.T) {
