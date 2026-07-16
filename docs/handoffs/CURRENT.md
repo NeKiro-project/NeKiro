@@ -89,7 +89,8 @@ and spec reviews after this fix found no blocking issue.
 
 T018 evidence: `TestClientRejectsActiveA2ANegativeCorpus` rejects missing
 `result`/`error`, boolean/object/array response IDs, and trailing JSON data as
-`A2A_PROTOCOL_ERROR`. The active transport suite also covers duplicate and
+`A2A_PROTOCOL_ERROR`; response ID type validation runs before ID equality. The
+active transport suite also covers duplicate and
 unknown envelope members, invalid version/media type, ID mismatch, and
 result/error XOR. T017 remains deferred to a separate streaming Spec 017.
 
