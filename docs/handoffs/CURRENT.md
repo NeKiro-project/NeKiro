@@ -1,13 +1,11 @@
-# Current Handoff: Spec 016 Non-Streaming A2A Dispatch Baseline
+# Current Handoff: Spec 017 Streaming A2A Result Delivery
 
 **Updated**: 2026-07-16 (Asia/Hong_Kong)
 
-**State**: Workspace closure is complete. Invocation runtime contracts,
-A2A Router Foundation, Invocation Ledger, and Runtime B Direct A2A Sample have
-been merged into codex/016-nonstream-a2a-dispatch as the local baseline for
-the next Invoke slice. Control Plane Dispatch remains a separate local branch
-and is not required for the Router-owned non-streaming transport implementation
-unless Spec 016 discovers a contract dependency.
+**State**: Spec 016 non-streaming dispatch is the completed baseline. Spec 017
+streaming A2A delivery is implemented, independently reviewed, and converged
+through T001-T021 on this branch. Frontend, SDK, nested cross-runtime E2E, and
+broader platform closure remain pending.
 
 ## Repository State
 
@@ -19,10 +17,49 @@ unless Spec 016 discovers a contract dependency.
   codex/014-invocation-ledger, and codex/015-runtime-b-agent
 - Required local Git identity: Nene7ko_ <1604009816@qq.com>
 - Frontend remains paused.
-- Active feature: specs/016-nonstream-a2a-dispatch
+- Active feature: specs/017-streaming-a2a-events (implementation complete through T019)
 
 Resolve the repository root on the current machine; do not assume a previous
 Windows path exists.
+
+## Spec 017 Streaming Progress
+
+The Router now supports the active `stream=true` / `text/event-stream` path:
+
+- `message/stream` uses the pinned A2A JSON-RPC client with trusted platform
+  headers, strict JSON-RPC envelope/ID validation, bounded one-event-at-a-time
+  SSE reading, stable task/context identity, and approved A2A event mapping.
+- Dispatch emits compact Result Stream Event v2 values (`accepted`, ordered
+  transient chunks, and one terminal event) as one `data:` line plus a blank
+  delimiter with immediate flush. The complete UTF-8 frame is bounded by the
+  independent `NEKIRO_ROUTER_SSE_EVENT_LIMIT_BYTES` setting.
+- Invocation Ledger facts remain metadata-only: `created -> routing -> started
+  -> stream* -> terminal`; stream facts contain only chunk index/byte counts.
+  Terminal persistence precedes clean terminal SSE output. Overflow, protocol,
+  endpoint, timeout, cancellation, interrupted EOF, and Ledger failures remain
+  classified and correlated.
+- A known A2A task receives at most one bounded `tasks/cancel` attempt on local
+  deadline/disconnect; no retry, cache, alternate endpoint, result persistence,
+  or fallback credential was introduced.
+
+Spec 017 focused tests cover Runtime B success/correlation, raw SSE framing and
+limits, malformed streaming envelopes, interrupted EOF, timeout/cancellation,
+SSE overflow, Ledger failure, writer failure, artifact ordering, and one-shot
+cancellation. T001-T021 are marked complete in
+`specs/017-streaming-a2a-events/tasks.md`; independent reviews found no
+remaining blocking issue. The upstream complete SSE block remains bounded as a
+memory guard while raw JSON-RPC result bytes are forwarded and checked against
+the A2A event limit; downstream SSE has its separate full-frame limit.
+
+Validation evidence (all passing):
+
+```text
+go test -count=1 ./...
+go vet ./...
+git diff --check
+wsl.exe -d Ubuntu-26.04 -- bash -lc 'cd /mnt/e/NeKiro && go test -race -count=1 ./apps/a2a-router/... ./agents/runtime-b'
+docker compose --file deploy/compose.yaml config --quiet
+```
 
 ## Spec 016 Baseline Progress
 
@@ -58,9 +95,10 @@ exact A2A dispatch and transient result delivery:
   `NEKIRO_ROUTER_A2A_EVENT_LIMIT_BYTES`; non-stream input/output uses the
   configured/Card minimum and response overflow maps to
   `AGENT_RESPONSE_TOO_LARGE`.
-- Pending follow-up: T017 streaming A2A/SSE event limits. T016 now provides the
+- Historical follow-up note: streaming A2A/SSE event limits were split into
+  Spec 017 and are now implemented through T019. T016 provides the
   deployment-owned `migrate up` command and Compose ordering before Router
-  `serve`; T018 now provides the explicit active A2A negative corpus.
+  `serve`; T018 provides the explicit active A2A negative corpus.
 - Open risk: Spec 014 real PostgreSQL integration remains environment-pending;
   use non-integration Ledger evidence unless a PostgreSQL test database becomes
   available.
@@ -93,6 +131,12 @@ T018 evidence: `TestClientRejectsActiveA2ANegativeCorpus` rejects missing
 active transport suite also covers duplicate and
 unknown envelope members, invalid version/media type, ID mismatch, and
 result/error XOR. T017 remains deferred to a separate streaming Spec 017.
+
+Spec 017 is the completed follow-up slice at `specs/017-streaming-a2a-events/`:
+A2A `message/stream`, bounded A2A/SSE events, strict one-line SSE framing,
+Result Stream Event v2 sequencing, and metadata-only Ledger facts are now
+implemented and validated through T021. No broader Marketplace, SDK, or full
+E2E closure is implied.
 
 ## Recently Closed Gates
 
@@ -364,10 +408,12 @@ Workspace adds `Create/Read -> Install -> Inspect -> Disable/Enable ->
 Uninstall -> Reinstall` and internal exact resolution over the controlled
 Catalog port.
 
-Workspace persistence, owner policy, Installation selection/lifecycle, and
-internal exact resolution are implemented. Invocation Dispatch, A2A Router,
-Ledger, SDK/runtime behavior, live sample Agents, Frontend, and the complete
-E2E loop remain unimplemented.
+Workspace persistence, owner policy, Installation selection/lifecycle, exact
+resolution, Invocation Ledger metadata, non-streaming dispatch, and the
+Router-owned streaming A2A path are implemented on this branch. SDK/runtime
+expansion, nested cross-runtime E2E proof, Frontend, and the complete
+Register -> Discover -> Install -> Invoke -> Record acceptance demonstration
+remain unimplemented.
 
 Do not infer Invocation/Router runtime availability from active schemas or
 OpenAPI paths. Continue future implementation with a fresh Spec/worktree for

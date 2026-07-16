@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	runtimeb "github.com/Nene7ko/NeKiro/agents/runtime-b"
+	streammodel "github.com/Nene7ko/NeKiro/apps/a2a-router/internal/stream"
 	"github.com/Nene7ko/NeKiro/contracts"
 	a2ago "github.com/a2aproject/a2a-go/a2a"
 )
@@ -87,8 +88,83 @@ func TestClientSendNonStreamingMapsDispatchToRuntimeB(t *testing.T) {
 	assertHeader(t, captured, HeaderWorkspaceID, "workspace-a")
 }
 
+func TestClientSendStreamingMapsRuntimeBEventsAndTrustedHeaders(t *testing.T) {
+	captured := make(http.Header)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		captured = request.Header.Clone()
+		runtimeb.NewHTTPHandler(runtimeb.NewHandler()).ServeHTTP(writer, request)
+	}))
+	t.Cleanup(server.Close)
+	client, err := newTestClient(server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatch := contracts.DispatchInvocationRequestV3{
+		InvocationID: "inv-a", RootTaskID: "task-a", TraceID: "trace-a",
+		Caller: contracts.Caller{Type: "user", ID: "owner-a"}, WorkspaceID: "workspace-a",
+		TargetAgentID: "agent-a", AgentCardVersion: "1.0.0", Capability: "capability-a",
+		Input: json.RawMessage(`{"fixture":"stream-success","value":"stream"}`), Stream: true,
+	}
+	events := make([]streammodel.Event, 0, 5)
+	for event, streamErr := range client.SendStreaming(t.Context(), dispatch, contracts.ResolveAgentResponse{Card: targetCard(server.URL, "none", "capability-a")}) {
+		if streamErr != nil {
+			t.Fatalf("stream error: %v", streamErr)
+		}
+		events = append(events, event)
+	}
+	if len(events) != 5 || events[0].Kind != "task" || events[len(events)-1].TerminalType != contracts.ResultStreamEventCompleted {
+		t.Fatalf("events=%#v", events)
+	}
+	for index, event := range events {
+		if event.TaskID == "" || event.ContextID == "" || len(event.Payload) == 0 || !json.Valid(event.Payload) {
+			t.Fatalf("event %d=%#v", index, event)
+		}
+	}
+	assertHeader(t, captured, HeaderTraceID, "trace-a")
+	assertHeader(t, captured, HeaderInvocationID, "inv-a")
+	assertHeader(t, captured, HeaderRootTaskID, "task-a")
+	assertHeader(t, captured, HeaderWorkspaceID, "workspace-a")
+}
+
+func TestClientStreamingRejectsInvalidJSONRPCEnvelopeBeforeEventMapping(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+	}{
+		{name: "boolean id", data: `{"jsonrpc":"2.0","id":true,"result":{"kind":"task","id":"task-a","contextId":"ctx-a","status":{"state":"working"}}}`},
+		{name: "missing result and error", data: `{"jsonrpc":"2.0","id":"ignored"}`},
+		{name: "trailing data", data: `{"jsonrpc":"2.0","id":"ignored","result":{"kind":"task"}} trailing`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writer.Header().Set("Content-Type", "text/event-stream")
+				_, _ = writer.Write([]byte("data: " + test.data + "\n\n"))
+			}))
+			t.Cleanup(server.Close)
+			client, err := newTestClient(server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			dispatch := contracts.DispatchInvocationRequestV3{
+				InvocationID: "inv-a", RootTaskID: "task-a", TraceID: "trace-a",
+				Caller: contracts.Caller{Type: "user", ID: "owner-a"}, WorkspaceID: "workspace-a",
+				TargetAgentID: "agent-a", AgentCardVersion: "1.0.0", Capability: "capability-a",
+				Input: json.RawMessage(`{"fixture":"stream-success","value":"stream"}`), Stream: true,
+			}
+			for _, streamErr := range client.SendStreaming(t.Context(), dispatch, contracts.ResolveAgentResponse{Card: targetCard(server.URL, "none", "capability-a")}) {
+				if streamErr == nil || errorCode(streamErr) != contracts.ErrorCodeA2AProtocol {
+					t.Fatalf("stream error=%v", streamErr)
+				}
+				return
+			}
+			t.Fatal("stream completed without envelope error")
+		})
+	}
+}
+
 func TestClientSendMessageRequiresExplicitDependencies(t *testing.T) {
-	if _, err := NewClient(nil, 4096, 4096); err == nil {
+	if _, err := NewClient(nil, 4096, 4096, 4096, 4096); err == nil {
 		t.Fatal("NewClient(nil) succeeded, want error")
 	}
 	client, err := newTestClient(http.DefaultClient)
@@ -217,7 +293,7 @@ func TestClientClassifiesOversizedAgentResponse(t *testing.T) {
 		})
 	}))
 	defer server.Close()
-	client, err := NewClient(server.Client(), 4096, 32)
+	client, err := NewClient(server.Client(), 4096, 32, 4096, 4096)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +495,7 @@ func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error)
 }
 
 func newTestClient(httpClient *http.Client) (*Client, error) {
-	return NewClient(httpClient, 4096, 4096)
+	return NewClient(httpClient, 4096, 4096, 4096, 4096)
 }
 
 func testTarget(endpoint string) Target {

@@ -106,7 +106,7 @@ func newHandler(cfg config.Config, doer resolution.HTTPDoer, agentHTTPClient *ht
 	if err != nil {
 		return nil, err
 	}
-	transport, err := a2atransport.NewClient(agentHTTPClient, cfg.InternalRequestLimitBytes, cfg.AgentResponseLimitBytes)
+	transport, err := a2atransport.NewClient(agentHTTPClient, cfg.InternalRequestLimitBytes, cfg.AgentResponseLimitBytes, cfg.A2AEventLimitBytes, cfg.SSEEventLimitBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +114,7 @@ func newHandler(cfg config.Config, doer resolution.HTTPDoer, agentHTTPClient *ht
 	if ledgerAppender == nil {
 		return nil, errors.New("Router Ledger appender is required")
 	}
-	dispatch, err = api.NewDispatchHandlerWithTransportAndLedger(authenticator, resolver, transport, ledgerAppender, cfg.InternalRequestLimitBytes, cfg.ResolutionDeadline)
+	dispatch, err = api.NewDispatchHandlerWithTransportAndLedgerAndStreaming(authenticator, resolver, transport, ledgerAppender, cfg.SSEEventLimitBytes, cfg.InternalRequestLimitBytes, cfg.ResolutionDeadline)
 	if err != nil {
 		return nil, err
 	}
