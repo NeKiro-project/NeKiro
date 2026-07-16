@@ -1,12 +1,11 @@
-# Current Handoff: Runtime B Direct A2A Sample Checkpoint
+# Current Handoff: Runtime B Direct A2A Sample Closed
 
 **Updated**: 2026-07-16 (Asia/Hong_Kong)
 
 **State**: Workspace closure is complete. Invocation runtime contracts,
 Control Plane Dispatch, Router Foundation, and Ledger each have implementation
-branches. Runtime B Direct A2A Sample is implemented on
-`codex/015-runtime-b-agent` and locally verified, but independent Review and
-Converge remain open.
+branches. Runtime B Direct A2A Sample is implemented, locally verified,
+independently reviewed, and converged on `codex/015-runtime-b-agent`.
 
 ## Repository State
 
@@ -45,15 +44,16 @@ Router transport acceptance:
   Control Plane, Router, Ledger, SDK, retry, cache, alternate route,
   compatibility fallback, or platform-core dependency.
 
-Open Spec 015 gates:
+Spec 015 closure:
 
-- T011: independent Review by a non-implementing agent.
-- T012: Converge review findings and repeat Review.
-
-Review attempt note: T011 was attempted in the 2026-07-16 session after local
-verification passed, but the independent review agents did not return usable
-PASS/FAIL results before interruption. Treat T011 as still open and rerun an
-independent read-only Review from branch head `cd65b7c` or later.
+- T001-T010: implementation, mapped tests, local verification, and WSL race
+  verification complete.
+- T011: independent Review R1 returned two P2 findings; R2 returned PASS after
+  convergence fixes.
+- T012-T014: Converge appended and resolved the snapshot deep-clone and
+  overlong `historyLength` regression tasks.
+- Fallback delta for the convergence fix: removed `0`, retained `0`, added
+  `0`, net `0`. Added fallback evidence: none.
 
 ## Workspace Closure and Next Plan
 
