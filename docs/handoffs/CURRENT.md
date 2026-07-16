@@ -74,6 +74,18 @@ Result v1 payload only after the terminal success fact is committed. Explicit
 transport failure classification remains part of the subsequent convergence
 work in this stacked delivery.
 
+The non-stream slice now classifies target/profile errors as
+`A2A_PROTOCOL_ERROR`, unsupported auth as `AGENT_AUTH_UNSUPPORTED`, HTTP and
+network failures as `AGENT_UNAVAILABLE`, malformed results as
+`A2A_PROTOCOL_ERROR`, JSON-RPC Agent failures as `AGENT_EXECUTION_FAILED`, and
+deadlines as `TIMEOUT`; canceled tasks map to `CANCELED`/HTTP 409. Production
+assembly requires the Router database and response/event limits, checks Ledger
+schema readiness without auto-migration, and injects the Ledger appender.
+Response overflow maps to `AGENT_RESPONSE_TOO_LARGE`. Focused tests, full Go
+tests, vet, diff checks, WSL race tests, and Compose config validation passed;
+no retry, cache, alternate endpoint, default credential, or fallback endpoint
+was added.
+
 ## Spec 013 A2A Router Foundation Progress
 
 Spec 013 now adds the first standalone Data Plane Router foundation on branch
