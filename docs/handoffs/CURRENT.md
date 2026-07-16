@@ -81,6 +81,12 @@ The Ledger target-validation failure case records exactly
 not append `started` or call the Agent. Exact target construction now receives
 the dispatch capability instead of selecting a Card skill by position.
 
+The follow-up fix validates the target before input-size preflight. Unsupported
+endpoint/profile/auth/capability errors therefore retain correlated failure
+semantics and Ledger terminal facts even when the input is oversized; valid
+targets still reject oversized input before Ledger acceptance. Fresh standards
+and spec reviews after this fix found no blocking issue.
+
 ## Recently Closed Gates
 
 - Spec 011 Invocation Runtime Contracts: closed and merged into this branch.
