@@ -117,3 +117,8 @@ consistent.
 
 Fallback delta: removed `0`, retained `0`, added `0`, net `0`. Added fallback
 evidence: none.
+
+Review follow-up: Router trace-read route errors now carry the generated
+request Trace ID while using the resource Trace ID only for the Ledger query.
+The route regression test asserts that a Router `404` error body correlates to
+the response Trace header rather than echoing the requested resource ID.
