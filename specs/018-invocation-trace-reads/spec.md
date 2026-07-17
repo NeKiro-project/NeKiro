@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-16
 
-**Status**: Ready for implementation
+**Status**: Implemented, integration-verified, independently reviewed, and converged
 
 **Input**: GitHub #27 / Spec 010 T008, active Northbound Invocation API v4,
 Router Internal API v3, Invocation Event 0.3, and the Router-owned Ledger

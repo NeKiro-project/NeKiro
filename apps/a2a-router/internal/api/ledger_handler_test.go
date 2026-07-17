@@ -157,6 +157,29 @@ func TestLedgerHandlerRegistersAuthenticatedV3ReadRoutes(t *testing.T) {
 	}
 }
 
+func TestLedgerHandlerTraceRouteErrorsUseRequestTraceCorrelation(t *testing.T) {
+	handler, err := NewLedgerHandler(fakeLedgerReader{err: ledger.ErrNotFound})
+	if err != nil {
+		t.Fatalf("construct Ledger handler: %v", err)
+	}
+	mux := http.NewServeMux()
+	if err := handler.RegisterRoutes(mux, authStub{caller: auth.Caller{ID: "control-plane"}}); err != nil {
+		t.Fatalf("register Ledger routes: %v", err)
+	}
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/internal/v3/workspaces/workspace-a/traces/trace-resource", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var platformError contracts.PreCorrelationPlatformErrorV4
+	if err := json.Unmarshal(response.Body.Bytes(), &platformError); err != nil {
+		t.Fatalf("decode error: %v body=%s", err, response.Body.String())
+	}
+	if platformError.TraceID == "trace-resource" || platformError.TraceID == "" || string(platformError.TraceID) != response.Header().Get(TraceHeader) {
+		t.Fatalf("error trace=%q header trace=%q", platformError.TraceID, response.Header().Get(TraceHeader))
+	}
+}
+
 func handlerDetail(t *testing.T) contracts.InvocationDetailResponseV4 {
 	t.Helper()
 	at := time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC)

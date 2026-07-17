@@ -88,7 +88,7 @@ func (handler *LedgerHandler) serveTraceRoute(writer http.ResponseWriter, reques
 		_ = handler.writeReadError(writer, requestTraceID, ledger.ErrNotFound)
 		return
 	}
-	_ = handler.ServeTraceRead(writer, request, workspaceID, resourceTraceID)
+	_ = handler.serveTraceRead(writer, request, workspaceID, resourceTraceID, requestTraceID)
 }
 
 // ServeInvocationRead adapts an already authenticated and path-validated
@@ -118,12 +118,22 @@ func (handler *LedgerHandler) ServeTraceRead(
 	workspaceID string,
 	traceID contracts.TraceID,
 ) error {
+	return handler.serveTraceRead(w, r, workspaceID, traceID, traceID)
+}
+
+func (handler *LedgerHandler) serveTraceRead(
+	w http.ResponseWriter,
+	r *http.Request,
+	workspaceID string,
+	traceID contracts.TraceID,
+	requestTraceID contracts.TraceID,
+) error {
 	result, err := handler.reader.GetTrace(r.Context(), workspaceID, traceID)
 	if err != nil {
-		return handler.writeReadError(w, traceID, err)
+		return handler.writeReadError(w, requestTraceID, err)
 	}
 	if err := contracts.ValidateTraceResponseV4(workspaceID, traceID, result); err != nil {
-		return handler.writeReadError(w, traceID, ledger.ErrDependency)
+		return handler.writeReadError(w, requestTraceID, ledger.ErrDependency)
 	}
 	return writeLedgerJSON(w, http.StatusOK, result)
 }
