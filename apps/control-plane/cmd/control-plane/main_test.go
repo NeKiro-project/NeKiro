@@ -45,7 +45,7 @@ func TestRouterHTTPClientDoesNotFollowRedirects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Router request failed: %v", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusFound || requests != 1 {
 		t.Fatalf("redirect response = %d with %d requests, want 302 with one request", response.StatusCode, requests)
 	}

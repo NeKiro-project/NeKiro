@@ -79,7 +79,7 @@ func TestRouterClientReadsExactV3MetadataPathsOnSameOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get Invocation: %v", err)
 	}
-	defer invocationResponse.Body.Close()
+	defer func() { _ = invocationResponse.Body.Close() }()
 	if invocationResponse.StatusCode != http.StatusOK || invocationResponse.ContentType != "application/json" {
 		t.Fatalf("Invocation response = %#v", invocationResponse)
 	}
@@ -87,7 +87,7 @@ func TestRouterClientReadsExactV3MetadataPathsOnSameOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get Trace: %v", err)
 	}
-	defer traceResponse.Body.Close()
+	defer func() { _ = traceResponse.Body.Close() }()
 	if traceResponse.StatusCode != http.StatusOK || traceResponse.ContentType != "application/json" {
 		t.Fatalf("Trace response = %#v", traceResponse)
 	}
