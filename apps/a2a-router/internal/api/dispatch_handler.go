@@ -138,7 +138,7 @@ type DispatchHandler struct {
 
 func NewDispatchHandler(authenticator Authenticator, resolver Resolver, requestLimit int64, deadline time.Duration) (*DispatchHandler, error) {
 	if authenticator == nil || resolver == nil || requestLimit < contracts.RuntimeByteLimitMinimum || requestLimit > contracts.RuntimeByteLimitMaximum || deadline < time.Duration(contracts.RuntimeDeadlineMinimumMS)*time.Millisecond || deadline > time.Duration(contracts.RuntimeDeadlineMaximumMS)*time.Millisecond {
-		return nil, errors.New("Router dispatch dependencies are required")
+		return nil, errors.New("router dispatch dependencies are required")
 	}
 	streamValidator, err := contracts.NewRuntimeContractValidator()
 	if err != nil {
@@ -308,7 +308,7 @@ func (handler *DispatchHandler) dispatch(writer http.ResponseWriter, request *ht
 	handler.writeCorrelatedError(writer, dispatchRequest, contracts.ErrorCodeRouteNotFound)
 }
 
-var errPayloadTooLarge = errors.New("Router dispatch payload is too large")
+var errPayloadTooLarge = errors.New("router dispatch payload is too large")
 
 func (handler *DispatchHandler) readRequest(request *http.Request) (contracts.DispatchInvocationRequestV3, error) {
 	if request.ContentLength > handler.requestLimit {
