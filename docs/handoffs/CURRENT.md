@@ -6,7 +6,9 @@
 Control Plane Dispatch, and Router Foundation have local implementation
 branches. Invocation Ledger is implemented on `codex/014-invocation-ledger`
 and non-integration verified, but its real PostgreSQL integration run,
-independent Review, and Converge remain open.
+independent Review, and Converge remain open. Runtime B Direct A2A Sample is
+implemented and locally verified; its independent Review and Converge remain
+open.
 
 ## Spec 012 Control Plane Invocation Dispatch
 
@@ -87,6 +89,47 @@ status/body/trace through the Router, and fail closed when pre-correlation
 trace entropy is unavailable. Focused Router tests, `go test ./...`,
 `go vet ./...`, and `git diff --check` passed after convergence. Follow-up
 Review returned PASS with no remaining P0-P2 blocker.
+
+## Spec 015 Runtime B Direct A2A Sample Progress
+
+Spec 015 owns the deterministic direct-library Runtime B callee for later
+Router transport acceptance:
+
+- `agents/runtime-b` implements strict fixture parsing, domain-separated
+  deterministic IDs, process-local task snapshots, `message/send`,
+  `message/stream`, `tasks/get`, `tasks/cancel`, and JSON-RPC/SSE server
+  assembly.
+- Tests cover JSON success/failure/invalid input, ordered streaming,
+  cancellation, terminal task errors, history bounds, concurrent identity
+  isolation, and platform context headers.
+- Non-race verification passed: `gofmt -l agents/runtime-b` returned no files,
+  `go test ./agents/runtime-b ./agents/runtime-b/cmd/runtime-b`,
+  `go test ./...`, `go vet ./...`, and `git diff --check`.
+- Windows race verification remains unavailable because Windows lacks a C
+  compiler for cgo: `go test -race` requires cgo, and `CGO_ENABLED=1` fails
+  with `gcc not found`; `where gcc`, `where clang`, and `where cl` also find
+  no compiler on PATH.
+- WSL race verification passed under Ubuntu-26.04 with `go version go1.26.0
+  linux/amd64`, `CGO_ENABLED=1`, `CC=x86_64-linux-gnu-gcc`, and `/usr/bin/gcc`.
+- Runtime code has no platform database, Control Plane, Router, Ledger, SDK,
+  retry, cache, alternate route, compatibility fallback, or platform-core
+  dependency.
+
+Open Spec 015 gates:
+
+- T010: rerun verification in a race-capable Go environment.
+- T011: independent Review by a non-implementing agent.
+- T012: Converge review findings and repeat Review.
+
+Review attempt note: T011 was attempted in the 2026-07-16 session after local
+verification passed, but the independent review agents did not return usable
+PASS/FAIL results before interruption. Treat T011 as still open and rerun an
+independent read-only Review from the branch head.
+
+Review attempt note: T011 was attempted in the 2026-07-16 session after local
+verification passed, but the independent review agents did not return usable
+PASS/FAIL results before interruption. Treat T011 as still open and rerun an
+independent read-only Review from branch head `cd65b7c` or later.
 
 ## Workspace Closure and Next Plan
 
