@@ -22,6 +22,8 @@ type Client struct {
 	httpClient         *http.Client
 	inputLimitBytes    int64
 	responseLimitBytes int64
+	a2aEventLimitBytes int64
+	sseEventLimitBytes int64
 }
 
 type ContextHeaders struct {
@@ -32,7 +34,7 @@ type ContextHeaders struct {
 	WorkspaceID        string
 }
 
-func NewClient(httpClient *http.Client, inputLimitBytes, responseLimitBytes int64) (*Client, error) {
+func NewClient(httpClient *http.Client, inputLimitBytes, responseLimitBytes, a2aEventLimitBytes, sseEventLimitBytes int64) (*Client, error) {
 	if httpClient == nil {
 		return nil, errors.New("A2A transport HTTP client is required")
 	}
@@ -42,8 +44,14 @@ func NewClient(httpClient *http.Client, inputLimitBytes, responseLimitBytes int6
 	if responseLimitBytes < contracts.RuntimeByteLimitMinimum || responseLimitBytes > contracts.RuntimeByteLimitMaximum {
 		return nil, errors.New("A2A Agent response limit is invalid")
 	}
+	if a2aEventLimitBytes < contracts.RuntimeByteLimitMinimum || a2aEventLimitBytes > contracts.RuntimeByteLimitMaximum {
+		return nil, errors.New("A2A event limit is invalid")
+	}
+	if sseEventLimitBytes < contracts.RuntimeByteLimitMinimum || sseEventLimitBytes > contracts.RuntimeByteLimitMaximum {
+		return nil, errors.New("SSE event limit is invalid")
+	}
 	client := *httpClient
-	return &Client{httpClient: &client, inputLimitBytes: inputLimitBytes, responseLimitBytes: responseLimitBytes}, nil
+	return &Client{httpClient: &client, inputLimitBytes: inputLimitBytes, responseLimitBytes: responseLimitBytes, a2aEventLimitBytes: a2aEventLimitBytes, sseEventLimitBytes: sseEventLimitBytes}, nil
 }
 
 func (client *Client) SendMessage(ctx context.Context, target Target, headers ContextHeaders, params *a2ago.MessageSendParams) (a2ago.SendMessageResult, error) {

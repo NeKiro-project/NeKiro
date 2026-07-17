@@ -55,6 +55,7 @@ func TestNewHandlerAssemblesReadinessWithoutDependencyProbe(t *testing.T) {
 		ControlPlaneResponseLimitBytes: 2048,
 		AgentResponseLimitBytes:        4096,
 		A2AEventLimitBytes:             4096,
+		SSEEventLimitBytes:             4096,
 		ResolutionDeadline:             time.Second,
 	}, failingDoer{}, &http.Client{}, ledgerAppenderStub{})
 	if err != nil {

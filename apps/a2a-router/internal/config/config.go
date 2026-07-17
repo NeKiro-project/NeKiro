@@ -28,6 +28,7 @@ type Config struct {
 	ControlPlaneResponseLimitBytes int64
 	AgentResponseLimitBytes        int64
 	A2AEventLimitBytes             int64
+	SSEEventLimitBytes             int64
 	ResolutionDeadline             time.Duration
 }
 
@@ -87,11 +88,15 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	sseEventLimit, err := requiredInt64("NEKIRO_ROUTER_SSE_EVENT_LIMIT_BYTES", contracts.RuntimeByteLimitMinimum, contracts.RuntimeByteLimitMaximum)
+	if err != nil {
+		return Config{}, err
+	}
 	deadlineMS, err := requiredInt64("NEKIRO_ROUTER_RESOLUTION_DEADLINE_MS", contracts.RuntimeDeadlineMinimumMS, contracts.RuntimeDeadlineMaximumMS)
 	if err != nil {
 		return Config{}, err
 	}
-	return Config{ListenAddress: listen, RouterPrincipals: principals, DatabaseURL: databaseURL, ControlPlaneResolveURL: resolveURL, ControlPlaneServiceToken: token, InternalRequestLimitBytes: requestLimit, ControlPlaneResponseLimitBytes: responseLimit, AgentResponseLimitBytes: agentResponseLimit, A2AEventLimitBytes: a2aEventLimit, ResolutionDeadline: time.Duration(deadlineMS) * time.Millisecond}, nil
+	return Config{ListenAddress: listen, RouterPrincipals: principals, DatabaseURL: databaseURL, ControlPlaneResolveURL: resolveURL, ControlPlaneServiceToken: token, InternalRequestLimitBytes: requestLimit, ControlPlaneResponseLimitBytes: responseLimit, AgentResponseLimitBytes: agentResponseLimit, A2AEventLimitBytes: a2aEventLimit, SSEEventLimitBytes: sseEventLimit, ResolutionDeadline: time.Duration(deadlineMS) * time.Millisecond}, nil
 }
 
 // LoadDatabaseURL validates the database boundary shared by the serving and

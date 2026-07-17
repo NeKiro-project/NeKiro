@@ -13,7 +13,7 @@ func TestLoadRequiresStrictRouterConfig(t *testing.T) {
 		if err != nil {
 			t.Fatalf("valid config rejected: %v", err)
 		}
-		if config.ListenAddress != "127.0.0.1:9090" || config.DatabaseURL != "postgresql://router:secret@postgres:5432/nekiro?sslmode=disable" || config.ControlPlaneResolveURL != "https://control.internal/internal/v2/resolve-agent" || config.InternalRequestLimitBytes != 1024 || config.ControlPlaneResponseLimitBytes != 2048 || config.AgentResponseLimitBytes != 4096 || config.A2AEventLimitBytes != 4096 || config.ResolutionDeadline.Milliseconds() != 5000 {
+		if config.ListenAddress != "127.0.0.1:9090" || config.DatabaseURL != "postgresql://router:secret@postgres:5432/nekiro?sslmode=disable" || config.ControlPlaneResolveURL != "https://control.internal/internal/v2/resolve-agent" || config.InternalRequestLimitBytes != 1024 || config.ControlPlaneResponseLimitBytes != 2048 || config.AgentResponseLimitBytes != 4096 || config.A2AEventLimitBytes != 4096 || config.SSEEventLimitBytes != 4096 || config.ResolutionDeadline.Milliseconds() != 5000 {
 			t.Fatalf("config=%#v", config)
 		}
 	})
@@ -41,6 +41,7 @@ func TestLoadRequiresStrictRouterConfig(t *testing.T) {
 		{name: "overflow limit", key: "NEKIRO_ROUTER_INTERNAL_REQUEST_LIMIT_BYTES", value: ptr("2147483648")},
 		{name: "missing Agent response limit", key: "NEKIRO_ROUTER_AGENT_RESPONSE_LIMIT_BYTES", value: nil},
 		{name: "missing A2A event limit", key: "NEKIRO_ROUTER_A2A_EVENT_LIMIT_BYTES", value: nil},
+		{name: "missing SSE event limit", key: "NEKIRO_ROUTER_SSE_EVENT_LIMIT_BYTES", value: nil},
 		{name: "zero deadline", key: "NEKIRO_ROUTER_RESOLUTION_DEADLINE_MS", value: ptr("0")},
 		{name: "overflow deadline", key: "NEKIRO_ROUTER_RESOLUTION_DEADLINE_MS", value: ptr("600001")},
 		{name: "duplicate principal field", key: "NEKIRO_ROUTER_SERVICE_PRINCIPALS_JSON", value: ptr(`[{"id":"router","id":"other","tokenSha256":"` + digest("router-token") + `"}]`)},
@@ -88,6 +89,7 @@ func validEnv() map[string]string {
 		"NEKIRO_ROUTER_CONTROL_PLANE_RESPONSE_LIMIT_BYTES": "2048",
 		"NEKIRO_ROUTER_AGENT_RESPONSE_LIMIT_BYTES":         "4096",
 		"NEKIRO_ROUTER_A2A_EVENT_LIMIT_BYTES":              "4096",
+		"NEKIRO_ROUTER_SSE_EVENT_LIMIT_BYTES":              "4096",
 		"NEKIRO_ROUTER_RESOLUTION_DEADLINE_MS":             "5000",
 	}
 }
