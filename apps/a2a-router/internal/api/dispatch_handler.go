@@ -261,17 +261,8 @@ func (handler *DispatchHandler) dispatch(writer http.ResponseWriter, request *ht
 			handler.writePreError(writer, dispatchRequest.TraceID, dispatchErrorCode(err))
 			return
 		}
-		streamCtx := ctx
-		streamCancel := func() {}
-		if resolved.Card.Limits.TimeoutMS > 0 {
-			cardDeadline := time.Duration(resolved.Card.Limits.TimeoutMS) * time.Millisecond
-			if cardDeadline < handler.deadline {
-				var localCancel context.CancelFunc
-				streamCtx, localCancel = context.WithTimeout(ctx, cardDeadline)
-				streamCancel = localCancel
-				defer localCancel()
-			}
-		}
+		streamCtx, streamCancel := resolvedDeadlineContext(ctx, handler.deadline, resolved.Card.Limits.TimeoutMS)
+		defer streamCancel()
 		handler.dispatchStreamingWithLedger(streamCtx, func() {
 			cancel()
 			streamCancel()
@@ -292,11 +283,13 @@ func (handler *DispatchHandler) dispatch(writer http.ResponseWriter, request *ht
 			handler.writePreError(writer, dispatchRequest.TraceID, dispatchErrorCode(err))
 			return
 		}
+		nonStreamingCtx, nonStreamingCancel := resolvedDeadlineContext(ctx, handler.deadline, resolved.Card.Limits.TimeoutMS)
+		defer nonStreamingCancel()
 		if handler.ledger != nil {
-			handler.dispatchNonStreamingWithLedger(ctx, writer, dispatchRequest, resolved, nil)
+			handler.dispatchNonStreamingWithLedger(nonStreamingCtx, writer, dispatchRequest, resolved, nil)
 			return
 		}
-		result, err := handler.transport.SendNonStreaming(ctx, dispatchRequest, resolved)
+		result, err := handler.transport.SendNonStreaming(nonStreamingCtx, dispatchRequest, resolved)
 		if err != nil {
 			code := dispatchErrorCode(err)
 			handler.writeCorrelatedError(writer, dispatchRequest, code)
@@ -306,6 +299,14 @@ func (handler *DispatchHandler) dispatch(writer http.ResponseWriter, request *ht
 		return
 	}
 	handler.writeCorrelatedError(writer, dispatchRequest, contracts.ErrorCodeRouteNotFound)
+}
+
+func resolvedDeadlineContext(parent context.Context, configured time.Duration, timeoutMS int64) (context.Context, context.CancelFunc) {
+	cardDeadline := time.Duration(timeoutMS) * time.Millisecond
+	if cardDeadline > 0 && cardDeadline < configured {
+		return context.WithTimeout(parent, cardDeadline)
+	}
+	return parent, func() {}
 }
 
 var errPayloadTooLarge = errors.New("router dispatch payload is too large")
@@ -429,8 +430,14 @@ func (handler *DispatchHandler) dispatchNonStreamingWithLedger(ctx context.Conte
 	}
 
 	result, err := handler.transport.SendNonStreaming(ctx, request, resolved)
+	if err == nil && ctx.Err() != nil {
+		err = ctx.Err()
+	}
 	latencyMS := time.Since(startedAt).Milliseconds()
-	terminalAt := startedAt.Add(3 * time.Microsecond)
+	terminalAt := time.Now().UTC().Truncate(time.Microsecond)
+	if minimum := startedAt.Add(3 * time.Microsecond); terminalAt.Before(minimum) {
+		terminalAt = minimum
+	}
 	if err != nil {
 		code := dispatchErrorCode(err)
 		eventType, status := "failed", "failed"
@@ -441,7 +448,9 @@ func (handler *DispatchHandler) dispatchNonStreamingWithLedger(ctx context.Conte
 			eventType, status = "canceled", "canceled"
 		}
 		event, buildErr := terminalLifecycleEvent(request, 3, eventType, status, terminalAt, latencyMS, code)
-		if buildErr != nil || handler.ledger.Append(ctx, event) != nil {
+		appendCtx, release := ledgerContext(ctx)
+		defer release()
+		if buildErr != nil || handler.ledger.Append(appendCtx, event) != nil {
 			handler.writeCorrelatedError(writer, request, contracts.ErrorCodeDependency)
 			return
 		}
@@ -451,7 +460,9 @@ func (handler *DispatchHandler) dispatchNonStreamingWithLedger(ctx context.Conte
 
 	event := lifecycleEvent(request, 3, "succeeded", "succeeded", terminalAt)
 	event.LatencyMS = &latencyMS
-	if err := handler.ledger.Append(ctx, event); err != nil {
+	appendCtx, release := ledgerContext(ctx)
+	defer release()
+	if err := handler.ledger.Append(appendCtx, event); err != nil {
 		handler.writeCorrelatedError(writer, request, contracts.ErrorCodeDependency)
 		return
 	}

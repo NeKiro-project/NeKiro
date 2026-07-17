@@ -53,6 +53,46 @@ func TestClientSendMessageCallsRuntimeBWithPlatformContext(t *testing.T) {
 	assertHeader(t, captured, HeaderWorkspaceID, "workspace-a")
 }
 
+func TestClientDoesNotFollowAgentRedirects(t *testing.T) {
+	targetCalls := 0
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		targetCalls++
+	}))
+	t.Cleanup(target.Close)
+	source := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Location", target.URL)
+		writer.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(source.Close)
+
+	client, err := newTestClient(source.Client())
+	if err != nil {
+		t.Fatalf("NewClient = %v", err)
+	}
+	_, err = client.SendNonStreaming(t.Context(), contracts.DispatchInvocationRequestV3{
+		InvocationID: "inv-a", RootTaskID: "task-a", TraceID: "trace-a",
+		Caller: contracts.Caller{Type: "user", ID: "owner-a"}, WorkspaceID: "workspace-a",
+		TargetAgentID: "agent-a", AgentCardVersion: "1.0.0", Capability: "capability-a",
+		Input: json.RawMessage(`{"fixture":"success","value":{"exact":true}}`),
+	}, contracts.ResolveAgentResponse{Card: targetCard(source.URL, "none", "capability-a")})
+	if err == nil {
+		t.Fatal("Agent redirect accepted")
+	}
+	if targetCalls != 0 {
+		t.Fatalf("redirect target calls = %d, want 0", targetCalls)
+	}
+}
+
+func TestClassifyTransportCancellation(t *testing.T) {
+	err := classifyTransportError(context.Canceled)
+	var coded interface {
+		PlatformErrorCode() contracts.PlatformErrorCode
+	}
+	if !errors.As(err, &coded) || coded.PlatformErrorCode() != contracts.ErrorCodeCanceled {
+		t.Fatalf("classified error = %v", err)
+	}
+}
+
 func TestClientSendNonStreamingMapsDispatchToRuntimeB(t *testing.T) {
 	captured := make(http.Header)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

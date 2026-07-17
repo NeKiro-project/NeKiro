@@ -17,9 +17,8 @@ The production Router assembly requires non-empty, strictly parsed
 `NEKIRO_ROUTER_A2A_EVENT_LIMIT_BYTES`. The Ledger schema must already be
 migrated by the deployment-owned migration step; Router startup checks schema
 readiness and fails closed rather than auto-migrating or using a no-op appender.
-The Compose file now includes `a2a-router-migrate` followed by the Router
-`serve` service; standalone deployments must provide the equivalent migration
-ordering before serving traffic.
+The parent T011 owns Compose/CI process orchestration. For focused standalone
+operation, run the Router `migrate up` command before `serve`.
 
 ## Optional race check with WSL
 

@@ -51,6 +51,9 @@ func NewClient(httpClient *http.Client, inputLimitBytes, responseLimitBytes, a2a
 		return nil, errors.New("SSE event limit is invalid")
 	}
 	client := *httpClient
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
 	return &Client{httpClient: &client, inputLimitBytes: inputLimitBytes, responseLimitBytes: responseLimitBytes, a2aEventLimitBytes: a2aEventLimitBytes, sseEventLimitBytes: sseEventLimitBytes}, nil
 }
 

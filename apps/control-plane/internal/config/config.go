@@ -30,7 +30,6 @@ type Config struct {
 	Principals         []StaticPrincipal
 	InternalAuthMode   string
 	InternalPrincipals []StaticPrincipal
-	CORSAllowedOrigins []string
 }
 
 type InvocationRuntimeConfig struct {
@@ -93,19 +92,9 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON is invalid: %w", err)
 	}
-	corsAllowedOrigins, err := requiredEnv("NEKIRO_CORS_ALLOWED_ORIGINS")
-	if err != nil {
-		return Config{}, err
-	}
-	allowedOrigins, err := parseAllowedOrigins(corsAllowedOrigins)
-	if err != nil {
-		return Config{}, fmt.Errorf("NEKIRO_CORS_ALLOWED_ORIGINS is invalid: %w", err)
-	}
-
 	return Config{
 		DatabaseURL: databaseURL, ListenAddress: listenAddress, AuthMode: authMode,
 		Principals: principals, InternalAuthMode: internalAuthMode, InternalPrincipals: internalPrincipals,
-		CORSAllowedOrigins: allowedOrigins,
 	}, nil
 }
 
@@ -212,27 +201,6 @@ func validateListenAddress(value string) error {
 		return errors.New("port must be between 1 and 65535")
 	}
 	return nil
-}
-
-func parseAllowedOrigins(value string) ([]string, error) {
-	parts := strings.Split(value, ",")
-	origins := make([]string, 0, len(parts))
-	seen := make(map[string]struct{}, len(parts))
-	for _, part := range parts {
-		if part == "" || part != strings.TrimSpace(part) {
-			return nil, errors.New("origins must be comma-separated without blank entries or surrounding whitespace")
-		}
-		parsed, err := url.Parse(part)
-		if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.User != nil {
-			return nil, errors.New("origins must be absolute http or https origins without path, query, fragment, or userinfo")
-		}
-		if _, exists := seen[part]; exists {
-			return nil, errors.New("origin is duplicated")
-		}
-		seen[part] = struct{}{}
-		origins = append(origins, part)
-	}
-	return origins, nil
 }
 
 func decodePrincipals(data []byte) ([]StaticPrincipal, error) {

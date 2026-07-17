@@ -110,8 +110,8 @@ unit tests can assert ordering without a PostgreSQL dependency.
   `apps/a2a-router/internal/api/dispatch_handler_test.go`,
   `apps/a2a-router/internal/transport/a2a/**`,
   `apps/a2a-router/cmd/a2a-router/**`,
-  `apps/a2a-router/internal/config/**`, `deploy/compose.yaml`, the narrow
-  Runtime B HTTP media-type adapter, and focused test fixtures.
+  `apps/a2a-router/internal/config/**`, the narrow Runtime B HTTP media-type
+  adapter, and focused test fixtures.
 - Referenced but not re-owned: `apps/a2a-router/internal/ledger/**` and
   `contracts/**`.
 - Not owned: Control Plane internals, SDK, Runtime A, streaming/cancellation,
@@ -120,9 +120,9 @@ unit tests can assert ordering without a PostgreSQL dependency.
 Converge additions require `NEKIRO_DATABASE_URL`,
 `NEKIRO_ROUTER_AGENT_RESPONSE_LIMIT_BYTES`, and
 `NEKIRO_ROUTER_A2A_EVENT_LIMIT_BYTES` at Router startup. The Router checks the
-Ledger schema and fails closed; it does not auto-migrate. The current Compose
-file now orders `a2a-router-migrate` before the Router `serve` service. Standalone
-deployments must provide equivalent ordering.
+Ledger schema and fails closed; it does not auto-migrate. The parent T011 owns
+Compose/CI process orchestration. Until then, standalone operation must run the
+explicit Router `migrate up` command before `serve`.
 
 ## Complexity Tracking
 

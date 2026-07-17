@@ -84,6 +84,18 @@ type inputPreflightTransportStub struct {
 	preflightCalls int
 }
 
+type deadlineTransportStub struct {
+	transportStub
+}
+
+func (stub *deadlineTransportStub) SendNonStreaming(ctx context.Context, dispatch contracts.DispatchInvocationRequestV3, resolved contracts.ResolveAgentResponse) (json.RawMessage, error) {
+	stub.calls++
+	stub.dispatch = dispatch
+	stub.resolved = resolved
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 func (stub *inputPreflightTransportStub) ValidateNonStreamingInput(contracts.DispatchInvocationRequestV3, contracts.ResolveAgentResponse) error {
 	stub.preflightCalls++
 	return stub.preflightErr
@@ -518,6 +530,34 @@ func TestDispatchStreamingClassifiesTimeoutAndCancellation(t *testing.T) {
 				t.Fatalf("ledger terminal=%#v", ledger.events[len(ledger.events)-1])
 			}
 		})
+	}
+}
+
+func TestDispatchNonStreamingUsesResolvedCardDeadline(t *testing.T) {
+	card := dispatchResolvedCard("https://agent.example/a2a")
+	card.Limits.TimeoutMS = 5
+	resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: card}}
+	transport := &deadlineTransportStub{}
+	ledger := &ledgerRecorder{}
+	handler, err := NewDispatchHandlerWithTransportAndLedger(
+		authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport,
+		ledger, 4096, time.Second,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+	started := time.Now()
+	response := invokeDispatch(mux, "application/json", "application/json", validDispatchBody(false))
+	if response.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if elapsed := time.Since(started); elapsed >= 500*time.Millisecond {
+		t.Fatalf("Card deadline was not applied: elapsed=%s", elapsed)
+	}
+	if transport.calls != 1 || len(ledger.events) != 4 || ledger.events[3].Status != "timed_out" {
+		t.Fatalf("transport calls=%d ledger=%#v", transport.calls, ledger.events)
 	}
 }
 

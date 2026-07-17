@@ -59,8 +59,7 @@ func CheckSchema(ctx context.Context, db RowQuerier) error {
 	var version int32
 	var projectionColumns, eventColumns int
 	var projectionColumnShape, eventColumnShape int
-	var projectionChecks, eventChecks int
-	var projectionConstraintNames, eventConstraintNames, indexesReady, immutableTrigger bool
+	var projectionConstraintsReady, eventConstraintsReady, indexesReady, immutableTrigger bool
 	err := db.QueryRow(ctx, `
 SELECT version,
        (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'ledger' AND table_name = 'invocations'),
@@ -83,19 +82,46 @@ SELECT version,
             OR (column_name IN ('sequence','chunk_index','chunk_bytes','latency_ms') AND data_type = 'bigint')
             OR (column_name = 'occurred_at' AND data_type = 'timestamp with time zone' AND datetime_precision = 6))
           AND is_nullable = CASE WHEN column_name IN ('parent_invocation_id','chunk_index','chunk_bytes','latency_ms','error_code') THEN 'YES' ELSE 'NO' END),
-       (SELECT count(*) FROM pg_constraint WHERE conrelid = to_regclass('ledger.invocations')),
-       (SELECT count(*) FROM pg_constraint WHERE conrelid = to_regclass('ledger.invocation_events')),
-       (SELECT array_agg(conname::text ORDER BY conname) = ARRAY[
-           'invocations_caller_type','invocations_error_code','invocations_identifier_format',
-           'invocations_latency_nonnegative','invocations_parent_fk','invocations_pkey','invocations_status','invocations_terminal_shape',
-           'invocations_timestamp_order','invocations_trace_format'
-        ] FROM pg_constraint WHERE conrelid = to_regclass('ledger.invocations')),
-       (SELECT array_agg(conname::text ORDER BY conname) = ARRAY[
-           'invocation_events_caller_type','invocation_events_counter_nonnegative','invocation_events_error_code',
-           'invocation_events_field_shape','invocation_events_identifier_format','invocation_events_invocation_fk',
-           'invocation_events_pkey','invocation_events_sequence_nonnegative','invocation_events_sequence_unique',
-           'invocation_events_terminal_error','invocation_events_trace_format','invocation_events_type_status'
-        ] FROM pg_constraint WHERE conrelid = to_regclass('ledger.invocation_events')),
+       (SELECT count(*) = 10 AND bool_and(
+            convalidated AND NOT condeferrable AND NOT condeferred AND
+            CASE conname
+              WHEN 'invocations_pkey' THEN contype = 'p' AND conkey = ARRAY[1]::smallint[]
+              WHEN 'invocations_parent_fk' THEN contype = 'f' AND conkey = ARRAY[3]::smallint[]
+                   AND confrelid = to_regclass('ledger.invocations') AND confkey = ARRAY[1]::smallint[]
+                   AND confupdtype = 'a' AND confdeltype = 'a' AND confmatchtype = 's'
+              WHEN 'invocations_identifier_format' THEN contype = 'c' AND conkey = ARRAY[1,2,3,6,7,8,10]::smallint[] AND NOT connoinherit
+              WHEN 'invocations_trace_format' THEN contype = 'c' AND conkey = ARRAY[4]::smallint[] AND NOT connoinherit
+              WHEN 'invocations_caller_type' THEN contype = 'c' AND conkey = ARRAY[5]::smallint[] AND NOT connoinherit
+              WHEN 'invocations_status' THEN contype = 'c' AND conkey = ARRAY[11]::smallint[] AND NOT connoinherit
+              WHEN 'invocations_latency_nonnegative' THEN contype = 'c' AND conkey = ARRAY[12]::smallint[] AND NOT connoinherit
+              WHEN 'invocations_error_code' THEN contype = 'c' AND conkey = ARRAY[13]::smallint[] AND NOT connoinherit
+              WHEN 'invocations_timestamp_order' THEN contype = 'c' AND conkey = ARRAY[14,15]::smallint[] AND NOT connoinherit
+              WHEN 'invocations_terminal_shape' THEN contype = 'c' AND conkey = ARRAY[11,12,13]::smallint[] AND NOT connoinherit
+              ELSE false
+            END
+            AND (contype <> 'c' OR pg_get_constraintdef(oid, true) <> 'CHECK (true)')
+        ) FROM pg_constraint WHERE conrelid = to_regclass('ledger.invocations')),
+       (SELECT count(*) = 12 AND bool_and(
+            convalidated AND NOT condeferrable AND NOT condeferred AND
+            CASE conname
+              WHEN 'invocation_events_pkey' THEN contype = 'p' AND conkey = ARRAY[1]::smallint[]
+              WHEN 'invocation_events_invocation_fk' THEN contype = 'f' AND conkey = ARRAY[2]::smallint[]
+                   AND confrelid = to_regclass('ledger.invocations') AND confkey = ARRAY[1]::smallint[]
+                   AND confupdtype = 'a' AND confdeltype = 'a' AND confmatchtype = 's'
+              WHEN 'invocation_events_sequence_unique' THEN contype = 'u' AND conkey = ARRAY[2,3]::smallint[]
+              WHEN 'invocation_events_sequence_nonnegative' THEN contype = 'c' AND conkey = ARRAY[3]::smallint[] AND NOT connoinherit
+              WHEN 'invocation_events_identifier_format' THEN contype = 'c' AND conkey = ARRAY[1,2,7,8,11,12,13,15]::smallint[] AND NOT connoinherit
+              WHEN 'invocation_events_trace_format' THEN contype = 'c' AND conkey = ARRAY[9]::smallint[] AND NOT connoinherit
+              WHEN 'invocation_events_caller_type' THEN contype = 'c' AND conkey = ARRAY[10]::smallint[] AND NOT connoinherit
+              WHEN 'invocation_events_counter_nonnegative' THEN contype = 'c' AND conkey = ARRAY[16,17,18]::smallint[] AND NOT connoinherit
+              WHEN 'invocation_events_type_status' THEN contype = 'c' AND conkey = ARRAY[5,6]::smallint[] AND NOT connoinherit
+              WHEN 'invocation_events_field_shape' THEN contype = 'c' AND conkey = ARRAY[5,16,17,18,19]::smallint[] AND NOT connoinherit
+              WHEN 'invocation_events_terminal_error' THEN contype = 'c' AND conkey = ARRAY[5,19]::smallint[] AND NOT connoinherit
+              WHEN 'invocation_events_error_code' THEN contype = 'c' AND conkey = ARRAY[19]::smallint[] AND NOT connoinherit
+              ELSE false
+            END
+            AND (contype <> 'c' OR pg_get_constraintdef(oid, true) <> 'CHECK (true)')
+        ) FROM pg_constraint WHERE conrelid = to_regclass('ledger.invocation_events')),
        (SELECT count(*) = 3 FROM pg_index i
         JOIN pg_class idx ON idx.oid = i.indexrelid
         JOIN pg_class tbl ON tbl.oid = i.indrelid
@@ -111,23 +137,29 @@ SELECT version,
               WHEN 'invocations_parent_order_idx' THEN '7 3 14 1'::int2vector
           END),
        EXISTS (
-           SELECT 1 FROM pg_trigger
-           WHERE tgrelid = to_regclass('ledger.invocation_events')
-             AND tgname = 'invocation_events_immutable'
-             AND tgenabled = 'O' AND NOT tgisinternal
+           SELECT 1 FROM pg_trigger t
+           JOIN pg_proc p ON p.oid = t.tgfoid
+           JOIN pg_language l ON l.oid = p.prolang
+           WHERE t.tgrelid = to_regclass('ledger.invocation_events')
+             AND t.tgname = 'invocation_events_immutable'
+             AND t.tgenabled = 'O' AND NOT t.tgisinternal AND t.tgtype = 27
+             AND p.pronamespace = 'ledger'::regnamespace
+             AND p.proname = 'reject_invocation_event_mutation'
+             AND p.prorettype = 'trigger'::regtype AND p.prokind = 'f'
+             AND l.lanname = 'plpgsql'
+             AND regexp_replace(p.prosrc, '\s+', '', 'g') =
+                 'BEGINRAISEEXCEPTION''invocationeventsareimmutable''USINGERRCODE=''55000'';END;'
        )
 FROM ledger.schema_version`).Scan(
 		&version, &projectionColumns, &eventColumns, &projectionColumnShape, &eventColumnShape,
-		&projectionChecks, &eventChecks,
-		&projectionConstraintNames, &eventConstraintNames, &indexesReady, &immutableTrigger,
+		&projectionConstraintsReady, &eventConstraintsReady, &indexesReady, &immutableTrigger,
 	)
 	if err != nil {
 		return fmt.Errorf("read ledger schema: %w", err)
 	}
 	if version != ExpectedSchemaVersion || projectionColumns != 15 || eventColumns != 19 ||
 		projectionColumnShape != 15 || eventColumnShape != 19 ||
-		projectionChecks != 10 || eventChecks != 12 || !projectionConstraintNames ||
-		!eventConstraintNames || !indexesReady || !immutableTrigger {
+		!projectionConstraintsReady || !eventConstraintsReady || !indexesReady || !immutableTrigger {
 		return ErrSchemaVersionMismatch
 	}
 	return nil

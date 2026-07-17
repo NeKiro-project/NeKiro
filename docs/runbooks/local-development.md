@@ -33,9 +33,7 @@ Every current variable is required:
 | `NEKIRO_DEV_AUTH_PRINCIPALS_JSON` | Strict local principal array containing `id` and lowercase SHA-256 `tokenSha256` only |
 | `NEKIRO_INTERNAL_AUTH_MODE` | Explicit internal service authentication mode; currently `development-static` |
 | `NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON` | Separate strict principal array for Router/internal callers |
-| `NEKIRO_CORS_ALLOWED_ORIGINS` | Comma-separated explicit browser origins allowed to call the local Control Plane, for example `http://127.0.0.1:3000` |
 | `CONTROL_PLANE_PORT` | Available host loopback port for the Control Plane |
-| `A2A_ROUTER_PORT` | Available host loopback port for the A2A Router |
 | `NEKIRO_ROUTER_INTERNAL_URL` | Fixed Router v3 dispatch URL used by the Control Plane; Compose sets the service origin |
 | `NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN` | Raw local token the Control Plane presents to the Router; keep it out of logs and commits |
 | `NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES` | Maximum northbound invocation request body size |
@@ -99,7 +97,6 @@ $env:NEKIRO_AUTH_MODE = 'development-static'
 $env:NEKIRO_DEV_AUTH_PRINCIPALS_JSON = '<strict principal JSON from .env>'
 $env:NEKIRO_INTERNAL_AUTH_MODE = 'development-static'
 $env:NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON = '<separate strict internal principal JSON from .env>'
-$env:NEKIRO_CORS_ALLOWED_ORIGINS = 'http://127.0.0.1:3000'
 $env:NEKIRO_ROUTER_INTERNAL_URL = 'http://127.0.0.1:18081/internal/v3/invocations'
 $env:NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN = '<raw token matching the configured Router principal digest>'
 $env:NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES = '1048576'
@@ -162,10 +159,6 @@ dispatches at `/internal/v3/invocations`. Its non-streaming input and output
 limits are the minimum of the configured limit and the exact Agent Card limit.
 Missing or invalid values fail startup; there is no no-op Ledger, fallback
 endpoint, or default credential.
-
-The Compose deployment performs the equivalent ordering automatically:
-`a2a-router-migrate` must complete successfully before `a2a-router` starts,
-and the Router also waits for the healthy Control Plane.
 
 ## Integration acceptance
 

@@ -134,21 +134,18 @@ func TestPostgresLedgerDependencyFailureIsExplicit(t *testing.T) {
 
 func assertStrictReadiness(t *testing.T, ctx context.Context, connection *pgx.Conn) {
 	t.Helper()
-	tx, err := connection.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin readiness mutation: %v", err)
-	}
-	if _, err := tx.Exec(ctx, `DROP INDEX ledger.invocations_trace_order_idx`); err != nil {
-		_ = tx.Rollback(ctx)
-		t.Fatalf("remove required Ledger index: %v", err)
-	}
-	if err := CheckSchema(ctx, tx); !errors.Is(err, ErrSchemaVersionMismatch) {
-		_ = tx.Rollback(ctx)
-		t.Fatalf("incomplete Ledger schema readiness = %v", err)
-	}
-	if err := tx.Rollback(ctx); err != nil {
-		t.Fatalf("rollback readiness mutation: %v", err)
-	}
+	assertSchemaMutationRejected(t, ctx, connection, `DROP INDEX ledger.invocations_trace_order_idx`)
+	assertSchemaMutationRejected(t, ctx, connection,
+		`ALTER TABLE ledger.invocations DROP CONSTRAINT invocations_status`,
+		`ALTER TABLE ledger.invocations ADD CONSTRAINT invocations_status CHECK (true)`)
+	assertSchemaMutationRejected(t, ctx, connection, `
+CREATE OR REPLACE FUNCTION ledger.reject_invocation_event_mutation() RETURNS trigger
+LANGUAGE plpgsql AS $$ BEGIN RETURN OLD; END; $$`)
+	assertSchemaMutationRejected(t, ctx, connection,
+		`DROP TRIGGER invocation_events_immutable ON ledger.invocation_events`,
+		`CREATE TRIGGER invocation_events_immutable
+         BEFORE UPDATE ON ledger.invocation_events
+         FOR EACH ROW EXECUTE FUNCTION ledger.reject_invocation_event_mutation()`)
 	if _, err := connection.Exec(ctx, `UPDATE ledger.schema_version SET version = $1`, ExpectedSchemaVersion+1); err != nil {
 		t.Fatalf("make Ledger schema stale: %v", err)
 	}
@@ -157,6 +154,27 @@ func assertStrictReadiness(t *testing.T, ctx context.Context, connection *pgx.Co
 	}
 	if _, err := connection.Exec(ctx, `UPDATE ledger.schema_version SET version = $1`, ExpectedSchemaVersion); err != nil {
 		t.Fatalf("restore Ledger schema version: %v", err)
+	}
+}
+
+func assertSchemaMutationRejected(t *testing.T, ctx context.Context, connection *pgx.Conn, statements ...string) {
+	t.Helper()
+	tx, err := connection.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin readiness mutation: %v", err)
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(ctx, statement); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("apply readiness mutation: %v", err)
+		}
+	}
+	if err := CheckSchema(ctx, tx); !errors.Is(err, ErrSchemaVersionMismatch) {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("weakened Ledger schema readiness = %v", err)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatalf("rollback readiness mutation: %v", err)
 	}
 }
 

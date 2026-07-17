@@ -15,7 +15,6 @@ func TestLoadRequiresExplicitValidConfiguration(t *testing.T) {
 	t.Setenv("NEKIRO_DEV_AUTH_PRINCIPALS_JSON", `[{"id":"owner-a","tokenSha256":"`+hex.EncodeToString(digest[:])+`"}]`)
 	t.Setenv("NEKIRO_INTERNAL_AUTH_MODE", DevelopmentStaticAuthMode)
 	t.Setenv("NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON", `[{"id":"router-a","tokenSha256":"`+hex.EncodeToString(digest[:])+`"}]`)
-	t.Setenv("NEKIRO_CORS_ALLOWED_ORIGINS", "http://127.0.0.1:3000")
 	loaded, err := Load()
 	if err != nil {
 		t.Fatalf("load valid config: %v", err)
@@ -25,9 +24,6 @@ func TestLoadRequiresExplicitValidConfiguration(t *testing.T) {
 	}
 	if loaded.InternalAuthMode != DevelopmentStaticAuthMode || len(loaded.InternalPrincipals) != 1 {
 		t.Fatalf("loaded internal auth config = %#v", loaded)
-	}
-	if len(loaded.CORSAllowedOrigins) != 1 || loaded.CORSAllowedOrigins[0] != "http://127.0.0.1:3000" {
-		t.Fatalf("loaded CORS origins = %#v", loaded.CORSAllowedOrigins)
 	}
 }
 
@@ -92,34 +88,6 @@ func TestLoadRejectsMissingInternalAuthenticationConfiguration(t *testing.T) {
 	t.Setenv("NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON", "")
 	if _, err := Load(); err == nil {
 		t.Fatal("missing internal authentication configuration was accepted")
-	}
-}
-
-func TestLoadRejectsMalformedCORSAllowedOrigins(t *testing.T) {
-	digest := sha256.Sum256([]byte("token"))
-	validDigest := hex.EncodeToString(digest[:])
-	for _, value := range []string{
-		"*",
-		"http://127.0.0.1:3000/",
-		"http://127.0.0.1:3000, http://localhost:3000",
-		"ftp://127.0.0.1:3000",
-		"http://user:pass@127.0.0.1:3000",
-		"http://127.0.0.1:3000?x=1",
-		"http://127.0.0.1:3000#fragment",
-		"http://127.0.0.1:3000,http://127.0.0.1:3000",
-	} {
-		t.Run(value, func(t *testing.T) {
-			t.Setenv("NEKIRO_DATABASE_URL", "postgresql://user:password@127.0.0.1:5432/catalog_test?sslmode=disable")
-			t.Setenv("NEKIRO_LISTEN_ADDRESS", "127.0.0.1:18080")
-			t.Setenv("NEKIRO_AUTH_MODE", DevelopmentStaticAuthMode)
-			t.Setenv("NEKIRO_DEV_AUTH_PRINCIPALS_JSON", "[{\"id\":\"owner-a\",\"tokenSha256\":\""+validDigest+"\"}]")
-			t.Setenv("NEKIRO_INTERNAL_AUTH_MODE", DevelopmentStaticAuthMode)
-			t.Setenv("NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON", "[{\"id\":\"router-a\",\"tokenSha256\":\""+validDigest+"\"}]")
-			t.Setenv("NEKIRO_CORS_ALLOWED_ORIGINS", value)
-			if _, err := Load(); err == nil {
-				t.Fatal("malformed CORS origins were accepted")
-			}
-		})
 	}
 }
 

@@ -241,6 +241,9 @@ func classifyTransportError(err error) error {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return classify(contracts.ErrorCodeTimeout, err)
 	}
+	if errors.Is(err, context.Canceled) {
+		return classify(contracts.ErrorCodeCanceled, err)
+	}
 	var a2aError *a2ago.Error
 	if errors.As(err, &a2aError) {
 		return classify(contracts.ErrorCodeAgentExecutionFailed, err)

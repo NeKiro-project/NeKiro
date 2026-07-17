@@ -118,7 +118,7 @@ removed 0, retained 0, added 0, net 0; added fallback evidence: none.
 - [X] T013 Run Converge after Review and resolve the in-scope findings in the Router transport/API seam.
 - [X] T014 [US2] Wire the production Router assembly to a required DB-backed Ledger appender and strict Ledger schema readiness in `apps/a2a-router/cmd/a2a-router/` and `apps/a2a-router/internal/config/`.
 - [X] T015 [US3] Add required Agent response/A2A event byte-limit configuration and enforce the non-stream effective input/output bounds as the minimum of configured and exact Card limits.
-- [X] T016 [P1] Add a deployment-owned Ledger migration command/service before Router startup; the current Router intentionally fails readiness when the schema is absent and never auto-migrates.
+- [X] T016 [P1] Add an explicit Ledger `migrate up` command before Router startup; the Router intentionally fails readiness when the schema is absent and never auto-migrates, while parent T011 retains Compose/CI ownership.
 - [X] T017 [P1] Implement A2A event/SSE byte-limit enforcement with streaming in Spec 017; T015 only establishes required configuration and non-stream Agent response enforcement.
 - [X] T018 [P2] Execute the complete active A2A negative corpus matrix (missing result/error, invalid scalar IDs, and trailing data) as explicit Router transport tests.
 
@@ -162,10 +162,8 @@ T011-T013 complete T017 with separate upstream A2A event and full SSE frame
 limits plus boundary tests; the active negative corpus is complete in T018.
 
 T016 deployment evidence: the Router binary exposes `migrate up` and `serve`
-commands; `a2a-router-migrate` runs the embedded Ledger migration and the
-Compose Router service depends on its successful completion and the healthy
-Control Plane. `docker compose --file deploy/compose.yaml config --quiet`
-passed with all required non-empty environment values supplied explicitly.
+commands. Focused standalone operation runs the embedded Ledger migration
+before serving; parent T011 retains final Compose/CI process orchestration.
 
 Final post-review verification after the target-validation lifecycle fix and
 local Router runbook update also passed:

@@ -19,7 +19,7 @@
 - [X] T009 [US2] Add parent-lineage race and mismatch PostgreSQL tests in `apps/a2a-router/internal/ledger/postgres_integration_test.go`
 - [X] T010 [US3] Add restart/order/isolation/content-exclusion PostgreSQL tests in `apps/a2a-router/internal/ledger/postgres_integration_test.go`
 - [X] T011 [US3] Add HTTP mapping tests in `apps/a2a-router/internal/api/ledger_handler_test.go`
-- [ ] T012 Run formatting, unit, integration, race, vet, full repository, and fallback checks
+- [X] T012 Run formatting, unit, integration, race, vet, full repository, and fallback checks
 
 ## Phase 4: Independent Delivery Gates
 
@@ -53,5 +53,16 @@ one implementation owner. Review and Converge remain unchecked for root.
   daemon access failed at `npipe:////./pipe/dockerDesktopLinuxEngine` while
   trying to start a disposable PostgreSQL 17 container.
 
-T012, T013, and T014 remain open until a real PostgreSQL integration run,
-independent Review, and Converge complete.
+2026-07-18 integration closure evidence:
+
+- PR #41 GitHub Actions run `29613739507` passed `workspace-integration`,
+  including the integration-tagged Ledger suite against PostgreSQL 17 with a
+  coverage profile.
+- The integration branch passed `go test -count=1 ./...`, `go vet ./...`,
+  `go build ./...`, `go mod tidy -diff`, `gofmt -l apps agents contracts`, and
+  `git diff --check`. PR #36 retains the successful WSL race evidence for the
+  same Ledger implementation.
+- The integration diff adds no retry, cache, alternate store, compatibility
+  branch, degraded success, or other fallback.
+
+T013 and T014 remain open until independent Review and Converge complete.

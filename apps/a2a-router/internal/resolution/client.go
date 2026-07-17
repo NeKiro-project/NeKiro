@@ -17,10 +17,12 @@ type HTTPDoer interface {
 }
 
 type Client struct {
-	doer          HTTPDoer
-	url           string
-	token         string
-	responseLimit int64
+	doer            HTTPDoer
+	url             string
+	token           string
+	responseLimit   int64
+	validator       *contracts.Validator
+	resultValidator *contracts.ResultContractValidator
 }
 
 type Failure struct {
@@ -36,7 +38,28 @@ func NewClient(doer HTTPDoer, url, token string, responseLimit int64) (*Client, 
 	if doer == nil || url == "" || token == "" || responseLimit < contracts.RuntimeByteLimitMinimum || responseLimit > contracts.RuntimeByteLimitMaximum {
 		return nil, errors.New("resolution client dependencies are required")
 	}
-	return &Client{doer: doer, url: url, token: token, responseLimit: responseLimit}, nil
+	if httpClient, ok := doer.(*http.Client); ok {
+		if httpClient == nil {
+			return nil, errors.New("resolution client dependencies are required")
+		}
+		client := *httpClient
+		client.CheckRedirect = func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+		doer = &client
+	}
+	validator, err := contracts.NewValidator()
+	if err != nil {
+		return nil, fmt.Errorf("initialize Control Plane resolution validator: %w", err)
+	}
+	resultValidator, err := contracts.NewResultContractValidator()
+	if err != nil {
+		return nil, fmt.Errorf("initialize Control Plane error validator: %w", err)
+	}
+	return &Client{
+		doer: doer, url: url, token: token, responseLimit: responseLimit,
+		validator: validator, resultValidator: resultValidator,
+	}, nil
 }
 
 func (client *Client) Resolve(ctx context.Context, requestValue contracts.ResolveAgentRequest) (contracts.ResolveAgentResponse, error) {
@@ -66,23 +89,43 @@ func (client *Client) Resolve(ctx context.Context, requestValue contracts.Resolv
 		return contracts.ResolveAgentResponse{}, err
 	}
 	if response.StatusCode != http.StatusOK {
-		var platformError struct {
-			Code contracts.PlatformErrorCode `json:"code"`
-		}
-		if err := json.Unmarshal(data, &platformError); err != nil || platformError.Code == "" {
+		var platformError contracts.PlatformErrorV3
+		if err := json.Unmarshal(data, &platformError); err != nil {
 			return contracts.ResolveAgentResponse{}, errors.New("control plane resolution error body is invalid")
 		}
-		traceID := contracts.TraceID(response.Header.Get("x-nek-trace-id"))
-		if traceID == "" {
-			return contracts.ResolveAgentResponse{}, errors.New("control plane resolution error trace header is missing")
+		if err := client.resultValidator.ValidateResolveAgentErrorCorrelationV3(requestValue, platformError); err != nil {
+			return contracts.ResolveAgentResponse{}, errors.New("control plane resolution error correlation is invalid")
+		}
+		traceID, err := contracts.ParseTraceID(response.Header.Get("x-nek-trace-id"))
+		if err != nil || traceID != platformError.TraceID {
+			return contracts.ResolveAgentResponse{}, errors.New("control plane resolution error trace header is invalid")
 		}
 		return contracts.ResolveAgentResponse{}, &Failure{StatusCode: response.StatusCode, Code: platformError.Code, TraceID: traceID, Body: append([]byte(nil), data...)}
 	}
 	var resolved contracts.ResolveAgentResponse
-	if err := json.Unmarshal(data, &resolved); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&resolved); err != nil {
 		return contracts.ResolveAgentResponse{}, fmt.Errorf("decode Control Plane resolution response: %w", err)
 	}
+	if err := requireEOF(decoder); err != nil {
+		return contracts.ResolveAgentResponse{}, fmt.Errorf("decode Control Plane resolution response: %w", err)
+	}
+	if err := client.validator.ValidateResolveAgentResponseForRequest(requestValue, resolved); err != nil {
+		return contracts.ResolveAgentResponse{}, fmt.Errorf("validate Control Plane resolution response: %w", err)
+	}
 	return resolved, nil
+}
+
+func requireEOF(decoder *json.Decoder) error {
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("unexpected trailing JSON value")
+		}
+		return err
+	}
+	return nil
 }
 
 func readBounded(reader io.Reader, limit int64) ([]byte, error) {
