@@ -32,11 +32,11 @@ type InvocationReadHandler struct {
 
 func NewInvocationReadHandler(authenticator Authenticator, reader InvocationMetadataReader, traces *TraceGenerator, logger *slog.Logger, deadline time.Duration, metadataLimit int64) (*InvocationReadHandler, error) {
 	if authenticator == nil || reader == nil || traces == nil || logger == nil || deadline < time.Duration(contracts.RuntimeDeadlineMinimumMS)*time.Millisecond || deadline > time.Duration(contracts.RuntimeDeadlineMaximumMS)*time.Millisecond || metadataLimit < contracts.RuntimeByteLimitMinimum || metadataLimit > contracts.RuntimeByteLimitMaximum {
-		return nil, errors.New("Invocation read dependencies are required")
+		return nil, errors.New("invocation read dependencies are required")
 	}
 	validator, err := contracts.NewRuntimeContractValidator()
 	if err != nil {
-		return nil, errors.New("Invocation read contract validator is unavailable")
+		return nil, errors.New("invocation read contract validator is unavailable")
 	}
 	return &InvocationReadHandler{authenticator: authenticator, reader: reader, traces: traces, logger: logger, deadline: deadline, metadataLimit: metadataLimit, validator: validator}, nil
 }
@@ -143,7 +143,7 @@ func (handler *InvocationReadHandler) validateMetadataBody(body []byte, resource
 			return err
 		}
 		if detail.Invocation.InvocationID != resourceID {
-			return errors.New("Invocation response identity does not match request")
+			return errors.New("invocation response identity does not match request")
 		}
 		return handler.validator.ValidateInvocationDetailResponseV4(workspaceID, detail)
 	case "Trace":

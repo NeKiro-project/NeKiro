@@ -148,6 +148,7 @@ jobs:
           NEKIRO_ROUTER_SSE_EVENT_LIMIT_BYTES: "1048576"
           NEKIRO_ROUTER_RESOLUTION_DEADLINE_MS: "1000"
           NEKIRO_GATEWAY_METADATA_RESPONSE_MAX_BYTES: "1048576"
+          NEKIRO_GATEWAY_INVOCATION_DEADLINE_MS: "1000"
           CONTROL_PLANE_PORT: "18080"
           A2A_ROUTER_PORT: "18081"
         run: docker compose --file deploy/compose.yaml config --quiet
