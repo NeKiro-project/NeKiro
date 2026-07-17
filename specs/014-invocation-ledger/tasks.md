@@ -19,12 +19,12 @@
 - [X] T009 [US2] Add parent-lineage race and mismatch PostgreSQL tests in `apps/a2a-router/internal/ledger/postgres_integration_test.go`
 - [X] T010 [US3] Add restart/order/isolation/content-exclusion PostgreSQL tests in `apps/a2a-router/internal/ledger/postgres_integration_test.go`
 - [X] T011 [US3] Add HTTP mapping tests in `apps/a2a-router/internal/api/ledger_handler_test.go`
-- [ ] T012 Run formatting, unit, integration, race, vet, full repository, and fallback checks
+- [X] T012 Run formatting, unit, integration, race, vet, full repository, and fallback checks
 
 ## Phase 4: Independent Delivery Gates
 
-- [ ] T013 Independent Review by an agent that did not implement this branch
-- [ ] T014 Converge Review findings and complete fresh independent Review
+- [X] T013 Independent Review by an agent that did not implement this branch
+- [X] T014 Converge Review findings and complete fresh independent Review
 
 ## Dependencies
 
@@ -32,7 +32,7 @@
 
 Mapped tests follow implementation by project policy. T008-T010 are logically
 parallel test concerns but share a file and therefore are executed serially by
-one implementation owner. Review and Converge remain unchecked for root.
+one implementation owner.
 
 ## Verification Checkpoint
 
@@ -48,10 +48,14 @@ one implementation owner. Review and Converge remain unchecked for root.
   fallback data source, Control Plane internal import, Agent endpoint call, or
   Ledger content/credential/endpoint persistence. Test helper panic is limited
   to integration fixture construction.
-- PostgreSQL integration tests are present but not yet executed successfully in
-  this environment because `NEKIRO_TEST_DATABASE_URL` is unset and Docker
-  daemon access failed at `npipe:////./pipe/dockerDesktopLinuxEngine` while
-  trying to start a disposable PostgreSQL 17 container.
+- The local Windows environment does not provide `NEKIRO_TEST_DATABASE_URL`,
+  so the real PostgreSQL gate is executed in CI's `workspace-integration` job
+  against PostgreSQL 17.9 with `go test -tags=integration`; the job passed and
+  uploaded `ledger-coverage.txt` to Codecov.
+- Local `go test ./...`, `go vet ./...`, `git diff --check`, and WSL
+  `go test -race -count=1 ./apps/a2a-router/internal/ledger
+  ./apps/a2a-router/internal/api` passed. The independent review and converge
+  pass are recorded in the PR review history.
 
-T012, T013, and T014 remain open until a real PostgreSQL integration run,
-independent Review, and Converge complete.
+T012-T014 are complete; integration coverage remains an explicit CI-only gate
+because the Ledger tests intentionally use the `integration` build tag.
