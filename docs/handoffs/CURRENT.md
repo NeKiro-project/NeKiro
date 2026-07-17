@@ -64,6 +64,43 @@ Open Spec 014 gates:
 - T013: independent Review by a non-implementing agent.
 - T014: Converge review findings and repeat Review.
 
+## Spec 016 Non-streaming A2A Dispatch Progress
+
+Spec 016 is the active Router transport slice. The Router now wires an
+explicit non-streaming A2A transport into dispatch, maps a validated
+`stream=false` request to one A2A `message/send`, appends metadata-only Ledger
+lifecycle facts for accepted dispatch, and returns the transient Invocation
+Result v1 payload only after the terminal success fact is committed. Explicit
+transport failure classification remains part of the subsequent convergence
+work in this stacked delivery.
+
+The target-validation follow-up runs before input-size preflight, preserving
+correlated failure semantics and Ledger terminal facts for unsupported
+endpoint/profile/auth/capability targets while valid targets still reject
+oversized input before Ledger acceptance. Standards and spec review found no
+blocking issue.
+
+The active A2A negative corpus rejects missing `result`/`error`, boolean,
+object, and array response IDs, trailing JSON, duplicate or unknown envelope
+members, invalid version/media type, ID mismatch, and result/error XOR.
+Streaming event limits remain deferred to Spec 017.
+
+Response ID type validation runs before ID equality, so boolean/object/array
+IDs are rejected as `A2A_PROTOCOL_ERROR` rather than being compared as valid
+correlations.
+
+The non-stream slice now classifies target/profile errors as
+`A2A_PROTOCOL_ERROR`, unsupported auth as `AGENT_AUTH_UNSUPPORTED`, HTTP and
+network failures as `AGENT_UNAVAILABLE`, malformed results as
+`A2A_PROTOCOL_ERROR`, JSON-RPC Agent failures as `AGENT_EXECUTION_FAILED`, and
+deadlines as `TIMEOUT`; canceled tasks map to `CANCELED`/HTTP 409. Production
+assembly requires the Router database and response/event limits, checks Ledger
+schema readiness without auto-migration, and injects the Ledger appender.
+Response overflow maps to `AGENT_RESPONSE_TOO_LARGE`. Focused tests, full Go
+tests, vet, diff checks, WSL race tests, and Compose config validation passed;
+no retry, cache, alternate endpoint, default credential, or fallback endpoint
+was added.
+
 ## Spec 013 A2A Router Foundation Progress
 
 Spec 013 now adds the first standalone Data Plane Router foundation on branch
