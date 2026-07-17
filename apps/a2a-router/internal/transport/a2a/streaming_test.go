@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Nene7ko/NeKiro/contracts"
+	a2ago "github.com/a2aproject/a2a-go/a2a"
 )
 
 func TestBoundedSSEBodyRequiresOneJSONDataLine(t *testing.T) {
@@ -55,6 +56,116 @@ func TestBoundedSSEBodyRejectsEventLimitWithoutTruncation(t *testing.T) {
 	body := newBoundedSSEBody(io.NopCloser(strings.NewReader(data)), int64(len(data)-1), []byte(`"1"`))
 	if _, err := io.ReadAll(body); errorCode(err) != "AGENT_RESPONSE_TOO_LARGE" {
 		t.Fatalf("error=%v, want AGENT_RESPONSE_TOO_LARGE", err)
+	}
+}
+
+func TestMapA2AStreamEventCoversProfileEventKinds(t *testing.T) {
+	message := &a2ago.Message{
+		ID:        "message-a",
+		TaskID:    "task-a",
+		ContextID: "context-a",
+		Role:      a2ago.MessageRoleAgent,
+		Parts:     []a2ago.Part{a2ago.DataPart{Data: map[string]any{"value": "ok"}}},
+	}
+	artifact := &a2ago.TaskArtifactUpdateEvent{
+		TaskID:    "task-a",
+		ContextID: "context-a",
+		Artifact: &a2ago.Artifact{
+			ID:    "artifact-a",
+			Parts: []a2ago.Part{a2ago.DataPart{Data: map[string]any{"value": "chunk"}}},
+		},
+		Append:    true,
+		LastChunk: true,
+	}
+	for _, test := range []struct {
+		name           string
+		event          a2ago.Event
+		kind           string
+		terminal       contracts.ResultStreamEventType
+		status         string
+		artifactID     string
+		artifactAppend bool
+		artifactLast   bool
+	}{
+		{name: "message", event: message, kind: "message"},
+		{name: "task working", event: &a2ago.Task{ID: "task-a", ContextID: "context-a", Status: a2ago.TaskStatus{State: a2ago.TaskStateWorking}}, kind: "task"},
+		{name: "task completed", event: &a2ago.Task{ID: "task-a", ContextID: "context-a", Status: a2ago.TaskStatus{State: a2ago.TaskStateCompleted}}, kind: "task", terminal: contracts.ResultStreamEventCompleted, status: "succeeded"},
+		{name: "task canceled", event: &a2ago.Task{ID: "task-a", ContextID: "context-a", Status: a2ago.TaskStatus{State: a2ago.TaskStateCanceled}}, kind: "task", terminal: contracts.ResultStreamEventCanceled, status: "canceled"},
+		{name: "task failed", event: &a2ago.Task{ID: "task-a", ContextID: "context-a", Status: a2ago.TaskStatus{State: a2ago.TaskStateFailed}}, kind: "task", terminal: contracts.ResultStreamEventFailed, status: "failed"},
+		{name: "status working", event: &a2ago.TaskStatusUpdateEvent{TaskID: "task-a", ContextID: "context-a", Status: a2ago.TaskStatus{State: a2ago.TaskStateWorking}}, kind: "status-update"},
+		{name: "status completed", event: &a2ago.TaskStatusUpdateEvent{TaskID: "task-a", ContextID: "context-a", Status: a2ago.TaskStatus{State: a2ago.TaskStateCompleted}, Final: true}, kind: "status-update", terminal: contracts.ResultStreamEventCompleted, status: "succeeded"},
+		{name: "artifact", event: artifact, kind: "artifact-update", artifactID: "artifact-a", artifactAppend: true, artifactLast: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mapped, err := mapA2AStreamEvent(test.event)
+			if err != nil {
+				t.Fatalf("mapA2AStreamEvent() error = %v", err)
+			}
+			if mapped.Kind != test.kind || mapped.TaskID != "task-a" || mapped.ContextID != "context-a" {
+				t.Fatalf("mapped event = %#v", mapped)
+			}
+			if mapped.TerminalType != test.terminal || mapped.TerminalStatus != test.status {
+				t.Fatalf("terminal mapping = %#v", mapped)
+			}
+			if mapped.ArtifactID != test.artifactID || mapped.ArtifactAppend != test.artifactAppend || mapped.ArtifactLast != test.artifactLast {
+				t.Fatalf("artifact mapping = %#v", mapped)
+			}
+		})
+	}
+}
+
+func TestMapA2AStreamEventRejectsInvalidEvents(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		event a2ago.Event
+	}{
+		{name: "unsupported", event: &a2ago.Message{}},
+		{name: "nil", event: nil},
+		{name: "missing status identity", event: &a2ago.TaskStatusUpdateEvent{Status: a2ago.TaskStatus{State: a2ago.TaskStateWorking}}},
+		{name: "contradictory final flag", event: &a2ago.TaskStatusUpdateEvent{TaskID: "task-a", ContextID: "context-a", Status: a2ago.TaskStatus{State: a2ago.TaskStateWorking}, Final: true}},
+		{name: "incomplete artifact", event: &a2ago.TaskArtifactUpdateEvent{TaskID: "task-a", ContextID: "context-a"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := mapA2AStreamEvent(test.event); err == nil {
+				t.Fatal("mapA2AStreamEvent() succeeded for invalid event")
+			}
+		})
+	}
+}
+
+func TestStreamingJSONRPCValidationRejectsEnvelopeViolations(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		data string
+	}{
+		{name: "wrong version", data: `{"jsonrpc":"1.0","id":"1","result":{}}`},
+		{name: "mismatched id", data: `{"jsonrpc":"2.0","id":"2","result":{}}`},
+		{name: "result and error", data: `{"jsonrpc":"2.0","id":"1","result":{},"error":{"code":-1,"message":"failed"}}`},
+		{name: "duplicate member", data: `{"jsonrpc":"2.0","id":"1","id":"2","result":{}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := streamingJSONRPCResult([]byte(test.data), []byte(`"1"`)); err == nil {
+				t.Fatal("streamingJSONRPCResult() accepted invalid envelope")
+			}
+		})
+	}
+}
+
+func TestBoundedSSEBodyRejectsDuplicateAndRepeatedIDs(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{name: "duplicate id", body: "id: event-1\nid: event-2\ndata: {}\n\n"},
+		{name: "empty id", body: "id: \ndata: {}\n\n"},
+		{name: "repeated id", body: "id: event-1\ndata: {}\n\nid: event-1\ndata: {}\n\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := newBoundedSSEBody(io.NopCloser(strings.NewReader(test.body)), 4096, []byte(`"1"`))
+			if _, err := io.ReadAll(body); err == nil {
+				t.Fatal("invalid SSE stream succeeded")
+			}
+		})
 	}
 }
 
