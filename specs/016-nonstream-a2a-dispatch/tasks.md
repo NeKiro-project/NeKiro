@@ -200,3 +200,11 @@ existing duplicate-member,
 unknown-field, version, media-type, ID-mismatch, and result/error-XOR cases.
 T017 remains deferred to a separate streaming Spec 017 because Spec 016 does
 not own streaming transport or event sequencing.
+
+Review follow-up: when the Agent transport returns after the Router deadline,
+the non-stream terminal `TIMEOUT`/`CANCELED` Ledger append now uses the same
+bounded one-second post-cancellation grace as streaming. A regression test
+blocks the transport until the request context expires and verifies the
+terminal fact and public timeout remain explicit rather than being remapped to
+`DEPENDENCY_ERROR`. Direct preflight tests also cover target and effective
+input-limit validation.
