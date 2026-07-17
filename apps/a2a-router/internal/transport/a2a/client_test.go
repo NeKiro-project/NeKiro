@@ -87,6 +87,30 @@ func TestClientSendNonStreamingMapsDispatchToRuntimeB(t *testing.T) {
 	assertHeader(t, captured, HeaderWorkspaceID, "workspace-a")
 }
 
+func TestClientValidatesNonStreamingTargetAndInputBeforeTransport(t *testing.T) {
+	client, err := newTestClient(http.DefaultClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved := contracts.ResolveAgentResponse{Card: targetCard("https://agent.example/a2a", "none", "capability-a")}
+	dispatch := contracts.DispatchInvocationRequestV3{
+		InvocationID: "inv-a", RootTaskID: "task-a", TraceID: "trace-a",
+		Caller: contracts.Caller{Type: "user", ID: "owner-a"}, WorkspaceID: "workspace-a",
+		TargetAgentID: "agent-a", AgentCardVersion: "1.0.0", Capability: "capability-a",
+		Input: json.RawMessage(`{"fixture":"success","value":"ok"}`),
+	}
+	if err := client.ValidateNonStreamingTarget(dispatch, resolved); err != nil {
+		t.Fatalf("ValidateNonStreamingTarget() error = %v", err)
+	}
+	if err := client.ValidateNonStreamingInput(dispatch, resolved); err != nil {
+		t.Fatalf("ValidateNonStreamingInput() error = %v", err)
+	}
+	dispatch.Input = json.RawMessage(`{"value":"` + strings.Repeat("x", 4096) + `"}`)
+	if err := client.ValidateNonStreamingInput(dispatch, resolved); errorCode(err) != contracts.ErrorCodePayloadTooLarge {
+		t.Fatalf("oversized ValidateNonStreamingInput() error = %v, want %q", err, contracts.ErrorCodePayloadTooLarge)
+	}
+}
+
 func TestClientSendMessageRequiresExplicitDependencies(t *testing.T) {
 	if _, err := NewClient(nil, 4096, 4096); err == nil {
 		t.Fatal("NewClient(nil) succeeded, want error")
