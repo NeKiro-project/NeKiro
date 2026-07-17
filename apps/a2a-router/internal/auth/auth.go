@@ -35,17 +35,17 @@ func NewStaticAuthenticator(principals []Principal) (*StaticAuthenticator, error
 	ids := make(map[string]struct{}, len(principals))
 	for _, principal := range principals {
 		if !validIdentifier(principal.ID) {
-			return nil, errors.New("Router principal id is invalid")
+			return nil, errors.New("router principal id is invalid")
 		}
 		decoded, err := hex.DecodeString(principal.TokenSHA256)
 		if err != nil || len(decoded) != sha256.Size || principal.TokenSHA256 != strings.ToLower(principal.TokenSHA256) {
-			return nil, errors.New("Router principal tokenSha256 is invalid")
+			return nil, errors.New("router principal tokenSha256 is invalid")
 		}
 		if _, exists := ids[principal.ID]; exists {
-			return nil, errors.New("Router principal id is duplicated")
+			return nil, errors.New("router principal id is duplicated")
 		}
 		if _, exists := digests[principal.TokenSHA256]; exists {
-			return nil, errors.New("Router principal tokenSha256 is duplicated")
+			return nil, errors.New("router principal tokenSha256 is duplicated")
 		}
 		ids[principal.ID] = struct{}{}
 		digests[principal.TokenSHA256] = principal.ID

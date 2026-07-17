@@ -57,9 +57,9 @@ func (client *Client) Resolve(ctx context.Context, requestValue contracts.Resolv
 	if err != nil {
 		return contracts.ResolveAgentResponse{}, fmt.Errorf("resolve through Control Plane: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.Header.Get("Content-Type") != "application/json" {
-		return contracts.ResolveAgentResponse{}, errors.New("Control Plane resolution response media is invalid")
+		return contracts.ResolveAgentResponse{}, errors.New("control plane resolution response media is invalid")
 	}
 	data, err := readBounded(response.Body, client.responseLimit)
 	if err != nil {
@@ -70,11 +70,11 @@ func (client *Client) Resolve(ctx context.Context, requestValue contracts.Resolv
 			Code contracts.PlatformErrorCode `json:"code"`
 		}
 		if err := json.Unmarshal(data, &platformError); err != nil || platformError.Code == "" {
-			return contracts.ResolveAgentResponse{}, errors.New("Control Plane resolution error body is invalid")
+			return contracts.ResolveAgentResponse{}, errors.New("control plane resolution error body is invalid")
 		}
 		traceID := contracts.TraceID(response.Header.Get("x-nek-trace-id"))
 		if traceID == "" {
-			return contracts.ResolveAgentResponse{}, errors.New("Control Plane resolution error trace header is missing")
+			return contracts.ResolveAgentResponse{}, errors.New("control plane resolution error trace header is missing")
 		}
 		return contracts.ResolveAgentResponse{}, &Failure{StatusCode: response.StatusCode, Code: platformError.Code, TraceID: traceID, Body: append([]byte(nil), data...)}
 	}
