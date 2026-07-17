@@ -647,6 +647,29 @@ func TestDispatchMapsTransportFailureMatrix(t *testing.T) {
 	}
 }
 
+func TestStreamTerminalTypeMapsAllTerminalOutcomes(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		input  contracts.ResultStreamEventType
+		status string
+		want   contracts.ResultStreamEventType
+		state  string
+	}{
+		{name: "completed", input: contracts.ResultStreamEventCompleted, status: "ignored", want: contracts.ResultStreamEventCompleted, state: "succeeded"},
+		{name: "canceled", input: contracts.ResultStreamEventCanceled, status: "ignored", want: contracts.ResultStreamEventCanceled, state: "canceled"},
+		{name: "timed out", input: contracts.ResultStreamEventTimedOut, status: "ignored", want: contracts.ResultStreamEventTimedOut, state: "timed_out"},
+		{name: "failed", input: contracts.ResultStreamEventFailed, status: "failed", want: contracts.ResultStreamEventFailed, state: "failed"},
+		{name: "failed with canceled status", input: contracts.ResultStreamEventFailed, status: "canceled", want: contracts.ResultStreamEventCanceled, state: "canceled"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, state := streamTerminalType(test.input, test.status)
+			if got != test.want || state != test.state {
+				t.Fatalf("streamTerminalType(%q, %q) = %q, %q; want %q, %q", test.input, test.status, got, state, test.want, test.state)
+			}
+		})
+	}
+}
+
 func TestDispatchRejectsCardInputOverflowBeforeLedgerAcceptance(t *testing.T) {
 	resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: dispatchResolvedCard("https://agent.example/a2a")}}
 	transport := &inputPreflightTransportStub{

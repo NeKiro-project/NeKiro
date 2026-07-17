@@ -114,12 +114,23 @@ func newHandler(cfg config.Config, doer resolution.HTTPDoer, agentHTTPClient *ht
 	if ledgerAppender == nil {
 		return nil, errors.New("router Ledger appender is required")
 	}
+	ledgerReader, ok := ledgerAppender.(api.LedgerReader)
+	if !ok {
+		return nil, errors.New("router Ledger reader is required")
+	}
 	dispatch, err = api.NewDispatchHandlerWithTransportAndLedgerAndStreaming(authenticator, resolver, transport, ledgerAppender, cfg.SSEEventLimitBytes, cfg.InternalRequestLimitBytes, cfg.ResolutionDeadline)
+	if err != nil {
+		return nil, err
+	}
+	ledgerHandler, err := api.NewLedgerHandler(ledgerReader)
 	if err != nil {
 		return nil, err
 	}
 	mux := http.NewServeMux()
 	mux.Handle("GET /readyz", api.NewReadinessHandler())
 	dispatch.RegisterRoutes(mux)
+	if err := ledgerHandler.RegisterRoutes(mux, authenticator); err != nil {
+		return nil, err
+	}
 	return mux, nil
 }

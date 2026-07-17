@@ -148,13 +148,20 @@ jobs:
           NEKIRO_COMPOSE_DATABASE_URL: postgresql://compose_config_check:compose-config-check-only@postgres:5432/compose_config_check?sslmode=disable
           NEKIRO_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"compose-check","tokenSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]'
           NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"compose-router-check","tokenSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]'
+          NEKIRO_CORS_ALLOWED_ORIGINS: "http://localhost:3000"
+          NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN: compose-router-internal-bearer-token
+          NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES: "1048576"
+          NEKIRO_GATEWAY_SSE_EVENT_MAX_BYTES: "1048576"
           NEKIRO_ROUTER_SERVICE_PRINCIPALS_JSON: '[{"id":"router-check","tokenSha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}]'
           NEKIRO_CONTROL_PLANE_SERVICE_TOKEN: compose-control-plane-service-token
           NEKIRO_ROUTER_INTERNAL_REQUEST_LIMIT_BYTES: "1048576"
           NEKIRO_ROUTER_CONTROL_PLANE_RESPONSE_LIMIT_BYTES: "1048576"
           NEKIRO_ROUTER_AGENT_RESPONSE_LIMIT_BYTES: "1048576"
           NEKIRO_ROUTER_A2A_EVENT_LIMIT_BYTES: "1048576"
+          NEKIRO_ROUTER_SSE_EVENT_LIMIT_BYTES: "1048576"
           NEKIRO_ROUTER_RESOLUTION_DEADLINE_MS: "1000"
+          NEKIRO_GATEWAY_METADATA_RESPONSE_MAX_BYTES: "1048576"
+          NEKIRO_GATEWAY_INVOCATION_DEADLINE_MS: "1000"
           CONTROL_PLANE_PORT: "18080"
           A2A_ROUTER_PORT: "18081"
         run: docker compose --file deploy/compose.yaml config --quiet

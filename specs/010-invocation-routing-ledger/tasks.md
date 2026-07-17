@@ -58,7 +58,7 @@ Gateway while preserving Workspace isolation and Router ownership.
 **Independent Test**: Query success/failure facts and a trace after Router store
 reconstruction, including not-found, foreign Workspace, and dependency failure.
 
-- [ ] T008 [P] [US2] Implement authorized Northbound Invocation/Trace metadata reads and Router read proxies with post-implementation HTTP/restart/isolation tests in `specs/018-invocation-trace-reads/` and `apps/control-plane/internal/gateway/`
+- [X] T008 [P] [US2] Implement authorized Northbound Invocation/Trace metadata reads and Router read proxies with post-implementation HTTP/restart/isolation tests in `specs/018-invocation-trace-reads/` and `apps/control-plane/internal/gateway/`
 
 **Checkpoint**: A caller can inspect durable metadata but cannot retrieve input,
 output, chunks, credentials, or unrelated Workspace facts.
