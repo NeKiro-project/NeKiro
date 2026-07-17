@@ -35,6 +35,7 @@ data: {"jsonrpc":"2.0","id":"1","result":{"kind":"task","id":"task-a","contextId
 		body string
 	}{
 		{name: "multiple data lines", body: "data: {}\ndata: {}\n\n"},
+		{name: "missing id", body: "data: {}\n\n"},
 		{name: "other field", body: "event: message\ndata: {}\n\n"},
 		{name: "missing delimiter", body: "data: {}\n"},
 		{name: "id separator", body: "id:event-1\ndata: {}\n\n"},
