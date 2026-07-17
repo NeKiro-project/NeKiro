@@ -65,7 +65,7 @@ func (handler *LedgerHandler) serveInvocationRoute(writer http.ResponseWriter, r
 	}
 	workspaceID, invocationID := request.PathValue("workspaceId"), request.PathValue("invocationId")
 	if !validIdentifier(workspaceID) || !validIdentifier(invocationID) {
-		handler.writeReadError(writer, traceID, ledger.ErrNotFound)
+		_ = handler.writeReadError(writer, traceID, ledger.ErrNotFound)
 		return
 	}
 	_ = handler.ServeInvocationRead(writer, request, workspaceID, invocationID, traceID)
@@ -85,7 +85,7 @@ func (handler *LedgerHandler) serveTraceRoute(writer http.ResponseWriter, reques
 	workspaceID := request.PathValue("workspaceId")
 	resourceTraceID, err := contracts.ParseTraceID(request.PathValue("traceId"))
 	if !validIdentifier(workspaceID) || err != nil {
-		handler.writeReadError(writer, requestTraceID, ledger.ErrNotFound)
+		_ = handler.writeReadError(writer, requestTraceID, ledger.ErrNotFound)
 		return
 	}
 	_ = handler.ServeTraceRead(writer, request, workspaceID, resourceTraceID)
