@@ -142,7 +142,7 @@ func NewDispatchHandler(authenticator Authenticator, resolver Resolver, requestL
 	}
 	streamValidator, err := contracts.NewRuntimeContractValidator()
 	if err != nil {
-		return nil, fmt.Errorf("Router runtime stream validator is unavailable: %w", err)
+		return nil, fmt.Errorf("router runtime stream validator is unavailable: %w", err)
 	}
 	return &DispatchHandler{authenticator: authenticator, resolver: resolver, requestLimit: requestLimit, deadline: deadline, streamValidator: streamValidator}, nil
 }
@@ -168,7 +168,7 @@ func NewDispatchHandlerWithTransportAndLedger(authenticator Authenticator, resol
 		return nil, err
 	}
 	if ledger == nil {
-		return nil, errors.New("Router invocation ledger appender is required")
+		return nil, errors.New("router invocation ledger appender is required")
 	}
 	handler.ledger = ledger
 	return handler, nil
