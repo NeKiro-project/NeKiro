@@ -561,6 +561,54 @@ func TestDispatchNonStreamingUsesResolvedCardDeadline(t *testing.T) {
 	}
 }
 
+func TestResolvedDeadlineContextUsesConfiguredAndCardMinimum(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		configured time.Duration
+		card       int64
+		want       time.Duration
+	}{
+		{name: "Card is shorter", configured: 200 * time.Millisecond, card: 5, want: 5 * time.Millisecond},
+		{name: "configured is shorter", configured: 5 * time.Millisecond, card: 200, want: 5 * time.Millisecond},
+		{name: "Card limit absent", configured: 5 * time.Millisecond, card: 0, want: 5 * time.Millisecond},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			parent, cancelParent := context.WithTimeout(context.Background(), test.configured)
+			defer cancelParent()
+			started := time.Now()
+			ctx, cancel := resolvedDeadlineContext(parent, test.configured, test.card)
+			defer cancel()
+			deadline, ok := ctx.Deadline()
+			if !ok {
+				t.Fatal("resolved context has no deadline")
+			}
+			got := time.Until(deadline)
+			if got < test.want-2*time.Millisecond || got > test.want+20*time.Millisecond {
+				t.Fatalf("deadline=%s, want approximately %s (started %s)", got, test.want, time.Since(started))
+			}
+		})
+	}
+}
+
+func TestLedgerContextProvidesBoundedGraceAfterCancellation(t *testing.T) {
+	key := struct{}{}
+	parent := context.WithValue(context.Background(), key, "correlation")
+	canceled, cancelParent := context.WithCancel(parent)
+	cancelParent()
+	grace, release := ledgerContext(canceled)
+	defer release()
+	if grace.Err() != nil {
+		t.Fatalf("grace context already failed: %v", grace.Err())
+	}
+	if got := grace.Value(key); got != "correlation" {
+		t.Fatalf("grace context lost value: %v", got)
+	}
+	deadline, ok := grace.Deadline()
+	if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > ledgerCommitGrace {
+		t.Fatalf("grace deadline=%s ok=%v, want within %s", deadline, ok, ledgerCommitGrace)
+	}
+}
+
 func TestDispatchStreamingLedgerFailureAfterAgentChunkDoesNotFabricateTerminalFact(t *testing.T) {
 	resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: dispatchResolvedCard("https://agent.example/a2a")}}
 	transport := &streamingTransportStub{events: []streammodel.Event{{Kind: "message", Payload: json.RawMessage(`{"kind":"message","messageId":"message-a","taskId":"task-a","contextId":"ctx-a","role":"agent","parts":[{"kind":"data","data":{"value":"ok"}}]}`), TerminalType: contracts.ResultStreamEventCompleted, TerminalStatus: "succeeded"}}}

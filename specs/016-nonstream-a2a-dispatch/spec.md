@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-16
 
-**Status**: Non-stream implementation and active A2A negative corpus complete; streaming follow-up tracked in task T017
+**Status**: Complete; the non-stream implementation, active negative corpus, Review/Converge, and Spec 017 streaming limit follow-up are recorded
 
 **Input**: Spec 010 T006: implement non-streaming exact A2A dispatch and
 transient result delivery with mapped Router unit, HTTP, PostgreSQL, and A2A

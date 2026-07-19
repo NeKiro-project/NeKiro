@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-16
 
-**Status**: Ready for T001 contract and policy gate
+**Status**: T001-T002 merged; T003-T008 under integration review in PR #41; T009 is the next unstarted child
 
 **Input**: Define the next backend platform stage after Workspace acceptance,
 update the repository planning facts, and split the work into a GitHub parent

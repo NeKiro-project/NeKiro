@@ -60,7 +60,7 @@ gofmt -l apps agents contracts
 git diff --check
 ```
 
-PR #41 GitHub Actions run `29613739507` passed:
+PR #41 GitHub Actions run `29614928695` passed:
 
 - `workspace-integration`, including the PostgreSQL 17 Ledger integration suite
 - `go-quality`
@@ -100,7 +100,7 @@ and Frontend runtime remain unimplemented. Results and stream chunks remain
 transient; Ledger stores metadata only.
 
 ```text
-Fallback delta: removed 0, retained 0, added 0, net 0
+Fallback delta: removed 2, retained 0, added 0, net -2
 Added fallback evidence: none
 ```
 

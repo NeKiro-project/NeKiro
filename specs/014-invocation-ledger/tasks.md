@@ -55,7 +55,7 @@ one implementation owner. Review and Converge remain unchecked for root.
 
 2026-07-18 integration closure evidence:
 
-- PR #41 GitHub Actions run `29613739507` passed `workspace-integration`,
+- PR #41 GitHub Actions run `29614928695` passed `workspace-integration`,
   including the integration-tagged Ledger suite against PostgreSQL 17 with a
   coverage profile.
 - The integration branch passed `go test -count=1 ./...`, `go vet ./...`,
