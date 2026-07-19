@@ -591,7 +591,7 @@ func TestResolvedDeadlineContextUsesConfiguredAndCardMinimum(t *testing.T) {
 }
 
 func TestLedgerContextProvidesBoundedGraceAfterCancellation(t *testing.T) {
-	key := struct{}{}
+	var key ledgerContextTestKey
 	parent := context.WithValue(context.Background(), key, "correlation")
 	canceled, cancelParent := context.WithCancel(parent)
 	cancelParent()
@@ -608,6 +608,8 @@ func TestLedgerContextProvidesBoundedGraceAfterCancellation(t *testing.T) {
 		t.Fatalf("grace deadline=%s ok=%v, want within %s", deadline, ok, ledgerCommitGrace)
 	}
 }
+
+type ledgerContextTestKey struct{}
 
 func TestDispatchStreamingLedgerFailureAfterAgentChunkDoesNotFabricateTerminalFact(t *testing.T) {
 	resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: dispatchResolvedCard("https://agent.example/a2a")}}
