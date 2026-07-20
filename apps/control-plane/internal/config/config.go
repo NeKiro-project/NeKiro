@@ -33,11 +33,12 @@ type Config struct {
 }
 
 type InvocationRuntimeConfig struct {
-	RouterInternalURL       string
-	RouterBearerToken       string
-	PublicRequestLimitBytes int64
-	SSEEventLimitBytes      int64
-	DeadlineMS              int64
+	RouterInternalURL          string
+	RouterBearerToken          string
+	PublicRequestLimitBytes    int64
+	SSEEventLimitBytes         int64
+	MetadataResponseLimitBytes int64
+	DeadlineMS                 int64
 }
 
 type jsonFrame struct {
@@ -91,7 +92,6 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON is invalid: %w", err)
 	}
-
 	return Config{
 		DatabaseURL: databaseURL, ListenAddress: listenAddress, AuthMode: authMode,
 		Principals: principals, InternalAuthMode: internalAuthMode, InternalPrincipals: internalPrincipals,
@@ -146,11 +146,15 @@ func LoadInvocationRuntime() (InvocationRuntimeConfig, error) {
 	if err != nil {
 		return InvocationRuntimeConfig{}, err
 	}
+	metadataLimit, err := requiredStrictInt64("NEKIRO_GATEWAY_METADATA_RESPONSE_MAX_BYTES", 1, 2147483647)
+	if err != nil {
+		return InvocationRuntimeConfig{}, err
+	}
 	deadline, err := requiredStrictInt64("NEKIRO_GATEWAY_INVOCATION_DEADLINE_MS", 1, 600000)
 	if err != nil {
 		return InvocationRuntimeConfig{}, err
 	}
-	return InvocationRuntimeConfig{RouterInternalURL: routerURL, RouterBearerToken: token, PublicRequestLimitBytes: requestLimit, SSEEventLimitBytes: sseLimit, DeadlineMS: deadline}, nil
+	return InvocationRuntimeConfig{RouterInternalURL: routerURL, RouterBearerToken: token, PublicRequestLimitBytes: requestLimit, SSEEventLimitBytes: sseLimit, MetadataResponseLimitBytes: metadataLimit, DeadlineMS: deadline}, nil
 }
 
 func requiredStrictInt64(name string, minimum, maximum int64) (int64, error) {

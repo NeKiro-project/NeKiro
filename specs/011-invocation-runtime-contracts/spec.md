@@ -2,7 +2,7 @@
 
 **Feature Branch**: `codex/011-invocation-runtime-contracts`
 **Created**: 2026-07-16
-**Status**: Ready for implementation
+**Status**: Complete; contract tests, independent Review, Converge, and PR #32 merge are recorded
 **Input**: GitHub #20 / parent #19 contract and policy gate.
 
 ## Clarifications

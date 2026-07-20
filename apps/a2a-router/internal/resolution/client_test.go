@@ -1,0 +1,180 @@
+package resolution
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/Nene7ko/NeKiro/contracts"
+)
+
+const validResolveResponse = `{"card":{"schemaVersion":"0.2","agentId":"agent-a","name":"Agent","description":"Agent","owner":{"id":"team","displayName":"Team"},"version":"1.0.0","protocol":{"type":"a2a","version":"0.3.0","transport":"JSONRPC","endpoint":"https://agent.example/a2a"},"skills":[{"id":"capability-a","name":"Capability","description":"Capability","inputSchema":{},"outputSchema":{},"requiredPermissions":[]}],"authentication":{"type":"none"},"permissions":[],"limits":{"timeoutMs":1000,"maxInputBytes":1024,"maxOutputBytes":1024,"streaming":true}},"installation":{"installationId":"inst-a","workspaceId":"workspace-a","agentId":"agent-a","installedVersion":"1.0.0","acceptedPermissions":[],"status":"enabled"}}`
+
+func validResolveRequest() contracts.ResolveAgentRequest {
+	return contracts.ResolveAgentRequest{
+		InvocationID: "inv-a", RootTaskID: "task-a", TraceID: "trace-a",
+		WorkspaceID: "workspace-a", AgentID: "agent-a", Version: "1.0.0",
+		Capability: "capability-a",
+	}
+}
+
+func TestClientResolveSendsExactInternalV2Request(t *testing.T) {
+	requestValue := validResolveRequest()
+	var received contracts.ResolveAgentRequest
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/internal/v2/resolve-agent" || request.Method != http.MethodPost || request.Header.Get("Authorization") != "Bearer control-token" || request.Header.Get("Content-Type") != "application/json" || request.Header.Get("Accept") != "application/json" {
+			t.Errorf("unexpected request: %s %s %#v", request.Method, request.URL.Path, request.Header)
+		}
+		if err := json.NewDecoder(request.Body).Decode(&received); err != nil {
+			t.Error(err)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, validResolveResponse)
+	}))
+	defer server.Close()
+	client, err := NewClient(server.Client(), server.URL+"/internal/v2/resolve-agent", "control-token", 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := client.Resolve(context.Background(), requestValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if received != requestValue || resolved.Card.AgentID != requestValue.AgentID || resolved.Installation.InstalledVersion != requestValue.Version {
+		t.Fatalf("received=%#v resolved=%#v", received, resolved)
+	}
+}
+
+func TestClientResolveMapsTypedFailuresAndDependenciesWithoutRetry(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		calls++
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("x-nek-trace-id", "trace-a")
+		writer.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(writer, `{"code":"CAPABILITY_NOT_ALLOWED","message":"The requested capability is not allowed.","traceId":"trace-a","invocationId":"inv-a","rootTaskId":"task-a"}`)
+	}))
+	defer server.Close()
+	client, _ := NewClient(server.Client(), server.URL, "control-token", 1024)
+	_, err := client.Resolve(context.Background(), validResolveRequest())
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Code != contracts.ErrorCodeCapabilityNotAllowed || failure.StatusCode != http.StatusForbidden || failure.TraceID != "trace-a" || calls != 1 || string(failure.Body) == "" {
+		t.Fatalf("failure=%#v err=%v calls=%d", failure, err, calls)
+	}
+}
+
+func TestClientResolveRejectsSuccessThatChangesAuthorizedFacts(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{name: "changed Card Agent", body: strings.Replace(validResolveResponse, `"agentId":"agent-a"`, `"agentId":"agent-b"`, 1)},
+		{name: "changed Workspace", body: strings.Replace(validResolveResponse, `"workspaceId":"workspace-a"`, `"workspaceId":"workspace-b"`, 1)},
+		{name: "missing capability", body: strings.Replace(validResolveResponse, `"id":"capability-a"`, `"id":"capability-b"`, 1)},
+		{name: "unknown member", body: strings.Replace(validResolveResponse, `{"card":`, `{"unexpected":true,"card":`, 1)},
+		{name: "trailing value", body: validResolveResponse + `{}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(writer, test.body)
+			}))
+			defer server.Close()
+			client, err := NewClient(server.Client(), server.URL, "control-token", 4096)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := client.Resolve(context.Background(), validResolveRequest()); err == nil {
+				t.Fatal("unbound Control Plane success accepted")
+			}
+		})
+	}
+}
+
+func TestClientResolveRejectsUnsafeOrMismatchedError(t *testing.T) {
+	validBody := `{"code":"CAPABILITY_NOT_ALLOWED","message":"The requested capability is not allowed.","traceId":"trace-a","invocationId":"inv-a","rootTaskId":"task-a"}`
+	for _, test := range []struct {
+		name   string
+		body   string
+		header string
+	}{
+		{name: "unknown member", body: strings.Replace(validBody, `{"code":`, `{"detail":"secret","code":`, 1), header: "trace-a"},
+		{name: "non-fixed message", body: strings.Replace(validBody, "The requested capability is not allowed.", "raw dependency detail", 1), header: "trace-a"},
+		{name: "changed body trace", body: strings.Replace(validBody, `"traceId":"trace-a"`, `"traceId":"trace-b"`, 1), header: "trace-a"},
+		{name: "changed header trace", body: validBody, header: "trace-b"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				writer.Header().Set("x-nek-trace-id", test.header)
+				writer.WriteHeader(http.StatusForbidden)
+				_, _ = io.WriteString(writer, test.body)
+			}))
+			defer server.Close()
+			client, err := NewClient(server.Client(), server.URL, "control-token", 1024)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.Resolve(context.Background(), validResolveRequest())
+			var failure *Failure
+			if err == nil || errors.As(err, &failure) {
+				t.Fatalf("unsafe Control Plane error accepted: failure=%#v err=%v", failure, err)
+			}
+		})
+	}
+}
+
+func TestClientResolveDoesNotFollowRedirects(t *testing.T) {
+	targetCalls := 0
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		targetCalls++
+	}))
+	defer target.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Location", target.URL)
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer source.Close()
+	client, err := NewClient(source.Client(), source.URL, "control-token", 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Resolve(context.Background(), validResolveRequest()); err == nil {
+		t.Fatal("redirect response accepted")
+	}
+	if targetCalls != 0 {
+		t.Fatalf("redirect target calls = %d, want 0", targetCalls)
+	}
+}
+
+func TestClientResolveRejectsBadMediaAndOversize(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		contentType string
+		body        string
+		status      int
+	}{
+		{name: "bad media", contentType: "text/plain", body: "{}", status: http.StatusOK},
+		{name: "oversize", contentType: "application/json", body: `{"code":"DEPENDENCY_ERROR"}`, status: http.StatusOK},
+		{name: "missing trace header on error", contentType: "application/json", body: `{"code":"DEPENDENCY_ERROR"}`, status: http.StatusServiceUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", test.contentType)
+				writer.WriteHeader(test.status)
+				_, _ = io.WriteString(writer, test.body)
+			}))
+			defer server.Close()
+			client, _ := NewClient(server.Client(), server.URL, "control-token", 4)
+			if _, err := client.Resolve(context.Background(), validResolveRequest()); err == nil {
+				t.Fatal("invalid Control Plane response accepted")
+			}
+		})
+	}
+}

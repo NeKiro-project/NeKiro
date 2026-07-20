@@ -28,12 +28,13 @@ different Runtime implementations. See
 ## Current status
 
 The repository has an active language-neutral contract set and its tested Go
-mappings: Agent Card `0.2`, Workspace `v1`, Installation `v2`, Northbound API
-`v3`, Control Plane Internal API `v2`, Router Internal API `v2`, Invocation
-Event `0.2`, Platform Error `v2` / `v3`, Invocation Result and Result Stream Event
-`v1`, and A2A Profile Schema `0.2` for protocol `0.3.0`. Historical `v1` and
-`0.1` artifacts remain readable migration evidence; the runtime does not add
-speculative dual-read behavior for them.
+mappings: Agent Card `0.2`, Workspace `v1`, Installation `v2`, Control Plane
+Northbound `v3` plus the Invocation `v4` companion, Control Plane Internal API
+`v2`, Router Internal API `v3`, Agent Router API `v1`, Invocation Event `0.3`,
+Platform Error `v2` / `v3` / `v4` by owning surface, Invocation Result `v1`,
+Result Stream Event `v2`, and A2A Profile Schema `0.2` for protocol `0.3.0`.
+Historical contract generations remain migration evidence; the runtime does
+not add speculative dual-read behavior for them.
 
 The first runnable Control Plane Catalog slice implements durable,
 authenticated `Register -> Publish -> Discover -> Disable` behavior with
@@ -43,12 +44,16 @@ HTTP/PostgreSQL acceptance. Spec 003 now adds the durable owner-controlled
 Workspace and Installation runtime: exact published SemVer selection,
 permission snapshots, inspection pagination, lifecycle history, internal exact
 resolution, separate internal authentication, migrations, and unit/HTTP
-coverage. The cross-Runtime fixtures still prove metadata portability only; no
-Agent endpoint is invoked.
+coverage. Invocation Dispatch now authorizes exact installations and forwards
+live JSON/SSE only through the separately deployed A2A Router. The Router
+performs controlled exact resolution, invokes the deterministic Runtime B A2A
+sample, and records metadata-only append-only Ledger events with
+Workspace-scoped Invocation/Trace reads.
 
-Frontend work remains paused. Invocation Dispatch, the A2A Router, Ledger,
-SDKs, live sample Agents, and the complete end-to-end loop remain
-unimplemented.
+Frontend work remains paused. The thin Agent SDK, Runtime A, cross-Runtime
+nested invocation, and the complete clean-environment E2E acceptance remain
+unimplemented. Existing Router and Runtime B slices therefore do not yet prove
+the complete Phase 1 loop.
 
 The first-stage architecture keeps these boundaries:
 
@@ -66,8 +71,7 @@ Console
 
 The Control Plane is one deployment unit with internal domain boundaries. The
 A2A Router is a separate data-plane process. Cross-boundary data is defined in
-`contracts/`; PostgreSQL is the local persistence dependency. This describes
-the required first-stage shape, not a claim that every process already exists.
+`contracts/`; PostgreSQL is the local persistence dependency.
 
 ## Prerequisites
 
@@ -87,14 +91,15 @@ Copy-Item .env.example .env
 ```
 
 Set every required value in `.env`: PostgreSQL bootstrap values, the explicit
-Compose database URL, a development principal digest array, and the Control
-Plane host port. Raw bearer tokens do not belong in `.env`; no credential,
-identity, database, address, or port fallback is provided.
+Compose database URL, public/internal development principals, service tokens,
+Control Plane and Router host ports, and request/event/deadline limits. No
+required credential, identity, database, address, limit, or port has a runtime
+fallback.
 
 Validate the rendered Compose model without printing its environment, then
 start PostgreSQL and wait for its health check. The second command intentionally
-starts only the database; see the runbook for migration and Control Plane
-commands:
+starts only the database; see the runbook for Control Plane and Router migration
+and serving commands:
 
 ```powershell
 docker compose --env-file .env --file deploy/compose.yaml config --quiet

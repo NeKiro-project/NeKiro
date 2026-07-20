@@ -16,7 +16,7 @@ the integrated parent acceptance and independent closure review.
 **Purpose**: Freeze shared contracts and failure semantics before parallel
 runtime work. Workspace Issue #2 is closed; T001 is ready.
 
-- [ ] T001 Freeze the Invocation/Router/Ledger/SDK contract, credential, deadline, cancellation, and Ledger-failure policy in `specs/011-invocation-runtime-contracts/`, `contracts/`, and `docs/decisions/`
+- [X] T001 Freeze the Invocation/Router/Ledger/SDK contract, credential, deadline, cancellation, and Ledger-failure policy in `specs/011-invocation-runtime-contracts/`, `contracts/`, and `docs/decisions/`
 
 **Checkpoint**: Active version decisions, SDK-facing Router direction, Agent
 credential binding, size/deadline rules, and failure semantics are approved.
@@ -26,10 +26,10 @@ credential binding, size/deadline rules, and failure semantics are approved.
 **Purpose**: Establish disjoint process, authorization, persistence, and sample
 boundaries after T001. These four tasks are the maximum parallel batch.
 
-- [ ] T002 [P] Implement Control Plane Invocation Dispatch and Gateway live-result proxy with post-implementation tests in `specs/012-control-plane-invocation-dispatch/` and `apps/control-plane/internal/invocation/`
-- [ ] T003 [P] Build the strict A2A Router process, internal authentication, configuration, readiness, and Control Plane resolution client with post-implementation tests in `specs/013-a2a-router-foundation/`, `apps/a2a-router/cmd/a2a-router/`, `apps/a2a-router/internal/config/`, `apps/a2a-router/internal/auth/`, `apps/a2a-router/internal/resolution/`, and `apps/a2a-router/Dockerfile`
-- [ ] T004 [P] Implement the Router-owned append-only Ledger, transactional projection, migrations, and internal read API with post-implementation PostgreSQL tests in `specs/014-invocation-ledger/`, `apps/a2a-router/internal/ledger/`, and `apps/a2a-router/internal/api/ledger_handler.go`
-- [ ] T005 [P] Build the deterministic direct A2A callee sample and active-profile conformance evidence in `specs/015-direct-a2a-sample/` and `agents/runtime-b/`
+- [X] T002 [P] Implement Control Plane Invocation Dispatch and Gateway live-result proxy with post-implementation tests in `specs/012-control-plane-invocation-dispatch/` and `apps/control-plane/internal/invocation/`
+- [X] T003 [P] Build the strict A2A Router process, internal authentication, configuration, readiness, and Control Plane resolution client with post-implementation tests in `specs/013-a2a-router-foundation/`, `apps/a2a-router/cmd/a2a-router/`, `apps/a2a-router/internal/config/`, `apps/a2a-router/internal/auth/`, `apps/a2a-router/internal/resolution/`, and `apps/a2a-router/Dockerfile`
+- [X] T004 [P] Implement the Router-owned append-only Ledger, transactional projection, migrations, and internal read API with post-implementation PostgreSQL tests in `specs/014-invocation-ledger/`, `apps/a2a-router/internal/ledger/`, and `apps/a2a-router/internal/api/ledger_handler.go`
+- [X] T005 [P] Build the deterministic direct A2A callee sample and active-profile conformance evidence in `specs/015-direct-a2a-sample/` and `agents/runtime-b/`
 
 **Checkpoint**: Dispatch can target the Router contract, Router can resolve
 through Control Plane, Ledger can append/read durable facts, and one conforming
@@ -44,8 +44,8 @@ with transient JSON first, then ordered streaming/cancellation behavior.
 modes, verify exact correlation/result order, and prove the Control Plane never
 contacts the Agent directly.
 
-- [ ] T006 [US1] Implement non-streaming exact A2A dispatch and transient result delivery with post-implementation unit, HTTP, PostgreSQL, and A2A tests in `specs/016-nonstream-a2a-dispatch/` and `apps/a2a-router/internal/transport/a2a/`
-- [ ] T007 [P] [US1] Implement streaming, explicit deadline, HTTP disconnect cancellation, A2A task cancellation, and first-terminal-wins behavior with post-implementation SSE/race tests in `specs/017-stream-cancel-timeout/` and `apps/a2a-router/internal/taskcontext/`
+- [X] T006 [US1] Implement non-streaming exact A2A dispatch and transient result delivery with post-implementation unit, HTTP, PostgreSQL, and A2A tests in `specs/016-nonstream-a2a-dispatch/` and `apps/a2a-router/internal/transport/a2a/`
+- [X] T007 [P] [US1] Implement streaming, explicit deadline, HTTP disconnect cancellation, A2A task cancellation, and first-terminal-wins behavior with post-implementation SSE/race tests in `specs/017-streaming-a2a-events/` and `apps/a2a-router/internal/taskcontext/`
 
 **Checkpoint**: Root JSON and SSE calls are independently usable and produce
 durable metadata-only lifecycle facts.
@@ -58,7 +58,7 @@ Gateway while preserving Workspace isolation and Router ownership.
 **Independent Test**: Query success/failure facts and a trace after Router store
 reconstruction, including not-found, foreign Workspace, and dependency failure.
 
-- [ ] T008 [P] [US2] Implement authorized Northbound Invocation/Trace metadata reads and Router read proxies with post-implementation HTTP/restart/isolation tests in `specs/018-invocation-trace-reads/` and `apps/control-plane/internal/gateway/`
+- [X] T008 [P] [US2] Implement authorized Northbound Invocation/Trace metadata reads and Router read proxies with post-implementation HTTP/restart/isolation tests in `specs/018-invocation-trace-reads/` and `apps/control-plane/internal/gateway/`
 
 **Checkpoint**: A caller can inspect durable metadata but cannot retrieve input,
 output, chunks, credentials, or unrelated Workspace facts.
@@ -301,6 +301,19 @@ the Agent SDK and Router agent-facing nested adapter. The final review result is
 ## Fallback Report
 
 ```text
-Fallback delta: removed 0, retained 0, added 0, net 0
+Fallback delta: removed 2, retained 0, added 0, net -2
 Added fallback evidence: none
 ```
+
+## Phase 7: Convergence
+
+- [X] T012 [Review] Strictly validate Control Plane resolution success against the exact request and validate fixed, correlated error bodies before forwarding per FR-005/FR-016 (partial)
+- [X] T013 [Review] Reject Control Plane and Agent HTTP redirects so service credentials, platform context, and invocation bodies are never replayed to an alternate destination per FR-004/FR-005/FR-021 (contradicts)
+- [X] T014 [Review] Apply the effective configured/Card deadline to non-streaming calls, classify cancellation exactly, commit timeout/cancel terminals with bounded Ledger grace, and record coherent terminal time per FR-009/FR-010/FR-016 and ADR 0006 (partial)
+- [X] T015 [Review] Verify exact Ledger constraint column/type/FK/unique structure and immutable trigger operation, with weakened-schema PostgreSQL negatives, per FR-010/FR-012 and Spec 014 FR-009 (partial)
+- [X] T016 [Review] Remove the unrequested public CORS behavior and required origin configuration because no approved Spec/ADR owns it per FR-020 and the SDD constitution gate (unrequested)
+- [X] T017 [Review] Restore T011 ownership by removing Router Compose and persistent CI orchestration from the T003-T008 integration diff while retaining focused manual configuration per plan: delivery ownership (contradicts)
+- [X] T018 [Review] Make Runtime B emit a canceled terminal without later content or a generic error when tasks/cancel wins a stream-success race per FR-015/FR-019 (partial)
+- [X] T019 [Review] Include the Router Docker build context and runtime CA trust required by the approved HTTP/HTTPS Agent endpoint policy per plan: Router Dockerfile (partial)
+- [ ] T020 [Needs policy] Define Runtime B completed-task retention/capacity semantics in a future Spec before adding eviction, TTL, or silent task loss per FR-015/FR-020/FR-021 (partial)
+- [ ] T021 [Needs policy] Define Router/Runtime B header-timeout and graceful-shutdown behavior, configuration ownership, and in-flight SSE/Ledger semantics before implementation under T011 per US4/FR-009/FR-017/FR-020 (partial)
