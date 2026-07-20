@@ -545,7 +545,8 @@ func (handler *DispatchHandler) dispatchNonStreamingWithLedger(ctx context.Conte
 	if targetErr == nil {
 		initialEvents = append(initialEvents, lifecycleEvent(request, 2, "started", "running", startedAt.Add(2*time.Microsecond)))
 	}
-	if !handler.appendInitialLedgerEvents(ctx, writer, request, startedAt, initialEvents) {
+	childMode := request.ParentInvocationID != ""
+	if !handler.appendInitialLedgerEventsMode(ctx, writer, request, startedAt, initialEvents, childMode) {
 		return
 	}
 	if targetErr != nil {
@@ -599,11 +600,12 @@ func (handler *DispatchHandler) dispatchNonStreamingWithLedger(ctx context.Conte
 
 func (handler *DispatchHandler) dispatchStreamingWithLedger(ctx context.Context, cancel context.CancelFunc, response http.ResponseWriter, request contracts.DispatchInvocationRequestV3, resolved contracts.ResolveAgentResponse) {
 	startedAt := time.Now().UTC().Truncate(time.Microsecond)
-	if !handler.appendInitialLedgerEvents(ctx, response, request, startedAt, []contracts.InvocationEventV03{
+	childMode := request.ParentInvocationID != ""
+	if !handler.appendInitialLedgerEventsMode(ctx, response, request, startedAt, []contracts.InvocationEventV03{
 		lifecycleEvent(request, 0, "created", "pending", startedAt),
 		lifecycleEvent(request, 1, "routing", "routing", startedAt.Add(time.Microsecond)),
 		lifecycleEvent(request, 2, "started", "running", startedAt.Add(2*time.Microsecond)),
-	}) {
+	}, childMode) {
 		return
 	}
 	appendEvent := func(event contracts.InvocationEventV03) error {
@@ -770,6 +772,14 @@ func ledgerContext(ctx context.Context) (context.Context, context.CancelFunc) {
 }
 
 func (handler *DispatchHandler) appendInitialLedgerEvents(ctx context.Context, writer http.ResponseWriter, request contracts.DispatchInvocationRequestV3, startedAt time.Time, events []contracts.InvocationEventV03) bool {
+	return handler.appendInitialLedgerEventsMode(ctx, writer, request, startedAt, events, false)
+}
+
+// appendInitialLedgerEventsMode appends initial lifecycle events. When
+// childMode is true and the sequence-0 created event fails, a
+// pre-correlation error is written because child acceptance never occurred
+// (FR-008). After sequence-0 commits, correlated errors are used.
+func (handler *DispatchHandler) appendInitialLedgerEventsMode(ctx context.Context, writer http.ResponseWriter, request contracts.DispatchInvocationRequestV3, startedAt time.Time, events []contracts.InvocationEventV03, childMode bool) bool {
 	for _, event := range events {
 		if err := handler.ledger.Append(ctx, event); err == nil {
 			continue
@@ -788,7 +798,13 @@ func (handler *DispatchHandler) appendInitialLedgerEvents(ctx context.Context, w
 				}
 			}
 		}
-		handler.writeCorrelatedError(writer, request, contracts.ErrorCodeDependency)
+		// In child mode, sequence-0 failure means child acceptance never
+		// occurred; emit a pre-correlation error per FR-008.
+		if childMode && event.Sequence == 0 {
+			handler.writePreError(writer, request.TraceID, contracts.ErrorCodeDependency)
+		} else {
+			handler.writeCorrelatedError(writer, request, contracts.ErrorCodeDependency)
+		}
 		return false
 	}
 	return true

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 
+	semver "github.com/Masterminds/semver/v3"
 	"github.com/Nene7ko/NeKiro/contracts"
 )
 
@@ -197,6 +198,14 @@ func (client *Client) ResolveInstalledVersion(ctx context.Context, requestValue 
 	}
 	if err := requireEOF(decoder); err != nil {
 		return contracts.ResolveInstalledVersionResponse{}, fmt.Errorf("decode version resolution response: %w", err)
+	}
+	// Validate the required x-nek-trace-id header on success.
+	if _, err := contracts.ParseTraceID(response.Header.Get("x-nek-trace-id")); err != nil {
+		return contracts.ResolveInstalledVersionResponse{}, errors.New("control plane version resolution success trace header is invalid")
+	}
+	// Validate the resolved version is a strict semver.
+	if _, err := semver.StrictNewVersion(resolved.Version); err != nil {
+		return contracts.ResolveInstalledVersionResponse{}, errors.New("control plane version resolution returned an invalid version")
 	}
 	return resolved, nil
 }
