@@ -26,10 +26,11 @@ func (client *Client) SendNonStreaming(ctx context.Context, dispatch contracts.D
 		return nil, err
 	}
 	result, err := client.SendMessage(ctx, target, ContextHeaders{
-		TraceID:      dispatch.TraceID,
-		InvocationID: dispatch.InvocationID,
-		RootTaskID:   dispatch.RootTaskID,
-		WorkspaceID:  dispatch.WorkspaceID,
+		TraceID:            dispatch.TraceID,
+		InvocationID:       dispatch.InvocationID,
+		RootTaskID:         dispatch.RootTaskID,
+		ParentInvocationID: dispatch.ParentInvocationID,
+		WorkspaceID:        dispatch.WorkspaceID,
 	}, params)
 	if err != nil {
 		return nil, err

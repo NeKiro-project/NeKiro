@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/ledger"
 	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/nested"
+	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/resolution"
 	"github.com/Nene7ko/NeKiro/contracts"
 )
 
@@ -124,11 +124,7 @@ func (handler *AgentInvocationHandler) serve(writer http.ResponseWriter, request
 	// by the authenticated Agent binding and parent target check).
 	parent, err := handler.ledgerReader.GetInvocationByParentID(ctx, nestedRequest.ParentInvocationID)
 	if err != nil {
-		code := contracts.ErrorCodeNotFound
-		if errors.Is(err, ledger.ErrDependency) {
-			code = contracts.ErrorCodeDependency
-		}
-		handler.writePreError(writer, code)
+		handler.writePreError(writer, classifyNestedError(err, contracts.ErrorCodeNotFound))
 		return
 	}
 
@@ -146,8 +142,9 @@ func (handler *AgentInvocationHandler) serve(writer http.ResponseWriter, request
 	}
 
 	// Step 7: Resolve the installed version from the Control Plane.
-	// Map all dependency failures to a safe v4 pre-correlation error;
-	// never forward the Control Plane error body across the Agent boundary.
+	// Map typed resolver failures to their safe public v4 pre-correlation
+	// semantics; never forward the Control Plane error body across the
+	// Agent Router v1 boundary.
 	versionResponse, err := handler.versionResolver.ResolveInstalledVersion(ctx, contracts.ResolveInstalledVersionRequest{
 		InvocationID: childContext.ChildInvocationID,
 		RootTaskID:   childContext.RootTaskID,
@@ -157,11 +154,13 @@ func (handler *AgentInvocationHandler) serve(writer http.ResponseWriter, request
 		Capability:   nestedRequest.Capability,
 	})
 	if err != nil {
-		handler.writePreError(writer, contracts.ErrorCodeDependency)
+		handler.writePreError(writer, classifyNestedError(err, contracts.ErrorCodeDependency))
 		return
 	}
 
 	// Step 8: Build the trusted child dispatch request and delegate.
+	// Pass the bounded context so DispatchChild does not start a fresh
+	// deadline from the original request context.
 	childDispatchRequest := nested.BuildChildDispatchRequest(
 		childContext,
 		nestedRequest.TargetAgentID,
@@ -170,7 +169,7 @@ func (handler *AgentInvocationHandler) serve(writer http.ResponseWriter, request
 		nestedRequest.Stream,
 		versionResponse.Version,
 	)
-	handler.dispatchHandler.DispatchChild(writer, request, childDispatchRequest, accept)
+	handler.dispatchHandler.DispatchChild(writer, request.WithContext(ctx), childDispatchRequest, accept)
 }
 
 // nestedRequestDTO is the wire representation of the nested invocation request
@@ -275,4 +274,23 @@ func (handler *AgentInvocationHandler) writePreError(writer http.ResponseWriter,
 		return
 	}
 	writeJSON(writer, status, traceID, payload)
+}
+
+// classifyNestedError maps errors from parent lookup and version resolution
+// to their safe Agent Router v4 pre-correlation error code. Deadline and
+// cancellation errors are classified as TIMEOUT/CANCELED per ADR 0006.
+// Typed resolution failures preserve their public semantics (NOT_FOUND,
+// FORBIDDEN, etc.). Transport/unknown failures use the provided fallback.
+func classifyNestedError(err error, fallback contracts.PlatformErrorCode) contracts.PlatformErrorCode {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return contracts.ErrorCodeTimeout
+	}
+	if errors.Is(err, context.Canceled) {
+		return contracts.ErrorCodeCanceled
+	}
+	var failure *resolution.Failure
+	if errors.As(err, &failure) {
+		return failure.Code
+	}
+	return fallback
 }

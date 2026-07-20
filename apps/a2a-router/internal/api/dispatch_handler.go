@@ -223,12 +223,14 @@ func (handler *DispatchHandler) DispatchChild(writer http.ResponseWriter, reques
 		code := contracts.ErrorCodeDependency
 		var failure *resolution.Failure
 		if errors.As(err, &failure) {
-			writeRawJSON(writer, failure.StatusCode, failure.TraceID, failure.Body)
-			return
+			// Map the typed failure code to a safe v4 pre-correlation
+			// error; never forward the Control Plane body across the
+			// Agent Router v1 boundary before child created commit.
+			code = failure.Code
 		} else if errors.Is(err, context.DeadlineExceeded) {
 			code = contracts.ErrorCodeTimeout
 		}
-		handler.writeCorrelatedError(writer, dispatchRequest, code)
+		handler.writePreError(writer, dispatchRequest.TraceID, code)
 		return
 	}
 	if handler.transport != nil && dispatchRequest.Stream {

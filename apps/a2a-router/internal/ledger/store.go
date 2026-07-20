@@ -142,6 +142,37 @@ WHERE workspace_id = $1 AND invocation_id = $2`, workspaceID, invocationID))
 	return result, nil
 }
 
+// GetInvocationByParentID reads a committed Invocation by its ID alone,
+// without workspace scoping. This is a trusted internal lookup used by the
+// nested Agent handler where workspace isolation is enforced by the
+// authenticated Agent binding, parent target check, and child resolution.
+func (store *Store) GetInvocationByParentID(ctx context.Context, invocationID string) (result contracts.InvocationDetailResponseV4, returnErr error) {
+	tx, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return result, dependencyError("begin parent Invocation read", err)
+	}
+	defer rollback(ctx, tx, &returnErr, "parent Invocation read")
+	result.Invocation, err = scanProjection(tx.QueryRow(ctx, projectionSelect+`
+WHERE invocation_id = $1`, invocationID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return result, ErrNotFound
+	}
+	if err != nil {
+		return result, dependencyError("read parent Invocation projection", err)
+	}
+	result.Events, err = readEvents(ctx, tx, invocationID)
+	if err != nil {
+		return result, dependencyError("read parent Invocation events", err)
+	}
+	if err := store.validator.ValidateInvocationDetailResponseV4(result.Invocation.WorkspaceID, result); err != nil {
+		return result, dependencyError("validate stored parent Invocation detail", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return result, dependencyError("commit parent Invocation read", err)
+	}
+	return result, nil
+}
+
 func (store *Store) GetTrace(ctx context.Context, workspaceID string, traceID contracts.TraceID) (contracts.TraceResponseV4, error) {
 	rows, err := store.pool.Query(ctx, projectionSelect+`
 WHERE workspace_id = $1 AND trace_id = $2
