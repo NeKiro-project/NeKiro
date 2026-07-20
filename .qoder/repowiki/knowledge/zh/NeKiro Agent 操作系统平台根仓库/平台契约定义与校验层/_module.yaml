@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: contracts
+title: 平台契约定义与校验层
+scope:
+    - contracts/
+source_files: []
+depends_on: []
+related_to: []

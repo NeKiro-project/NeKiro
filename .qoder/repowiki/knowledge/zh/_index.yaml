@@ -1,0 +1,82 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: codex/021-invocation-dispatch
+nodes_managed: true
+exported_at: "2026-07-20T03:07:34Z"
+modules:
+    "":
+        dir_name: NeKiro Agent 操作系统平台根仓库
+        title: NeKiro Agent 操作系统平台根仓库
+        scope:
+            - README.md
+            - .gitignore
+            - .dockerignore
+            - .editorconfig
+            - .gitattributes
+            - go.mod
+            - go.sum
+            - package.json
+            - pnpm-workspace.yaml
+            - pnpm-lock.yaml
+            - tsconfig.base.json
+            - vitest.config.ts
+            - .env.example
+            - AGENTS.md
+            - LICENSE
+        source_files: []
+        children:
+            - contracts
+            - docs
+            - specs
+            - tests
+        depends_on: []
+        related_to: []
+    contracts:
+        dir_name: 平台契约定义与校验层
+        title: 平台契约定义与校验层
+        scope:
+            - contracts/
+        source_files: []
+        children:
+            - contracts/go_validation_layer
+        depends_on: []
+        related_to: []
+    contracts/go_validation_layer:
+        dir_name: 平台契约类型与 JSON Schema 校验层
+        title: 平台契约类型与 JSON Schema 校验层
+        scope:
+            - contracts/contracts.go
+            - contracts/validate.go
+            - contracts/a2a_profile_v02.go
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    docs:
+        dir_name: 项目文档与架构决策记录
+        title: 项目文档与架构决策记录
+        scope:
+            - docs/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    specs:
+        dir_name: NeKiro 平台特性规格集（Feature Specs）
+        title: NeKiro 平台特性规格集（Feature Specs）
+        scope:
+            - specs/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    tests:
+        dir_name: Catalog 集成测试套件
+        title: Catalog 集成测试套件
+        scope:
+            - tests/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []

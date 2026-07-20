@@ -1,0 +1,22 @@
+schema_version: 1
+module_path: ""
+title: NeKiro Agent 操作系统平台根仓库
+scope:
+    - README.md
+    - .gitignore
+    - .dockerignore
+    - .editorconfig
+    - .gitattributes
+    - go.mod
+    - go.sum
+    - package.json
+    - pnpm-workspace.yaml
+    - pnpm-lock.yaml
+    - tsconfig.base.json
+    - vitest.config.ts
+    - .env.example
+    - AGENTS.md
+    - LICENSE
+source_files: []
+depends_on: []
+related_to: []

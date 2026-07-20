@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: contracts/go_validation_layer
+title: 平台契约类型与 JSON Schema 校验层
+scope:
+    - contracts/contracts.go
+    - contracts/validate.go
+    - contracts/a2a_profile_v02.go
+source_files: []
+depends_on: []
+related_to: []

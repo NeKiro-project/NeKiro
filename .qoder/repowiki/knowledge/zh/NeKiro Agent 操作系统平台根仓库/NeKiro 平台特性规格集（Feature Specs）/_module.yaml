@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: specs
+title: NeKiro 平台特性规格集（Feature Specs）
+scope:
+    - specs/
+source_files: []
+depends_on: []
+related_to: []
