@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/auth"
+	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/ledger"
 	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/nested"
+	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/resolution"
 	streammodel "github.com/Nene7ko/NeKiro/apps/a2a-router/internal/stream"
 	"github.com/Nene7ko/NeKiro/contracts"
 )
@@ -206,7 +208,7 @@ func TestAgentHandlerModeNegotiation(t *testing.T) {
 }
 
 func TestAgentHandlerParentNotFound(t *testing.T) {
-	ledgerReader := &mockNestedLedgerReader{err: errors.New("not found")}
+	ledgerReader := &mockNestedLedgerReader{err: ledger.ErrNotFound}
 	handler, token := newTestAgentHandler(t, ledgerReader, &mockVersionResolver{})
 
 	req := httptest.NewRequest("POST", "/agent/v1/invocations", strings.NewReader(validNestedBody()))
@@ -329,7 +331,7 @@ func TestAgentHandlerPayloadTooLarge(t *testing.T) {
 }
 
 func TestAgentHandlerErrorResponseShape(t *testing.T) {
-	handler, token := newTestAgentHandler(t, &mockNestedLedgerReader{err: errors.New("not found")}, &mockVersionResolver{})
+	handler, token := newTestAgentHandler(t, &mockNestedLedgerReader{err: ledger.ErrNotFound}, &mockVersionResolver{})
 
 	req := httptest.NewRequest("POST", "/agent/v1/invocations", strings.NewReader(validNestedBody()))
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -670,5 +672,79 @@ func TestAgentHandlerNestedSSESuccessPath(t *testing.T) {
 		if event.ParentInvocationID != "inv_parent123" {
 			t.Errorf("event[%d].ParentInvocationID = %s, want inv_parent123", i, event.ParentInvocationID)
 		}
+	}
+}
+
+// TestAgentHandlerDispatchChildResolverFailure verifies that Control Plane
+// resolution failures after version lookup are mapped through the Agent
+// boundary (not forwarded raw).
+func TestAgentHandlerDispatchChildResolverFailure(t *testing.T) {
+	tests := []struct {
+		name       string
+		cpCode     contracts.PlatformErrorCode
+		wantStatus int
+		wantCode   contracts.PlatformErrorCode
+	}{
+		{"installation disabled", contracts.ErrorCodeInstallationDisabled, http.StatusForbidden, contracts.ErrorCodeForbidden},
+		{"agent not installed", contracts.ErrorCodeAgentNotInstalled, http.StatusNotFound, contracts.ErrorCodeNotFound},
+		{"capability not allowed", contracts.ErrorCodeCapabilityNotAllowed, http.StatusForbidden, contracts.ErrorCodeForbidden},
+		{"internal unauthenticated", contracts.ErrorCodeUnauthenticated, http.StatusServiceUnavailable, contracts.ErrorCodeDependency},
+		{"internal validation", contracts.ErrorCodeValidationError, http.StatusServiceUnavailable, contracts.ErrorCodeDependency},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			agentToken := "agent-test-token"
+			binding, _ := nested.NewAgentBinding([]nested.AgentPrincipal{
+				{AgentID: "agent_caller01", TokenSHA256: agentTokenDigest(agentToken)},
+			})
+			serviceAuth, _ := auth.NewStaticAuthenticator([]auth.Principal{
+				{ID: "router-service", TokenSHA256: agentTokenDigest("service-token")},
+			})
+
+			// Resolver fails with a typed Control Plane error.
+			resolver := &resolverStub{err: &resolution.Failure{
+				StatusCode: http.StatusForbidden,
+				Code:       tt.cpCode,
+				TraceID:    "trc_cp_internal_1",
+				Body:       []byte(`{"code":"` + string(tt.cpCode) + `","message":"internal","traceId":"trc_cp_internal_1","invocationId":"inv-x","rootTaskId":"task-x"}`),
+			}}
+
+			transport := &transportStub{result: json.RawMessage(`{}`)}
+			ledgerRec := &ledgerRecorder{}
+			dispatchHandler, err := NewDispatchHandlerWithTransportAndLedger(serviceAuth, resolver, transport, ledgerRec, 1048576, 30*time.Second)
+			if err != nil {
+				t.Fatalf("NewDispatchHandlerWithTransportAndLedger() error = %v", err)
+			}
+
+			ledgerReader := &mockNestedLedgerReader{invocation: runningParentDetail()}
+			versionResolver := &mockVersionResolver{response: contracts.ResolveInstalledVersionResponse{Version: "2.0.0"}}
+
+			handler, err := NewAgentInvocationHandler(binding, ledgerReader, versionResolver, dispatchHandler, 1048576, 30*time.Second)
+			if err != nil {
+				t.Fatalf("NewAgentInvocationHandler() error = %v", err)
+			}
+
+			req := httptest.NewRequest("POST", "/agent/v1/invocations", strings.NewReader(validNestedBody()))
+			req.Header.Set("Authorization", "Bearer "+agentToken)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Accept", "application/json")
+			rec := httptest.NewRecorder()
+			handler.serve(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d; body = %s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			var errorBody map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &errorBody); err != nil {
+				t.Fatalf("decode error body: %v", err)
+			}
+			if errorBody["code"] != string(tt.wantCode) {
+				t.Errorf("error code = %v, want %s", errorBody["code"], tt.wantCode)
+			}
+			// Must be pre-correlation (no invocationId/rootTaskId).
+			if _, exists := errorBody["invocationId"]; exists {
+				t.Error("expected pre-correlation error without invocationId")
+			}
+		})
 	}
 }

@@ -1,6 +1,7 @@
 package nested
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -158,4 +159,27 @@ func TestNewInvocationIDUniqueness(t *testing.T) {
 		}
 		ids[id] = struct{}{}
 	}
+}
+
+func TestDeriveChildContextIDSourceFailure(t *testing.T) {
+	// Inject a failing entropy source to simulate crypto/random failure.
+	original := invocationIDSource
+	invocationIDSource = failingReader{}
+	defer func() { invocationIDSource = original }()
+
+	parent := runningParent()
+	_, err := DeriveChildContext(parent, "agent_caller01")
+	if err == nil {
+		t.Fatal("expected error from failing ID source")
+	}
+	// The error should not be one of the known parent-state errors.
+	if errors.Is(err, ErrParentNotFound) || errors.Is(err, ErrParentNotRunning) || errors.Is(err, ErrParentTargetMismatch) {
+		t.Errorf("ID source failure should not map to parent-state error, got %v", err)
+	}
+}
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) {
+	return 0, errors.New("entropy source failure")
 }

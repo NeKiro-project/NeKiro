@@ -136,7 +136,11 @@ func (handler *AgentInvocationHandler) serve(writer http.ResponseWriter, request
 	// target of that parent invocation.
 	parent, err := handler.ledgerReader.GetInvocationByParentID(ctx, nestedRequest.ParentInvocationID)
 	if err != nil {
-		handler.writePreError(writer, classifyNestedError(ctx, err, contracts.ErrorCodeNotFound))
+		code := contracts.ErrorCodeDependency
+		if errors.Is(err, ledger.ErrNotFound) {
+			code = contracts.ErrorCodeNotFound
+		}
+		handler.writePreError(writer, classifyNestedError(ctx, err, code))
 		return
 	}
 

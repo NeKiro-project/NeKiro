@@ -1,8 +1,8 @@
 # Implementation Plan: Agent SDK Nested Invocation
 
-**Branch**: `codex/016-nonstream-a2a-dispatch` | **Date**: 2026-07-16 | **Spec**: [spec.md](spec.md)
+**Branch**: `codex/019-agent-sdk-nested-invocation` | **Date**: 2026-07-16 | **Spec**: [spec.md](spec.md)
 
-**Status**: T000 resolved; implementation active.
+**Status**: Implementation complete; Control Plane v3 handler deferred to #30.
 
 ## Summary
 
