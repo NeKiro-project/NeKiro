@@ -27,9 +27,9 @@ credential binding, size/deadline rules, and failure semantics are approved.
 boundaries after T001. These four tasks are the maximum parallel batch.
 
 - [X] T002 [P] Implement Control Plane Invocation Dispatch and Gateway live-result proxy with post-implementation tests in `specs/012-control-plane-invocation-dispatch/` and `apps/control-plane/internal/invocation/`
-- [ ] T003 [P] Build the strict A2A Router process, internal authentication, configuration, readiness, and Control Plane resolution client with post-implementation tests in `specs/013-a2a-router-foundation/`, `apps/a2a-router/cmd/a2a-router/`, `apps/a2a-router/internal/config/`, `apps/a2a-router/internal/auth/`, `apps/a2a-router/internal/resolution/`, and `apps/a2a-router/Dockerfile`
-- [ ] T004 [P] Implement the Router-owned append-only Ledger, transactional projection, migrations, and internal read API with post-implementation PostgreSQL tests in `specs/014-invocation-ledger/`, `apps/a2a-router/internal/ledger/`, and `apps/a2a-router/internal/api/ledger_handler.go`
-- [ ] T005 [P] Build the deterministic direct A2A callee sample and active-profile conformance evidence in `specs/015-direct-a2a-sample/` and `agents/runtime-b/`
+- [X] T003 [P] Build the strict A2A Router process, internal authentication, configuration, readiness, and Control Plane resolution client with post-implementation tests in `specs/013-a2a-router-foundation/`, `apps/a2a-router/cmd/a2a-router/`, `apps/a2a-router/internal/config/`, `apps/a2a-router/internal/auth/`, `apps/a2a-router/internal/resolution/`, and `apps/a2a-router/Dockerfile`
+- [X] T004 [P] Implement the Router-owned append-only Ledger, transactional projection, migrations, and internal read API with post-implementation PostgreSQL tests in `specs/014-invocation-ledger/`, `apps/a2a-router/internal/ledger/`, and `apps/a2a-router/internal/api/ledger_handler.go`
+- [X] T005 [P] Build the deterministic direct A2A callee sample and active-profile conformance evidence in `specs/015-direct-a2a-sample/` and `agents/runtime-b/`
 
 **Checkpoint**: Dispatch can target the Router contract, Router can resolve
 through Control Plane, Ledger can append/read durable facts, and one conforming
@@ -44,8 +44,8 @@ with transient JSON first, then ordered streaming/cancellation behavior.
 modes, verify exact correlation/result order, and prove the Control Plane never
 contacts the Agent directly.
 
-- [ ] T006 [US1] Implement non-streaming exact A2A dispatch and transient result delivery with post-implementation unit, HTTP, PostgreSQL, and A2A tests in `specs/016-nonstream-a2a-dispatch/` and `apps/a2a-router/internal/transport/a2a/`
-- [ ] T007 [P] [US1] Implement streaming, explicit deadline, HTTP disconnect cancellation, A2A task cancellation, and first-terminal-wins behavior with post-implementation SSE/race tests in `specs/017-streaming-a2a-events/` and `apps/a2a-router/internal/taskcontext/`
+- [X] T006 [US1] Implement non-streaming exact A2A dispatch and transient result delivery with post-implementation unit, HTTP, PostgreSQL, and A2A tests in `specs/016-nonstream-a2a-dispatch/` and `apps/a2a-router/internal/transport/a2a/`
+- [X] T007 [P] [US1] Implement streaming, explicit deadline, HTTP disconnect cancellation, A2A task cancellation, and first-terminal-wins behavior with post-implementation SSE/race tests in `specs/017-streaming-a2a-events/` and `apps/a2a-router/internal/taskcontext/`
 
 **Checkpoint**: Root JSON and SSE calls are independently usable and produce
 durable metadata-only lifecycle facts.

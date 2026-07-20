@@ -221,6 +221,7 @@ func (handler *DispatchHandler) dispatch(writer http.ResponseWriter, request *ht
 		handler.writePreError(writer, dispatchRequest.TraceID, contracts.ErrorCodeValidationError)
 		return
 	}
+	invocationStartedAt := time.Now()
 	ctx, cancel := context.WithTimeout(request.Context(), handler.deadline)
 	defer cancel()
 	resolved, err := handler.resolver.Resolve(ctx, contracts.ResolveAgentRequest{
@@ -261,7 +262,7 @@ func (handler *DispatchHandler) dispatch(writer http.ResponseWriter, request *ht
 			handler.writePreError(writer, dispatchRequest.TraceID, dispatchErrorCode(err))
 			return
 		}
-		streamCtx, streamCancel := resolvedDeadlineContext(ctx, handler.deadline, resolved.Card.Limits.TimeoutMS)
+		streamCtx, streamCancel := resolvedDeadlineContext(ctx, resolved.Card.Limits.TimeoutMS, invocationStartedAt)
 		defer streamCancel()
 		handler.dispatchStreamingWithLedger(streamCtx, func() {
 			cancel()
@@ -283,7 +284,7 @@ func (handler *DispatchHandler) dispatch(writer http.ResponseWriter, request *ht
 			handler.writePreError(writer, dispatchRequest.TraceID, dispatchErrorCode(err))
 			return
 		}
-		nonStreamingCtx, nonStreamingCancel := resolvedDeadlineContext(ctx, handler.deadline, resolved.Card.Limits.TimeoutMS)
+		nonStreamingCtx, nonStreamingCancel := resolvedDeadlineContext(ctx, resolved.Card.Limits.TimeoutMS, invocationStartedAt)
 		defer nonStreamingCancel()
 		if handler.ledger != nil {
 			handler.dispatchNonStreamingWithLedger(nonStreamingCtx, writer, dispatchRequest, resolved, nil)
@@ -301,12 +302,16 @@ func (handler *DispatchHandler) dispatch(writer http.ResponseWriter, request *ht
 	handler.writeCorrelatedError(writer, dispatchRequest, contracts.ErrorCodeRouteNotFound)
 }
 
-func resolvedDeadlineContext(parent context.Context, configured time.Duration, timeoutMS int64) (context.Context, context.CancelFunc) {
+func resolvedDeadlineContext(parent context.Context, timeoutMS int64, invocationStartedAt time.Time) (context.Context, context.CancelFunc) {
 	cardDeadline := time.Duration(timeoutMS) * time.Millisecond
-	if cardDeadline > 0 && cardDeadline < configured {
-		return context.WithTimeout(parent, cardDeadline)
+	if cardDeadline <= 0 {
+		return parent, func() {}
 	}
-	return parent, func() {}
+	cardDeadlineAt := invocationStartedAt.Add(cardDeadline)
+	if parentDeadline, ok := parent.Deadline(); ok && !cardDeadlineAt.Before(parentDeadline) {
+		return parent, func() {}
+	}
+	return context.WithDeadline(parent, cardDeadlineAt)
 }
 
 var errPayloadTooLarge = errors.New("router dispatch payload is too large")
@@ -405,39 +410,34 @@ func (handler *DispatchHandler) writeInvocationResult(writer http.ResponseWriter
 
 func (handler *DispatchHandler) dispatchNonStreamingWithLedger(ctx context.Context, writer http.ResponseWriter, request contracts.DispatchInvocationRequestV3, resolved contracts.ResolveAgentResponse, targetErr error) {
 	startedAt := time.Now().UTC().Truncate(time.Microsecond)
-	for _, event := range []contracts.InvocationEventV03{
+	initialEvents := []contracts.InvocationEventV03{
 		lifecycleEvent(request, 0, "created", "pending", startedAt),
 		lifecycleEvent(request, 1, "routing", "routing", startedAt.Add(time.Microsecond)),
-	} {
-		if err := handler.ledger.Append(ctx, event); err != nil {
-			handler.writeCorrelatedError(writer, request, contracts.ErrorCodeDependency)
-			return
-		}
+	}
+	if targetErr == nil {
+		initialEvents = append(initialEvents, lifecycleEvent(request, 2, "started", "running", startedAt.Add(2*time.Microsecond)))
+	}
+	if !handler.appendInitialLedgerEvents(ctx, writer, request, startedAt, initialEvents) {
+		return
 	}
 	if targetErr != nil {
 		code := dispatchErrorCode(targetErr)
-		event, buildErr := terminalLifecycleEvent(request, 2, "failed", "failed", startedAt.Add(2*time.Microsecond), 0, code)
-		if buildErr != nil || handler.ledger.Append(ctx, event) != nil {
+		event, buildErr := terminalLifecycleEvent(request, 2, "failed", "failed", terminalOccurredAt(startedAt, 2), 0, code)
+		appendCtx, release := ledgerContext(ctx)
+		defer release()
+		if buildErr != nil || handler.ledger.Append(appendCtx, event) != nil {
 			handler.writeCorrelatedError(writer, request, contracts.ErrorCodeDependency)
 			return
 		}
 		handler.writeCorrelatedError(writer, request, code)
 		return
 	}
-	if err := handler.ledger.Append(ctx, lifecycleEvent(request, 2, "started", "running", startedAt.Add(2*time.Microsecond))); err != nil {
-		handler.writeCorrelatedError(writer, request, contracts.ErrorCodeDependency)
-		return
-	}
-
 	result, err := handler.transport.SendNonStreaming(ctx, request, resolved)
 	if err == nil && ctx.Err() != nil {
 		err = ctx.Err()
 	}
 	latencyMS := time.Since(startedAt).Milliseconds()
-	terminalAt := time.Now().UTC().Truncate(time.Microsecond)
-	if minimum := startedAt.Add(3 * time.Microsecond); terminalAt.Before(minimum) {
-		terminalAt = minimum
-	}
+	terminalAt := terminalOccurredAt(startedAt, 3)
 	if err != nil {
 		code := dispatchErrorCode(err)
 		eventType, status := "failed", "failed"
@@ -471,20 +471,17 @@ func (handler *DispatchHandler) dispatchNonStreamingWithLedger(ctx context.Conte
 
 func (handler *DispatchHandler) dispatchStreamingWithLedger(ctx context.Context, cancel context.CancelFunc, response http.ResponseWriter, request contracts.DispatchInvocationRequestV3, resolved contracts.ResolveAgentResponse) {
 	startedAt := time.Now().UTC().Truncate(time.Microsecond)
+	if !handler.appendInitialLedgerEvents(ctx, response, request, startedAt, []contracts.InvocationEventV03{
+		lifecycleEvent(request, 0, "created", "pending", startedAt),
+		lifecycleEvent(request, 1, "routing", "routing", startedAt.Add(time.Microsecond)),
+		lifecycleEvent(request, 2, "started", "running", startedAt.Add(2*time.Microsecond)),
+	}) {
+		return
+	}
 	appendEvent := func(event contracts.InvocationEventV03) error {
 		appendCtx, release := ledgerContext(ctx)
 		defer release()
 		return handler.ledger.Append(appendCtx, event)
-	}
-	for _, event := range []contracts.InvocationEventV03{
-		lifecycleEvent(request, 0, "created", "pending", startedAt),
-		lifecycleEvent(request, 1, "routing", "routing", startedAt.Add(time.Microsecond)),
-		lifecycleEvent(request, 2, "started", "running", startedAt.Add(2*time.Microsecond)),
-	} {
-		if err := appendEvent(event); err != nil {
-			handler.writeCorrelatedError(response, request, contracts.ErrorCodeDependency)
-			return
-		}
 	}
 
 	streamSequence, err := contracts.NewRuntimeResultStreamSequenceValidator(handler.streamValidator, request.InvocationID, request.RootTaskID, request.TraceID)
@@ -604,7 +601,7 @@ func (handler *DispatchHandler) dispatchStreamingWithLedger(ctx context.Context,
 			}
 		}
 		if terminal.Type == contracts.ResultStreamEventCompleted {
-			ledgerTerminal := lifecycleEvent(request, ledgerSequence, "succeeded", "succeeded", startedAt.Add(time.Duration(ledgerSequence)*time.Microsecond))
+			ledgerTerminal := lifecycleEvent(request, ledgerSequence, "succeeded", "succeeded", terminalOccurredAt(startedAt, ledgerSequence))
 			latency := time.Since(startedAt).Milliseconds()
 			ledgerTerminal.LatencyMS = &latency
 			if err := appendEvent(ledgerTerminal); err != nil {
@@ -644,14 +641,58 @@ func ledgerContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), ledgerCommitGrace)
 }
 
+func (handler *DispatchHandler) appendInitialLedgerEvents(ctx context.Context, writer http.ResponseWriter, request contracts.DispatchInvocationRequestV3, startedAt time.Time, events []contracts.InvocationEventV03) bool {
+	for _, event := range events {
+		if err := handler.ledger.Append(ctx, event); err == nil {
+			continue
+		} else if event.Sequence > 0 {
+			if code, eventType, status, ok := contextTerminal(ctx); ok {
+				terminal, buildErr := terminalLifecycleEvent(request, event.Sequence, eventType, status, terminalOccurredAt(startedAt, event.Sequence), time.Since(startedAt).Milliseconds(), code)
+				appendCtx, release := ledgerContext(ctx)
+				appendErr := buildErr
+				if appendErr == nil {
+					appendErr = handler.ledger.Append(appendCtx, terminal)
+				}
+				release()
+				if appendErr == nil {
+					handler.writeCorrelatedError(writer, request, code)
+					return false
+				}
+			}
+		}
+		handler.writeCorrelatedError(writer, request, contracts.ErrorCodeDependency)
+		return false
+	}
+	return true
+}
+
+func contextTerminal(ctx context.Context) (contracts.PlatformErrorCode, string, string, bool) {
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return contracts.ErrorCodeTimeout, "timed_out", "timed_out", true
+	case errors.Is(ctx.Err(), context.Canceled):
+		return contracts.ErrorCodeCanceled, "canceled", "canceled", true
+	default:
+		return "", "", "", false
+	}
+}
+
 func (handler *DispatchHandler) appendStreamingTerminal(ctx context.Context, request contracts.DispatchInvocationRequestV3, sequence int64, startedAt time.Time, latency int64, code contracts.PlatformErrorCode, eventType, status string) error {
-	event, err := terminalLifecycleEvent(request, sequence, eventType, status, startedAt.Add(time.Duration(sequence)*time.Microsecond), latency, code)
+	event, err := terminalLifecycleEvent(request, sequence, eventType, status, terminalOccurredAt(startedAt, sequence), latency, code)
 	if err != nil {
 		return err
 	}
 	appendCtx, release := ledgerContext(ctx)
 	defer release()
 	return handler.ledger.Append(appendCtx, event)
+}
+
+func terminalOccurredAt(startedAt time.Time, sequence int64) time.Time {
+	occurredAt := time.Now().UTC().Truncate(time.Microsecond)
+	if minimum := startedAt.Add(time.Duration(sequence) * time.Microsecond); occurredAt.Before(minimum) {
+		return minimum
+	}
+	return occurredAt
 }
 
 func (handler *DispatchHandler) finishStreamingFailure(ctx context.Context, cancel context.CancelFunc, writer *resultStreamWriter, sequence *contracts.RuntimeResultStreamSequenceValidator, request contracts.DispatchInvocationRequestV3, startedAt time.Time, streamSequence, ledgerSequence int64, code contracts.PlatformErrorCode) {

@@ -34,11 +34,21 @@ type resolverStub struct {
 	response contracts.ResolveAgentResponse
 	calls    int
 	err      error
+	delay    time.Duration
 }
 
-func (stub *resolverStub) Resolve(_ context.Context, request contracts.ResolveAgentRequest) (contracts.ResolveAgentResponse, error) {
+func (stub *resolverStub) Resolve(ctx context.Context, request contracts.ResolveAgentRequest) (contracts.ResolveAgentResponse, error) {
 	stub.calls++
 	stub.request = request
+	if stub.delay > 0 {
+		timer := time.NewTimer(stub.delay)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return contracts.ResolveAgentResponse{}, ctx.Err()
+		}
+	}
 	return stub.response, stub.err
 }
 
@@ -86,12 +96,14 @@ type inputPreflightTransportStub struct {
 
 type deadlineTransportStub struct {
 	transportStub
+	deadlineAt time.Time
 }
 
 func (stub *deadlineTransportStub) SendNonStreaming(ctx context.Context, dispatch contracts.DispatchInvocationRequestV3, resolved contracts.ResolveAgentResponse) (json.RawMessage, error) {
 	stub.calls++
 	stub.dispatch = dispatch
 	stub.resolved = resolved
+	stub.deadlineAt, _ = ctx.Deadline()
 	<-ctx.Done()
 	return nil, ctx.Err()
 }
@@ -133,6 +145,12 @@ type ledgerRecorder struct {
 	err          error
 }
 
+type cancelingLedgerRecorder struct {
+	events []contracts.InvocationEventV03
+	cancel context.CancelFunc
+	delay  time.Duration
+}
+
 type failingStreamWriter struct {
 	header http.Header
 }
@@ -147,6 +165,23 @@ func (writer *failingStreamWriter) Flush() {}
 func (recorder *ledgerRecorder) Append(_ context.Context, event contracts.InvocationEventV03) error {
 	if recorder.err != nil && event.Sequence == recorder.failSequence {
 		return recorder.err
+	}
+	recorder.events = append(recorder.events, event)
+	return nil
+}
+
+func (recorder *cancelingLedgerRecorder) Append(ctx context.Context, event contracts.InvocationEventV03) error {
+	if event.Type == "created" {
+		recorder.events = append(recorder.events, event)
+		if recorder.delay > 0 {
+			time.Sleep(recorder.delay)
+		} else {
+			recorder.cancel()
+		}
+		return nil
+	}
+	if event.Type == "routing" {
+		return ctx.Err()
 	}
 	recorder.events = append(recorder.events, event)
 	return nil
@@ -317,6 +352,7 @@ func TestDispatchWithLedgerPreTransportFailureSkipsAgentCall(t *testing.T) {
 }
 
 func TestDispatchWithLedgerRecordsTargetValidationFailureWithoutStartingAgent(t *testing.T) {
+	before := time.Now().UTC().Add(-time.Millisecond)
 	resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: dispatchResolvedCard("https://agent.example/a2a")}}
 	transport := &inputPreflightTransportStub{
 		transportStub: transportStub{targetErr: codedTransportError{code: contracts.ErrorCodeAgentAuthUnsupported}},
@@ -335,6 +371,10 @@ func TestDispatchWithLedgerRecordsTargetValidationFailureWithoutStartingAgent(t 
 	if terminal.Error == nil || terminal.Error.Code != contracts.ErrorCodeAgentAuthUnsupported || terminal.LatencyMS == nil {
 		t.Fatalf("terminal event=%#v", terminal)
 	}
+	occurredAt, err := time.Parse(time.RFC3339Nano, terminal.OccurredAt)
+	if err != nil || occurredAt.Before(before) || occurredAt.After(time.Now().UTC().Add(time.Second)) {
+		t.Fatalf("target failure occurred_at=%s is not current: %v", terminal.OccurredAt, err)
+	}
 	if transport.calls != 0 {
 		t.Fatalf("transport calls=%d, want 0", transport.calls)
 	}
@@ -343,7 +383,52 @@ func TestDispatchWithLedgerRecordsTargetValidationFailureWithoutStartingAgent(t 
 	}
 }
 
+func TestDispatchWithLedgerCancellationAfterAcceptanceCommitsTerminal(t *testing.T) {
+	requestContext, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: dispatchResolvedCard("https://agent.example/a2a")}}
+	transport := &transportStub{result: json.RawMessage(`{"kind":"message"}`)}
+	ledger := &cancelingLedgerRecorder{cancel: cancel}
+	handler := newDispatchLedgerTestHandler(t, authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096)
+	request := httptest.NewRequest(http.MethodPost, "/internal/v3/invocations", strings.NewReader(validDispatchBody(false))).WithContext(requestContext)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	var platformError contracts.CorrelatedPlatformErrorV4
+	if response.Code != http.StatusConflict || json.Unmarshal(response.Body.Bytes(), &platformError) != nil || platformError.Code != contracts.ErrorCodeCanceled {
+		t.Fatalf("status=%d error=%#v body=%s", response.Code, platformError, response.Body.String())
+	}
+	assertLedgerLifecycle(t, ledger.events, []string{"created", "canceled"})
+	if transport.calls != 0 {
+		t.Fatalf("transport calls=%d, want 0", transport.calls)
+	}
+}
+
+func TestDispatchWithLedgerTimeoutAfterAcceptanceCommitsTerminal(t *testing.T) {
+	requestContext, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: dispatchResolvedCard("https://agent.example/a2a")}}
+	transport := &transportStub{result: json.RawMessage(`{"kind":"message"}`)}
+	ledger := &cancelingLedgerRecorder{delay: 25 * time.Millisecond}
+	handler := newDispatchLedgerTestHandler(t, authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096)
+	request := httptest.NewRequest(http.MethodPost, "/internal/v3/invocations", strings.NewReader(validDispatchBody(false))).WithContext(requestContext)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	var platformError contracts.CorrelatedPlatformErrorV4
+	if response.Code != http.StatusGatewayTimeout || json.Unmarshal(response.Body.Bytes(), &platformError) != nil || platformError.Code != contracts.ErrorCodeTimeout {
+		t.Fatalf("status=%d error=%#v body=%s", response.Code, platformError, response.Body.String())
+	}
+	assertLedgerLifecycle(t, ledger.events, []string{"created", "timed_out"})
+	if transport.calls != 0 {
+		t.Fatalf("transport calls=%d, want 0", transport.calls)
+	}
+}
+
 func TestDispatchStreamingEmitsStrictCorrelatedFramesAndMetadataLedger(t *testing.T) {
+	before := time.Now().UTC().Add(-time.Millisecond)
 	resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: dispatchResolvedCard("https://agent.example/a2a")}}
 	transport := &streamingTransportStub{events: []streammodel.Event{
 		{Kind: "task", Payload: json.RawMessage(`{"kind":"task","id":"task-a","contextId":"ctx-a","status":{"state":"working"}}`)},
@@ -403,6 +488,10 @@ func TestDispatchStreamingEmitsStrictCorrelatedFramesAndMetadataLedger(t *testin
 	}
 	if ledger.events[6].Type != "succeeded" || ledger.events[6].Error != nil {
 		t.Fatalf("terminal ledger event=%#v", ledger.events[6])
+	}
+	occurredAt, err := time.Parse(time.RFC3339Nano, ledger.events[6].OccurredAt)
+	if err != nil || occurredAt.Before(before) || occurredAt.After(time.Now().UTC().Add(time.Second)) {
+		t.Fatalf("stream terminal occurred_at=%s is not current: %v", ledger.events[6].OccurredAt, err)
 	}
 }
 
@@ -561,7 +650,36 @@ func TestDispatchNonStreamingUsesResolvedCardDeadline(t *testing.T) {
 	}
 }
 
+func TestDispatchNonStreamingCardDeadlineIncludesResolutionTime(t *testing.T) {
+	card := dispatchResolvedCard("https://agent.example/a2a")
+	card.Limits.TimeoutMS = 100
+	resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: card}, delay: 80 * time.Millisecond}
+	transport := &deadlineTransportStub{}
+	ledger := &ledgerRecorder{}
+	handler, err := NewDispatchHandlerWithTransportAndLedger(
+		authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport,
+		ledger, 4096, 500*time.Millisecond,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+	started := time.Now()
+	response := invokeDispatch(mux, "application/json", "application/json", validDispatchBody(false))
+	if response.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if transport.deadlineAt.IsZero() || transport.deadlineAt.After(started.Add(160*time.Millisecond)) {
+		t.Fatalf("Card deadline started after resolution: started=%s deadline=%s", started, transport.deadlineAt)
+	}
+	if len(ledger.events) != 4 || ledger.events[3].Status != "timed_out" {
+		t.Fatalf("ledger=%#v", ledger.events)
+	}
+}
+
 func TestResolvedDeadlineContextUsesConfiguredAndCardMinimum(t *testing.T) {
+	startedAt := time.Now()
 	for _, test := range []struct {
 		name       string
 		configured time.Duration
@@ -576,14 +694,14 @@ func TestResolvedDeadlineContextUsesConfiguredAndCardMinimum(t *testing.T) {
 			parent, cancelParent := context.WithTimeout(context.Background(), test.configured)
 			defer cancelParent()
 			started := time.Now()
-			ctx, cancel := resolvedDeadlineContext(parent, test.configured, test.card)
+			ctx, cancel := resolvedDeadlineContext(parent, test.card, startedAt)
 			defer cancel()
 			deadline, ok := ctx.Deadline()
 			if !ok {
 				t.Fatal("resolved context has no deadline")
 			}
 			got := time.Until(deadline)
-			if got < test.want-2*time.Millisecond || got > test.want+20*time.Millisecond {
+			if got < test.want-20*time.Millisecond || got > test.want+20*time.Millisecond {
 				t.Fatalf("deadline=%s, want approximately %s (started %s)", got, test.want, time.Since(started))
 			}
 		})

@@ -23,8 +23,8 @@
 
 ## Phase 4: Independent Delivery Gates
 
-- [ ] T013 Independent Review by an agent that did not implement this branch
-- [ ] T014 Converge Review findings and complete fresh independent Review
+- [X] T013 Independent Review by an agent that did not implement this branch
+- [X] T014 Converge Review findings and complete fresh independent Review
 
 ## Dependencies
 
@@ -65,4 +65,20 @@ one implementation owner. Review and Converge remain unchecked for root.
 - The integration diff adds no retry, cache, alternate store, compatibility
   branch, degraded success, or other fallback.
 
-T013 and T014 remain open until independent Review and Converge complete.
+2026-07-20 final delivery gate:
+
+- Independent Review agents rechecked the Router deadline, lifecycle terminal
+  timestamps, and accepted-Invocation cancellation/timeout window. No P0/P1/P2
+  findings remain after convergence.
+- Converge fixed absolute Card deadline accounting, real current terminal
+  timestamps for every non-stream/stream terminal path, and bounded terminal
+  Ledger commits when cancellation or timeout occurs after `created`.
+- Regression coverage includes slow resolution, target-validation terminal
+  timestamps, streaming terminal timestamps, and accepted-Invocation
+  cancellation/timeout before the Agent call.
+- `go test -count=1 ./...`, `go test -race ./apps/a2a-router/internal/api`,
+  `go vet ./...`, `go build ./...`, `go mod tidy -diff`, and
+  `git diff --check` passed.
+
+T013 and T014 are complete. Fallback delta: removed 2, retained 0, added 0,
+net -2. Added fallback evidence: none.
