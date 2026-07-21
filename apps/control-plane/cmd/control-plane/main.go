@@ -117,7 +117,7 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	workspaceHandler, err := gateway.NewWorkspaceHandler(authenticator, internalAuthenticator, workspaceService, traces, logger)
+	workspaceHandler, err := gateway.NewWorkspaceHandler(authenticator, internalAuthenticator, workspaceService, traces, logger, invocationConfig.InternalRequestLimitBytes)
 	if err != nil {
 		return err
 	}

@@ -14,7 +14,9 @@ const (
 	fixtureSuccess       fixtureKind = "success"
 	fixtureStreamSuccess fixtureKind = "stream-success"
 	fixtureFailure       fixtureKind = "failure"
+	fixtureProtocol      fixtureKind = "protocol"
 	fixtureHold          fixtureKind = "hold"
+	fixtureInterrupted   fixtureKind = "interrupted"
 )
 
 var errFixtureFailure = errors.New("runtime-b deterministic fixture failure")
@@ -60,7 +62,7 @@ func parseFixture(params *a2a.MessageSendParams) (fixtureRequest, error) {
 
 	kind := fixtureKind(fixture)
 	switch kind {
-	case fixtureSuccess, fixtureStreamSuccess, fixtureFailure, fixtureHold:
+	case fixtureSuccess, fixtureStreamSuccess, fixtureFailure, fixtureProtocol, fixtureHold, fixtureInterrupted:
 	default:
 		return fixtureRequest{}, invalidParams("fixture is not supported")
 	}

@@ -37,11 +37,21 @@ func (h *Handler) OnSendMessage(_ context.Context, params *a2a.MessageSendParams
 		return successMessage(params.Message, request), nil
 	case fixtureFailure:
 		return nil, errFixtureFailure
+	case fixtureProtocol:
+		return protocolTask(params.Message), nil
 	case fixtureStreamSuccess, fixtureHold:
 		return nil, invalidParams("fixture requires message/stream")
 	default:
 		return nil, invalidParams("fixture is not supported")
 	}
+}
+
+func protocolTask(input *a2a.Message) *a2a.Task {
+	contextID := input.ContextID
+	if contextID == "" {
+		contextID = derivedID("context", input.ID)
+	}
+	return &a2a.Task{ID: a2a.TaskID(derivedID("protocol-task", input.ID)), ContextID: contextID, Status: a2a.TaskStatus{State: a2a.TaskStateWorking}, History: []*a2a.Message{cloneMessage(input)}}
 }
 
 func (h *Handler) OnSendMessageStream(ctx context.Context, params *a2a.MessageSendParams) iter.Seq2[a2a.Event, error] {
@@ -55,7 +65,7 @@ func (h *Handler) OnSendMessageStream(ctx context.Context, params *a2a.MessageSe
 			yield(nil, errFixtureFailure)
 			return
 		}
-		if request.kind != fixtureStreamSuccess && request.kind != fixtureHold {
+		if request.kind != fixtureStreamSuccess && request.kind != fixtureHold && request.kind != fixtureInterrupted {
 			yield(nil, invalidParams("fixture requires message/send"))
 			return
 		}
@@ -83,6 +93,16 @@ func (h *Handler) OnSendMessageStream(ctx context.Context, params *a2a.MessageSe
 			}
 			terminal = true
 			yield(statusEvent(task.task, a2a.TaskStateCanceled, true), nil)
+			return
+		}
+		if request.kind == fixtureInterrupted {
+			if !yield(streamMessage(task.task, request), nil) {
+				return
+			}
+			artifactID := a2a.ArtifactID(derivedID("artifact", params.Message.ID))
+			if !yield(artifactEvent(task.task, artifactID, request, false, false, 0), nil) {
+				return
+			}
 			return
 		}
 

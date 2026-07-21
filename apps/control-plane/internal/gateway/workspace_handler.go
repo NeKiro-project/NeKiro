@@ -25,6 +25,7 @@ type WorkspaceService interface {
 	UpdateInstallation(context.Context, workspace.AuthenticatedCaller, string, string, string) (contracts.Installation, error)
 	Uninstall(context.Context, workspace.AuthenticatedCaller, string, string) (contracts.Installation, error)
 	Resolve(context.Context, contracts.ResolveAgentRequest) (contracts.ResolveAgentResponse, error)
+	ResolveInstalledVersion(context.Context, contracts.ResolveInstalledVersionRequest) (contracts.ResolveInstalledVersionResponse, error)
 }
 
 type WorkspaceHandler struct {
@@ -33,6 +34,7 @@ type WorkspaceHandler struct {
 	service               WorkspaceService
 	traces                *TraceGenerator
 	logger                *slog.Logger
+	internalRequestLimit  int64
 }
 
 type installRequestWire struct {
@@ -45,11 +47,11 @@ type updateInstallationRequestWire struct {
 	Status json.RawMessage `json:"status"`
 }
 
-func NewWorkspaceHandler(authenticator, internalAuthenticator Authenticator, service WorkspaceService, traces *TraceGenerator, logger *slog.Logger) (*WorkspaceHandler, error) {
-	if authenticator == nil || internalAuthenticator == nil || service == nil || traces == nil || logger == nil {
+func NewWorkspaceHandler(authenticator, internalAuthenticator Authenticator, service WorkspaceService, traces *TraceGenerator, logger *slog.Logger, internalRequestLimit int64) (*WorkspaceHandler, error) {
+	if authenticator == nil || internalAuthenticator == nil || service == nil || traces == nil || logger == nil || internalRequestLimit < contracts.RuntimeByteLimitMinimum || internalRequestLimit > contracts.RuntimeByteLimitMaximum {
 		return nil, errors.New("workspace gateway dependencies are required")
 	}
-	return &WorkspaceHandler{authenticator: authenticator, internalAuthenticator: internalAuthenticator, service: service, traces: traces, logger: logger}, nil
+	return &WorkspaceHandler{authenticator: authenticator, internalAuthenticator: internalAuthenticator, service: service, traces: traces, logger: logger, internalRequestLimit: internalRequestLimit}, nil
 }
 
 func (handler *WorkspaceHandler) Routes() http.Handler {
@@ -69,6 +71,29 @@ func (handler *WorkspaceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /v3/workspaces/{workspaceId}/installations/{installationId}", handler.updateInstallation)
 	mux.HandleFunc("DELETE /v3/workspaces/{workspaceId}/installations/{installationId}", handler.uninstall)
 	mux.HandleFunc("POST /internal/v2/resolve-agent", handler.resolveAgent)
+	mux.HandleFunc("POST /internal/v3/resolve-installed-version", handler.resolveInstalledVersion)
+}
+
+func (handler *WorkspaceHandler) resolveInstalledVersion(writer http.ResponseWriter, request *http.Request) {
+	generatedTrace := handler.traces.Next()
+	writer.Header().Set(TraceHeader, string(generatedTrace))
+	caller, err := handler.internalAuthenticator.Authenticate(request)
+	if err != nil || caller.ID == "" {
+		_ = writeWorkspaceError(writer, generatedTrace, contracts.ErrorCodeUnauthenticated, nil)
+		return
+	}
+	var value contracts.ResolveInstalledVersionRequest
+	if err := readStrictJSONWithLimit(writer, request, &value, handler.internalRequestLimit); err != nil || !validInstalledVersionCorrelation(value) {
+		_ = writeWorkspaceError(writer, generatedTrace, contracts.ErrorCodeValidationError, nil)
+		return
+	}
+	resolved, err := handler.service.ResolveInstalledVersion(request.Context(), value)
+	if err != nil {
+		handler.logger.WarnContext(request.Context(), "installed version resolution failed", "trace_id", value.TraceID, "operation", "resolve_installed_version", "code", workspaceErrorCode(err))
+		_ = writeInstalledVersionError(writer, value, workspaceErrorCode(err))
+		return
+	}
+	handler.writeJSON(writer, value.TraceID, http.StatusOK, resolved)
 }
 
 func (handler *WorkspaceHandler) begin(writer http.ResponseWriter, request *http.Request, operation string, authenticator Authenticator) (contracts.TraceID, workspace.AuthenticatedCaller, bool) {
@@ -280,7 +305,11 @@ func parseInstallationQuery(rawQuery string) (int, *string, error) {
 }
 
 func readStrictJSON(writer http.ResponseWriter, request *http.Request, destination any) error {
-	request.Body = http.MaxBytesReader(writer, request.Body, contracts.WorkspaceRequestMaximumBodyBytes)
+	return readStrictJSONWithLimit(writer, request, destination, contracts.WorkspaceRequestMaximumBodyBytes)
+}
+
+func readStrictJSONWithLimit(writer http.ResponseWriter, request *http.Request, destination any, limit int64) error {
+	request.Body = http.MaxBytesReader(writer, request.Body, limit)
 	data, err := io.ReadAll(request.Body)
 	if closeErr := request.Body.Close(); err == nil {
 		err = closeErr
@@ -304,6 +333,29 @@ func readStrictJSON(writer http.ResponseWriter, request *http.Request, destinati
 		return err
 	}
 	return nil
+}
+
+func validInstalledVersionCorrelation(request contracts.ResolveInstalledVersionRequest) bool {
+	if !workspace.ValidIdentifier(request.InvocationID) || !workspace.ValidIdentifier(request.RootTaskID) || !workspace.ValidIdentifier(request.WorkspaceID) || !workspace.ValidIdentifier(request.AgentID) || !workspace.ValidIdentifier(request.Capability) {
+		return false
+	}
+	_, err := contracts.ParseTraceID(string(request.TraceID))
+	return err == nil
+}
+
+func writeInstalledVersionError(writer http.ResponseWriter, request contracts.ResolveInstalledVersionRequest, code contracts.PlatformErrorCode) error {
+	status, err := workspaceErrorStatus(code)
+	if err != nil {
+		return err
+	}
+	payload, err := contracts.NewCorrelatedPlatformErrorV3(code, request.TraceID, request.InvocationID, request.RootTaskID)
+	if err != nil {
+		return err
+	}
+	writer.Header().Set(TraceHeader, string(request.TraceID))
+	writer.Header().Set("Content-Type", "application/json")
+	writer.WriteHeader(status)
+	return json.NewEncoder(writer).Encode(payload)
 }
 
 func readInstallRequest(writer http.ResponseWriter, request *http.Request) (contracts.InstallAgentRequest, error) {

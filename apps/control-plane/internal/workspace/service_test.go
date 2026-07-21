@@ -431,6 +431,29 @@ func TestAuthorizeInvocationReturnsExactCurrentPinAfterOwnerAndCapabilityPolicy(
 	}
 }
 
+func TestResolveInstalledVersionUsesEnabledPinAndCapabilityPolicy(t *testing.T) {
+	card := testWorkspaceCard("runtime-b", "1.4.2", []string{"text.read"}, []string{"text.read"})
+	reader := &memoryCatalog{versions: map[string]catalog.AgentVersion{"runtime-b/1.4.2": {Card: card, Status: catalog.PublicationPublished}}}
+	store := newMemoryStore()
+	store.workspaces["workspace-a"] = contracts.Workspace{WorkspaceID: "workspace-a", OwnerID: "owner-a"}
+	store.installations["installation-b"] = contracts.Installation{InstallationID: "installation-b", WorkspaceID: "workspace-a", AgentID: "runtime-b", InstalledVersion: "1.4.2", AcceptedPermissions: []string{"text.read"}, Status: "enabled"}
+	service := newWorkspaceTestService(t, store, reader)
+	request := contracts.ResolveInstalledVersionRequest{InvocationID: "inv-child", RootTaskID: "task-root", TraceID: "trace-root", WorkspaceID: "workspace-a", AgentID: "runtime-b", Capability: "capability.read"}
+
+	resolved, err := service.ResolveInstalledVersion(context.Background(), request)
+	if err != nil || resolved.Version != "1.4.2" {
+		t.Fatalf("resolved version=%#v err=%v", resolved, err)
+	}
+	store.installations["installation-b"] = contracts.Installation{InstallationID: "installation-b", WorkspaceID: "workspace-a", AgentID: "runtime-b", InstalledVersion: "1.4.2", AcceptedPermissions: []string{}, Status: "enabled"}
+	if _, err := service.ResolveInstalledVersion(context.Background(), request); !errors.Is(err, ErrCapabilityNotAllowed) {
+		t.Fatalf("missing permission error=%v", err)
+	}
+	delete(store.installations, "installation-b")
+	if _, err := service.ResolveInstalledVersion(context.Background(), request); !errors.Is(err, ErrAgentNotInstalled) {
+		t.Fatalf("missing installation error=%v", err)
+	}
+}
+
 func TestInstallRejectsUnknownPermissionBeforePersistence(t *testing.T) {
 	card := testWorkspaceCard("agent-permission", "1.0.0", []string{"declared"}, nil)
 	reader := &memoryCatalog{candidates: []catalog.AgentVersion{{Card: card, Status: catalog.PublicationPublished}}}

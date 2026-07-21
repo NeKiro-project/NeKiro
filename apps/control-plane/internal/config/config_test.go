@@ -123,7 +123,7 @@ func TestLoadInvocationRuntimeRequiresExactNoDefaultConfiguration(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.RouterInternalURL != "http://router.test:8081/internal/v3/invocations" || loaded.RouterBearerToken != "router-secret" || loaded.PublicRequestLimitBytes != 1048576 || loaded.SSEEventLimitBytes != 65536 || loaded.MetadataResponseLimitBytes != 1048576 || loaded.DeadlineMS != 30000 {
+	if loaded.RouterInternalURL != "http://router.test:8081/internal/v3/invocations" || loaded.RouterBearerToken != "router-secret" || loaded.InternalRequestLimitBytes != 1048576 || loaded.PublicRequestLimitBytes != 1048576 || loaded.SSEEventLimitBytes != 65536 || loaded.MetadataResponseLimitBytes != 1048576 || loaded.DeadlineMS != 30000 {
 		t.Fatalf("loaded invocation config = %#v", loaded)
 	}
 }
@@ -136,6 +136,7 @@ func TestLoadInvocationRuntimeRejectsInvalidDestinationSecretAndNumbers(t *testi
 		{"URL query", "NEKIRO_ROUTER_INTERNAL_URL", "http://router.test:8081/internal/v3/invocations?target=other"},
 		{"blank token", "NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN", ""},
 		{"token whitespace", "NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN", "secret token"},
+		{"zero internal body", "NEKIRO_CONTROL_PLANE_INTERNAL_REQUEST_MAX_BYTES", "0"},
 		{"zero body", "NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES", "0"},
 		{"signed body", "NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES", "+1"},
 		{"fraction SSE", "NEKIRO_GATEWAY_SSE_EVENT_MAX_BYTES", "1.5"},
@@ -157,7 +158,7 @@ func TestLoadInvocationRuntimeRejectsInvalidDestinationSecretAndNumbers(t *testi
 }
 
 func TestLoadInvocationRuntimeRejectsEveryMissingVariable(t *testing.T) {
-	for _, variable := range []string{"NEKIRO_ROUTER_INTERNAL_URL", "NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN", "NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES", "NEKIRO_GATEWAY_SSE_EVENT_MAX_BYTES", "NEKIRO_GATEWAY_METADATA_RESPONSE_MAX_BYTES", "NEKIRO_GATEWAY_INVOCATION_DEADLINE_MS"} {
+	for _, variable := range []string{"NEKIRO_ROUTER_INTERNAL_URL", "NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN", "NEKIRO_CONTROL_PLANE_INTERNAL_REQUEST_MAX_BYTES", "NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES", "NEKIRO_GATEWAY_SSE_EVENT_MAX_BYTES", "NEKIRO_GATEWAY_METADATA_RESPONSE_MAX_BYTES", "NEKIRO_GATEWAY_INVOCATION_DEADLINE_MS"} {
 		t.Run(variable, func(t *testing.T) {
 			setValidInvocationRuntime(t)
 			if err := os.Unsetenv(variable); err != nil {
@@ -174,6 +175,7 @@ func setValidInvocationRuntime(t *testing.T) {
 	t.Helper()
 	t.Setenv("NEKIRO_ROUTER_INTERNAL_URL", "http://router.test:8081/internal/v3/invocations")
 	t.Setenv("NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN", "router-secret")
+	t.Setenv("NEKIRO_CONTROL_PLANE_INTERNAL_REQUEST_MAX_BYTES", "1048576")
 	t.Setenv("NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES", "1048576")
 	t.Setenv("NEKIRO_GATEWAY_SSE_EVENT_MAX_BYTES", "65536")
 	t.Setenv("NEKIRO_GATEWAY_METADATA_RESPONSE_MAX_BYTES", "1048576")

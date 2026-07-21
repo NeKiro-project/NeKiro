@@ -3,6 +3,14 @@
 !go.sum
 !contracts/
 !contracts/**
+!sdks/
+!sdks/agent-sdk/
+!sdks/agent-sdk/**
+!agents/
+!agents/runtime-a/
+!agents/runtime-a/**
+!agents/runtime-b/
+!agents/runtime-b/**
 !apps/
 !apps/control-plane/
 !apps/control-plane/**

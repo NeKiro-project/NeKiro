@@ -44,6 +44,17 @@ func TestHandlerSendMessageDeterministicSuccessAndFailure(t *testing.T) {
 	}
 }
 
+func TestHandlerProtocolFixtureReturnsNonTerminalTask(t *testing.T) {
+	result, err := NewHandler().OnSendMessage(t.Context(), fixtureParams("message-protocol", fixtureProtocol, "protocol"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, ok := result.(*a2a.Task)
+	if !ok || task.Status.State != a2a.TaskStateWorking || task.ID == "" {
+		t.Fatalf("protocol fixture result=%#v", result)
+	}
+}
+
 func TestHandlerRejectsInvalidFixtureRequests(t *testing.T) {
 	handler := NewHandler()
 	valid := fixtureParams("message-valid", fixtureSuccess, "value")
@@ -116,6 +127,25 @@ func TestHandlerSuccessfulStreamHasExactOrder(t *testing.T) {
 	}
 	if _, err := handler.OnCancelTask(t.Context(), &a2a.TaskIDParams{ID: task.ID}); !errors.Is(err, a2a.ErrTaskNotCancelable) {
 		t.Fatalf("cancel completed task = %v", err)
+	}
+}
+
+func TestHandlerInterruptedStreamEndsWithoutTerminal(t *testing.T) {
+	events, err := collectEvents(NewHandler().OnSendMessageStream(t.Context(), fixtureParams("stream-interrupted", fixtureInterrupted, "payload")))
+	if err != nil {
+		t.Fatalf("interrupted stream: %v", err)
+	}
+	if len(events) != 3 {
+		t.Fatalf("event count = %d, want task, message, and one artifact", len(events))
+	}
+	if _, ok := events[0].(*a2a.Task); !ok {
+		t.Fatalf("event 0 = %#v", events[0])
+	}
+	if _, ok := events[1].(*a2a.Message); !ok {
+		t.Fatalf("event 1 = %#v", events[1])
+	}
+	if _, ok := events[2].(*a2a.TaskArtifactUpdateEvent); !ok {
+		t.Fatalf("event 2 = %#v", events[2])
 	}
 }
 

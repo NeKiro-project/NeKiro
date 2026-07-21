@@ -33,6 +33,8 @@ type workspaceTestService struct {
 	installation         contracts.Installation
 	resolveResponse      contracts.ResolveAgentResponse
 	resolveErr           error
+	versionResponse      contracts.ResolveInstalledVersionResponse
+	versionErr           error
 	createErr            error
 	getErr               error
 	getInstallationErr   error
@@ -47,8 +49,10 @@ type workspaceTestService struct {
 	updateCalls          int
 	uninstallCalls       int
 	resolveCalls         int
+	versionCalls         int
 	listCalls            int
 	lastResolveRequest   contracts.ResolveAgentRequest
+	lastVersionRequest   contracts.ResolveInstalledVersionRequest
 	lastInstallRequest   contracts.InstallAgentRequest
 	installationResult   contracts.Installation
 	listResult           contracts.InstallationList
@@ -147,6 +151,15 @@ func (service *workspaceTestService) Resolve(_ context.Context, request contract
 		return contracts.ResolveAgentResponse{}, service.resolveErr
 	}
 	return service.resolveResponse, nil
+}
+
+func (service *workspaceTestService) ResolveInstalledVersion(_ context.Context, request contracts.ResolveInstalledVersionRequest) (contracts.ResolveInstalledVersionResponse, error) {
+	service.versionCalls++
+	service.lastVersionRequest = request
+	if service.versionErr != nil {
+		return contracts.ResolveInstalledVersionResponse{}, service.versionErr
+	}
+	return service.versionResponse, nil
 }
 
 func TestWorkspaceHandlerRequiresBearerAndRequiredListLimit(t *testing.T) {
@@ -737,6 +750,42 @@ func TestWorkspaceHandlerMapsUnexpectedErrorsToInternalServerError(t *testing.T)
 	}
 }
 
+func TestWorkspaceHandlerResolvesInstalledVersionThroughAuthenticatedV3Boundary(t *testing.T) {
+	service := &workspaceTestService{versionResponse: contracts.ResolveInstalledVersionResponse{Version: "1.4.2"}}
+	handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "router-a"}}, service)
+	request := httptest.NewRequest(http.MethodPost, "/internal/v3/resolve-installed-version", strings.NewReader(`{"invocationId":"inv-child","rootTaskId":"task-root","traceId":"trace-root","workspaceId":"workspace-a","agentId":"runtime-b","capability":"runtime.echo"}`))
+	request.Header.Set("Authorization", "Bearer internal")
+	response := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Header().Get(TraceHeader) != "trace-root" || service.versionCalls != 1 {
+		t.Fatalf("version resolution status=%d trace=%q calls=%d body=%s", response.Code, response.Header().Get(TraceHeader), service.versionCalls, response.Body.String())
+	}
+	var resolved contracts.ResolveInstalledVersionResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &resolved); err != nil || resolved.Version != "1.4.2" {
+		t.Fatalf("version response=%#v err=%v", resolved, err)
+	}
+	if service.lastVersionRequest.WorkspaceID != "workspace-a" || service.lastVersionRequest.AgentID != "runtime-b" {
+		t.Fatalf("version request=%#v", service.lastVersionRequest)
+	}
+
+	service.versionErr = workspace.ErrInstallationDisabled
+	denied := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(denied, requestForInstalledVersion())
+	if denied.Code != http.StatusForbidden {
+		t.Fatalf("disabled version status=%d body=%s", denied.Code, denied.Body.String())
+	}
+	var platformError contracts.PlatformErrorV3
+	if err := json.Unmarshal(denied.Body.Bytes(), &platformError); err != nil || platformError.Code != contracts.ErrorCodeInstallationDisabled || platformError.InvocationID != "inv-child" || platformError.RootTaskID != "task-root" {
+		t.Fatalf("disabled version error=%#v err=%v", platformError, err)
+	}
+}
+
+func requestForInstalledVersion() *http.Request {
+	request := httptest.NewRequest(http.MethodPost, "/internal/v3/resolve-installed-version", strings.NewReader(`{"invocationId":"inv-child","rootTaskId":"task-root","traceId":"trace-root","workspaceId":"workspace-a","agentId":"runtime-b","capability":"runtime.echo"}`))
+	request.Header.Set("Authorization", "Bearer internal")
+	return request
+}
+
 func newWorkspaceTestHandler(t *testing.T, auth Authenticator, service WorkspaceService) *WorkspaceHandler {
 	return newWorkspaceTestHandlerWithAuthenticators(t, auth, auth, service)
 }
@@ -747,7 +796,7 @@ func newWorkspaceTestHandlerWithAuthenticators(t *testing.T, auth, internalAuth 
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler, err := NewWorkspaceHandler(auth, internalAuth, service, traces, slog.Default())
+	handler, err := NewWorkspaceHandler(auth, internalAuth, service, traces, slog.Default(), 1048576)
 	if err != nil {
 		t.Fatal(err)
 	}
