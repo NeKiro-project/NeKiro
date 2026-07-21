@@ -1,8 +1,9 @@
 # Quickstart: Validate Invocation Routing and Ledger Planning
 
-This guide validates the current repository baseline and the Spec 010 planning
-artifacts. It does not claim that the Router, Ledger, SDK, or sample Agents are
-implemented.
+This document is the original Spec 010 planning baseline. The Router, Ledger,
+SDK, sample Agents, and backend acceptance are now delivered by child Specs
+013-021. Use `specs/021-invoke-record-acceptance/quickstart.md` for the current
+clean Compose/PostgreSQL acceptance procedure and evidence.
 
 ## 1. Confirm Repository and Workspace Blocker
 
@@ -13,7 +14,7 @@ gh issue view 2 --repo NeKiro-project/NeKiro
 gh pr checks 18 --repo NeKiro-project/NeKiro
 ```
 
-Expected current planning result:
+Historical planning result:
 
 - parent Issue #2 is closed;
 - PR #18 is merged and its Workspace PostgreSQL closure job is green;
@@ -29,8 +30,9 @@ go build ./...
 git diff --check
 ```
 
-These commands validate current code/contracts only. They do not prove an
-unimplemented Router or Ledger.
+These commands validate the repository code/contracts. They are retained here
+as the original parent planning gate; the real-process acceptance is recorded
+in Spec 021.
 
 ## 3. Validate Spec 010 Artifacts
 
@@ -63,7 +65,7 @@ Workspace Issue #2 closed
 The stable maximum parallel batch is four. Shared contract files are owned only
 by T001, and final Compose/CI/handoff integration is owned only by T011.
 
-## 5. Planned Backend Acceptance (Not Yet Runnable)
+## 5. Original Planned Backend Acceptance
 
 T011 must eventually provide commands that start PostgreSQL, Control Plane,
 Router, and two sample Agents and prove:

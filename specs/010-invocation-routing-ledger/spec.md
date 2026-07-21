@@ -4,7 +4,9 @@
 
 **Created**: 2026-07-16
 
-**Status**: T001-T002 merged; T003-T008 under integration review in PR #41; T009 is the next unstarted child
+**Status**: T001-T011 are delivered through child Specs 011-021 and the
+backend acceptance is green. T020/T021 remain `Needs policy` items for a
+future Spec/ADR; they are not implemented by this parent delivery.
 
 **Input**: Define the next backend platform stage after Workspace acceptance,
 update the repository planning facts, and split the work into a GitHub parent

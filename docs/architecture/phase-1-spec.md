@@ -55,8 +55,13 @@ Console -> Control Plane -> A2A Router -> Agents
 Cross-language contracts are owned by language-neutral artifacts:
 
 - `contracts/schemas/` contains versioned JSON Schema documents.
-- `contracts/openapi/control-plane.v3.yaml` defines the active Northbound API;
-  `control-plane.v2.yaml` remains unchanged migration evidence.
+- `contracts/openapi/control-plane.v3.yaml` defines the active Catalog,
+  Discovery, Workspace, and Installation Northbound API; `control-plane.v2.yaml`
+  remains unchanged migration evidence. Any legacy Invocation paths still
+  present in the v3 document are migration evidence and are not served by the
+  current Gateway.
+- `contracts/openapi/control-plane-invocation.v4.yaml` defines the active
+  Invocation and Trace Northbound API.
 - `contracts/openapi/control-plane-internal.v2.yaml` defines Router-to-Control Plane exact Agent resolution; `control-plane-internal.v3.yaml` defines nested installed-version resolution.
 - `contracts/openapi/router-internal.v3.yaml` defines active Control Plane-to-Router dispatch, result transport, and Workspace-scoped Invocation/Trace reads; v2 is historical migration evidence.
 - `contracts/a2a-profile/v0.3.0/profile.v0.2.json` pins the active supported A2A subset and context headers.
@@ -68,7 +73,7 @@ Historical v1 files remain unchanged as migration evidence. The first backend
 runtime implements only the active versions and does not introduce speculative
 dual-version behavior.
 
-## Northbound API v3
+## Northbound API v3: Catalog and Workspace
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -84,17 +89,24 @@ dual-version behavior.
 | `GET` | `/v3/workspaces/:workspaceId/installations/:installationId` | Read one exact Installation |
 | `PATCH` | `/v3/workspaces/:workspaceId/installations/:installationId` | Enable or disable an installation |
 | `DELETE` | `/v3/workspaces/:workspaceId/installations/:installationId` | Uninstall and return preserved history |
-| `POST` | `/v3/workspaces/:workspaceId/invocations` | Authorize, dispatch, and return a transient JSON or SSE result |
-| `GET` | `/v3/invocations/:invocationId` | Read one invocation and metadata-only Ledger events |
-| `GET` | `/v3/traces/:traceId` | Read metadata-only parent/child invocation lineage |
 
-The Gateway returns Platform Error v2 for Catalog/Invocation failures and
-Platform Error v3 for Workspace/Installation failures. Public messages are
-fixed by error code and cannot contain internal dependency errors, credentials,
-request payloads, or Agent output. `INSTALLATION_DISABLED` identifies Workspace
-authorization state while `AGENT_DISABLED` identifies Catalog version state.
-Trace correlation is required; Invocation and root Task correlation are present
-together after Invocation creation. Dependency failure must never be
+The Gateway returns Platform Error v2 for Catalog failures and Platform Error v3
+for Workspace/Installation failures. Public messages are fixed by error code and
+cannot contain internal dependency errors, credentials, request payloads, or
+Agent output. `INSTALLATION_DISABLED` identifies Workspace authorization state
+while `AGENT_DISABLED` identifies Catalog version state.
+
+## Northbound Invocation API v4
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/v4/workspaces/:workspaceId/invocations` | Authorize, dispatch, and return a transient JSON or SSE result |
+| `GET` | `/v4/workspaces/:workspaceId/invocations/:invocationId` | Read one Workspace-scoped invocation and metadata-only Ledger events |
+| `GET` | `/v4/workspaces/:workspaceId/traces/:traceId` | Read Workspace-scoped metadata-only parent/child invocation lineage |
+
+The Invocation Gateway uses Platform Error v4 after the runtime acceptance
+boundary. Trace correlation is required; Invocation and root Task correlation
+are present together after Invocation creation. Dependency failure must never be
 represented as not found, an empty list, or success.
 
 ## Directional Internal APIs
@@ -115,10 +127,10 @@ Registry or Workspace tables directly.
 
 ## Invocation Result Delivery
 
-`POST /v3/workspaces/:workspaceId/invocations` is the only Northbound result
+`POST /v4/workspaces/:workspaceId/invocations` is the only Northbound result
 channel. `stream=false` returns one `application/json` Invocation Result v1.
 `stream=true` returns ordered `text/event-stream` Invocation Result Stream
-Event v1 values on the same response. The request mode and `Accept` header must
+Event v2 values on the same response. The request mode and `Accept` header must
 agree; mismatch returns `406 NOT_ACCEPTABLE`.
 
 A clean stream begins with `accepted` and ends with exactly one `completed`,
@@ -143,7 +155,7 @@ pending -> routing -> running -> succeeded
 
 Every invocation carries `invocation_id`, `root_task_id`, `trace_id`, and an optional `parent_invocation_id`. Agent-to-Agent calls create child invocations through the Router and preserve all lineage identifiers.
 
-Ledger writes are append-only Invocation Event v0.2 facts. Terminal event type,
+Ledger writes are append-only Invocation Event v0.3 facts. Terminal event type,
 status, and error code must agree: `TIMEOUT` belongs only to `timed_out`,
 `CANCELED` belongs only to `canceled`, and `failed` excludes both. Agent input,
 result, and chunk content are forbidden. A mutable read projection may be
