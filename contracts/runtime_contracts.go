@@ -35,9 +35,11 @@ type NestedInvocationRequestV1 struct {
 }
 
 type DispatchInvocationRequestV3 struct {
-	InvocationID       string          `json:"invocationId"`
-	RootTaskID         string          `json:"rootTaskId"`
-	ParentInvocationID string          `json:"parentInvocationId,omitempty"`
+	InvocationID string `json:"invocationId"`
+	RootTaskID   string `json:"rootTaskId"`
+	// ParentInvocationID is trusted in-process lineage for DispatchChild. It
+	// is deliberately excluded from the Router Internal v3 root HTTP contract.
+	ParentInvocationID string          `json:"-"`
 	TraceID            TraceID         `json:"traceId"`
 	Caller             Caller          `json:"caller"`
 	WorkspaceID        string          `json:"workspaceId"`

@@ -142,13 +142,10 @@ WHERE workspace_id = $1 AND invocation_id = $2`, workspaceID, invocationID))
 	return result, nil
 }
 
-// GetInvocationByParentID reads a committed Invocation by its ID alone,
-// without workspace scoping. This is a trusted internal lookup used by the
-// nested Agent handler. Cross-Workspace isolation is not enforced here but
-// by the caller: (a) DeriveChildContext requires the parent target to match
-// the authenticated Agent, (b) the child inherits the parent's Workspace,
-// and (c) Control Plane resolution validates the installation in that
-// Workspace before dispatch.
+// GetInvocationByParentID reads a committed Invocation by its ID for the
+// trusted nested adapter. The adapter verifies the authenticated credential's
+// Workspace and Agent against the returned parent before deriving a child;
+// the inherited Workspace is then checked again by Control Plane resolution.
 func (store *Store) GetInvocationByParentID(ctx context.Context, invocationID string) (result contracts.InvocationDetailResponseV4, returnErr error) {
 	tx, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {

@@ -5,7 +5,9 @@ info:
   description: >-
     Agent-SDK-facing nested invocation boundary. It is distinct from the
     Control-Plane-only Router Internal API. The Bearer binding authenticates
-    exactly one calling Agent and is never a Card or Ledger field.
+        exactly one Workspace and Agent pair and is never a Card or Ledger
+        field. The same Agent ID in two Workspaces requires two distinct
+        credential bindings; a credential cannot be reused across Workspaces.
 servers:
   - url: https://a2a-router.agent.nekiro.dev
     description: Explicit Agent-facing Router destination; no default or direct-Agent fallback

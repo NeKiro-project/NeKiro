@@ -22,9 +22,8 @@ type VersionResolver interface {
 }
 
 // NestedLedgerReader reads the committed parent Invocation from the Router
-// Ledger by invocation ID only. The trusted parent lookup does not require
-// a workspace because the authenticated Agent binding and parent target
-// check together enforce isolation.
+// Ledger by invocation ID only. The authenticated principal is checked
+// against both the parent Workspace and target Agent before child derivation.
 type NestedLedgerReader interface {
 	GetInvocationByParentID(context.Context, string) (contracts.InvocationDetailResponseV4, error)
 }
@@ -87,7 +86,7 @@ func (handler *AgentInvocationHandler) RegisterRoutes(mux *http.ServeMux) {
 
 func (handler *AgentInvocationHandler) serve(writer http.ResponseWriter, request *http.Request) {
 	// Step 1: Authenticate the Agent binding. Auth failures are pre-correlation.
-	authenticatedAgentID, err := handler.binding.Authenticate(request)
+	authenticatedAgent, err := handler.binding.Authenticate(request)
 	if err != nil {
 		handler.writePreError(writer, contracts.ErrorCodeUnauthenticated)
 		return
@@ -125,8 +124,8 @@ func (handler *AgentInvocationHandler) serve(writer http.ResponseWriter, request
 	//
 	// Cross-Workspace isolation is enforced by three cooperating checks:
 	// (a) DeriveChildContext requires the parent to be running and its
-	//     TargetAgentID to equal the authenticated Agent — an Agent cannot
-	//     reference a parent that belongs to a different Agent.
+	//     WorkspaceID and TargetAgentID to equal the authenticated principal;
+	//     an Agent cannot reference a parent belonging to another principal.
 	// (b) The child inherits the parent's WorkspaceID; the Agent does not
 	//     choose or supply a Workspace.
 	// (c) The Control Plane resolution (step 7) validates that the target
@@ -145,14 +144,14 @@ func (handler *AgentInvocationHandler) serve(writer http.ResponseWriter, request
 	}
 
 	// Step 6: Derive child context from the parent.
-	childContext, err := nested.DeriveChildContext(parent, authenticatedAgentID)
+	childContext, err := nested.DeriveChildContext(parent, authenticatedAgent)
 	if err != nil {
 		code := contracts.ErrorCodeDependency
 		if errors.Is(err, nested.ErrParentNotFound) {
 			code = contracts.ErrorCodeNotFound
 		} else if errors.Is(err, nested.ErrParentNotRunning) {
 			code = contracts.ErrorCodeConflict
-		} else if errors.Is(err, nested.ErrParentTargetMismatch) {
+		} else if errors.Is(err, nested.ErrParentTargetMismatch) || errors.Is(err, nested.ErrParentWorkspaceMismatch) {
 			code = contracts.ErrorCodeForbidden
 		}
 		handler.writePreError(writer, code)

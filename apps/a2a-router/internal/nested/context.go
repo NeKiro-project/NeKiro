@@ -17,6 +17,9 @@ var (
 	ErrParentNotRunning = errors.New("nested: parent invocation is not running")
 	// ErrParentTargetMismatch indicates the authenticated Agent does not match the parent target.
 	ErrParentTargetMismatch = errors.New("nested: authenticated agent does not match parent target")
+	// ErrParentWorkspaceMismatch indicates the authenticated credential is not
+	// bound to the parent Invocation's Workspace.
+	ErrParentWorkspaceMismatch = errors.New("nested: authenticated agent does not match parent workspace")
 )
 
 // ChildContext carries the derived trusted context for a child Invocation.
@@ -33,18 +36,21 @@ type ChildContext struct {
 
 // DeriveChildContext reads the committed parent projection and derives the
 // child Invocation context. It requires the parent to be running and the
-// authenticated Agent to match the parent's target Agent. The child receives
-// a new Invocation ID; Workspace, root Task, Trace, and caller are inherited
-// from the parent.
-func DeriveChildContext(parent contracts.InvocationDetailResponseV4, authenticatedAgentID string) (ChildContext, error) {
+// authenticated Agent and Workspace to match the parent. The child receives a
+// new Invocation ID; Workspace, root Task, Trace, and caller are inherited from
+// the parent.
+func DeriveChildContext(parent contracts.InvocationDetailResponseV4, authenticated AuthenticatedAgent) (ChildContext, error) {
 	if parent.Invocation.InvocationID == "" {
 		return ChildContext{}, ErrParentNotFound
 	}
 	if parent.Invocation.Status != "running" {
 		return ChildContext{}, ErrParentNotRunning
 	}
-	if parent.Invocation.TargetAgentID != authenticatedAgentID {
+	if parent.Invocation.TargetAgentID != authenticated.AgentID {
 		return ChildContext{}, ErrParentTargetMismatch
+	}
+	if parent.Invocation.WorkspaceID != authenticated.WorkspaceID {
+		return ChildContext{}, ErrParentWorkspaceMismatch
 	}
 
 	childID, err := newInvocationID()
@@ -57,7 +63,7 @@ func DeriveChildContext(parent contracts.InvocationDetailResponseV4, authenticat
 		ParentInvocation:  parent.Invocation,
 		Caller: contracts.Caller{
 			Type: "agent",
-			ID:   authenticatedAgentID,
+			ID:   authenticated.AgentID,
 		},
 		WorkspaceID: parent.Invocation.WorkspaceID,
 		RootTaskID:  parent.Invocation.RootTaskID,

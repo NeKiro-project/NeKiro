@@ -9,14 +9,16 @@ go test -count=1 ./sdks/agent-sdk ./apps/a2a-router/internal/nested ./apps/a2a-r
 go vet ./...
 ```
 
-The SDK constructor receives an explicit Router v1 URL, bearer token, and
-transport. A Runtime passes the inherited `PlatformContext` and only the
-target Agent, capability, input object, and stream mode. It must not provide a
-child ID, Workspace, root Task, Trace, endpoint, or credential field.
+The SDK constructor receives an explicit Router v1 URL, bearer token,
+transport, JSON response limit, and SSE event limit. Use `Invoke` for JSON and
+`InvokeStream`/`Recv` for incremental SSE until `io.EOF`. A Runtime passes the
+inherited `PlatformContext` and only the target Agent, capability, input
+object, and stream mode. It must not provide a child ID, Workspace, root Task,
+Trace, endpoint, or credential field.
 
 ## Fallback report
 
 ```text
-Fallback delta: removed 0, retained 0, added 0, net 0
+Fallback delta: removed 1, retained 0, added 0, net -1
 Added fallback evidence: none
 ```

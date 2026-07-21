@@ -23,6 +23,13 @@ func validResolveRequest() contracts.ResolveAgentRequest {
 	}
 }
 
+func validInstalledVersionRequest() contracts.ResolveInstalledVersionRequest {
+	return contracts.ResolveInstalledVersionRequest{
+		InvocationID: "inv-a", RootTaskID: "task-a", TraceID: "trace-a",
+		WorkspaceID: "workspace-a", AgentID: "agent-a", Capability: "capability-a",
+	}
+}
+
 func TestClientResolveSendsExactInternalV2Request(t *testing.T) {
 	requestValue := validResolveRequest()
 	var received contracts.ResolveAgentRequest
@@ -177,4 +184,130 @@ func TestClientResolveRejectsBadMediaAndOversize(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestClientResolveInstalledVersionAcceptsDeclaredErrorPhases(t *testing.T) {
+	requestValue := validInstalledVersionRequest()
+	tests := []struct {
+		name       string
+		statusCode int
+		code       contracts.PlatformErrorCode
+		correlated bool
+		traceID    contracts.TraceID
+	}{
+		{name: "pre-correlation bad request", statusCode: http.StatusBadRequest, code: contracts.ErrorCodeValidationError, traceID: "trace-generated"},
+		{name: "correlated bad request", statusCode: http.StatusBadRequest, code: contracts.ErrorCodeValidationError, correlated: true, traceID: requestValue.TraceID},
+		{name: "pre-correlation unauthenticated", statusCode: http.StatusUnauthorized, code: contracts.ErrorCodeUnauthenticated, traceID: "trace-generated"},
+		{name: "correlated forbidden", statusCode: http.StatusForbidden, code: contracts.ErrorCodeCapabilityNotAllowed, correlated: true, traceID: requestValue.TraceID},
+		{name: "correlated not found", statusCode: http.StatusNotFound, code: contracts.ErrorCodeAgentNotInstalled, correlated: true, traceID: requestValue.TraceID},
+		{name: "correlated dependency", statusCode: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, correlated: true, traceID: requestValue.TraceID},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var payload contracts.PlatformErrorV3
+			var err error
+			if test.correlated {
+				payload, err = contracts.NewCorrelatedPlatformErrorV3(test.code, test.traceID, requestValue.InvocationID, requestValue.RootTaskID)
+			} else {
+				payload, err = contracts.NewPlatformErrorV3(test.code, test.traceID)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				writer.Header().Set("x-nek-trace-id", string(test.traceID))
+				writer.WriteHeader(test.statusCode)
+				_ = json.NewEncoder(writer).Encode(payload)
+			}))
+			defer server.Close()
+			client, err := NewClientWithVersionURL(server.Client(), server.URL, server.URL, "control-token", 4096)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.ResolveInstalledVersion(context.Background(), requestValue)
+			var failure *Failure
+			if !errors.As(err, &failure) || failure.StatusCode != test.statusCode || failure.Code != test.code || failure.TraceID != test.traceID {
+				t.Fatalf("failure=%#v err=%v", failure, err)
+			}
+		})
+	}
+}
+
+func TestClientResolveInstalledVersionRejectsInvalidErrorStatusPhaseAndCorrelation(t *testing.T) {
+	requestValue := validInstalledVersionRequest()
+	validCorrelated, err := contracts.NewCorrelatedPlatformErrorV3(contracts.ErrorCodeDependency, requestValue.TraceID, requestValue.InvocationID, requestValue.RootTaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validPre, err := contracts.NewPlatformErrorV3(contracts.ErrorCodeUnauthenticated, "trace-generated")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name       string
+		statusCode int
+		header     string
+		body       string
+	}{
+		{name: "undeclared status", statusCode: http.StatusInternalServerError, header: "trace-a", body: mustJSON(t, validCorrelated)},
+		{name: "wrong status code pair", statusCode: http.StatusForbidden, header: "trace-a", body: mustJSON(t, validCorrelated)},
+		{name: "unauthenticated must be pre-correlation", statusCode: http.StatusUnauthorized, header: "trace-a", body: mustJSON(t, correlatedErrorV3(t, contracts.ErrorCodeUnauthenticated, requestValue))},
+		{name: "forbidden requires correlation", statusCode: http.StatusForbidden, header: "trace-generated", body: mustJSON(t, preErrorV3(t, contracts.ErrorCodeCapabilityNotAllowed, "trace-generated"))},
+		{name: "asymmetric correlation", statusCode: http.StatusBadRequest, header: "trace-a", body: `{"code":"VALIDATION_ERROR","message":"The request is invalid.","traceId":"trace-a","invocationId":"inv-a"}`},
+		{name: "changed correlated trace", statusCode: http.StatusServiceUnavailable, header: "trace-other", body: mustJSON(t, correlatedErrorV3WithTrace(t, contracts.ErrorCodeDependency, requestValue, "trace-other"))},
+		{name: "header body trace mismatch", statusCode: http.StatusUnauthorized, header: "trace-other", body: mustJSON(t, validPre)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				writer.Header().Set("x-nek-trace-id", test.header)
+				writer.WriteHeader(test.statusCode)
+				_, _ = io.WriteString(writer, test.body)
+			}))
+			defer server.Close()
+			client, err := NewClientWithVersionURL(server.Client(), server.URL, server.URL, "control-token", 4096)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.ResolveInstalledVersion(context.Background(), requestValue)
+			var failure *Failure
+			if err == nil || errors.As(err, &failure) {
+				t.Fatalf("invalid error response accepted: failure=%#v err=%v", failure, err)
+			}
+		})
+	}
+}
+
+func mustJSON(t *testing.T, value any) string {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func preErrorV3(t *testing.T, code contracts.PlatformErrorCode, traceID contracts.TraceID) contracts.PlatformErrorV3 {
+	t.Helper()
+	value, err := contracts.NewPlatformErrorV3(code, traceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func correlatedErrorV3(t *testing.T, code contracts.PlatformErrorCode, request contracts.ResolveInstalledVersionRequest) contracts.PlatformErrorV3 {
+	t.Helper()
+	return correlatedErrorV3WithTrace(t, code, request, request.TraceID)
+}
+
+func correlatedErrorV3WithTrace(t *testing.T, code contracts.PlatformErrorCode, request contracts.ResolveInstalledVersionRequest, traceID contracts.TraceID) contracts.PlatformErrorV3 {
+	t.Helper()
+	value, err := contracts.NewCorrelatedPlatformErrorV3(code, traceID, request.InvocationID, request.RootTaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
 }

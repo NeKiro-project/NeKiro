@@ -19,17 +19,27 @@ var (
 	ErrForbidden = errors.New("nested: agent is forbidden")
 )
 
-// AgentPrincipal maps one opaque bearer credential digest to one exact Agent ID.
+// AgentPrincipal maps one opaque bearer credential digest to one exact
+// Workspace and Agent identity.
 type AgentPrincipal struct {
+	WorkspaceID string
 	AgentID     string
 	TokenSHA256 string
 }
 
+// AuthenticatedAgent is the trusted identity recovered from an Agent bearer
+// credential. Neither field is accepted from the nested request body.
+type AuthenticatedAgent struct {
+	WorkspaceID string
+	AgentID     string
+}
+
 // AgentBinding authenticates Agent-facing nested invocation requests by
-// matching one opaque bearer credential to one exact Agent ID. Duplicate
-// Agent IDs or token digests are rejected at construction.
+// matching one opaque bearer credential to one exact Workspace and Agent.
+// Duplicate Workspace/Agent pairs or token digests are rejected at
+// construction.
 type AgentBinding struct {
-	digests map[string]string
+	digests map[string]AuthenticatedAgent
 }
 
 // NewAgentBinding creates an Agent binding authenticator from explicit
@@ -38,9 +48,12 @@ func NewAgentBinding(principals []AgentPrincipal) (*AgentBinding, error) {
 	if len(principals) == 0 {
 		return nil, errors.New("nested: at least one agent principal is required")
 	}
-	digests := make(map[string]string, len(principals))
-	ids := make(map[string]struct{}, len(principals))
+	digests := make(map[string]AuthenticatedAgent, len(principals))
+	identities := make(map[AuthenticatedAgent]struct{}, len(principals))
 	for _, principal := range principals {
+		if !validIdentifier(principal.WorkspaceID) {
+			return nil, errors.New("nested: agent principal workspace id is invalid")
+		}
 		if !validIdentifier(principal.AgentID) {
 			return nil, errors.New("nested: agent principal id is invalid")
 		}
@@ -48,42 +61,44 @@ func NewAgentBinding(principals []AgentPrincipal) (*AgentBinding, error) {
 		if err != nil || len(decoded) != sha256.Size || principal.TokenSHA256 != strings.ToLower(principal.TokenSHA256) {
 			return nil, errors.New("nested: agent principal tokenSha256 is invalid")
 		}
-		if _, exists := ids[principal.AgentID]; exists {
-			return nil, errors.New("nested: agent principal id is duplicated")
+		identity := AuthenticatedAgent{WorkspaceID: principal.WorkspaceID, AgentID: principal.AgentID}
+		if _, exists := identities[identity]; exists {
+			return nil, errors.New("nested: agent principal workspace and id are duplicated")
 		}
 		if _, exists := digests[principal.TokenSHA256]; exists {
 			return nil, errors.New("nested: agent principal tokenSha256 is duplicated")
 		}
-		ids[principal.AgentID] = struct{}{}
-		digests[principal.TokenSHA256] = principal.AgentID
+		identities[identity] = struct{}{}
+		digests[principal.TokenSHA256] = identity
 	}
 	return &AgentBinding{digests: digests}, nil
 }
 
 // Authenticate extracts and validates the bearer credential from the request.
-// It returns the bound Agent ID on success. Missing, malformed, unknown, or
-// duplicate Authorization headers fail without defaults.
-func (binding *AgentBinding) Authenticate(request *http.Request) (string, error) {
+// It returns the bound Workspace and Agent identity on success. Missing,
+// malformed, unknown, or duplicate Authorization headers fail without
+// defaults.
+func (binding *AgentBinding) Authenticate(request *http.Request) (AuthenticatedAgent, error) {
 	values := request.Header.Values("Authorization")
 	if len(values) != 1 {
-		return "", ErrUnauthenticated
+		return AuthenticatedAgent{}, ErrUnauthenticated
 	}
 	value := values[0]
 	if value == "" {
-		return "", ErrUnauthenticated
+		return AuthenticatedAgent{}, ErrUnauthenticated
 	}
 	token, ok := strings.CutPrefix(value, "Bearer ")
 	if !ok || token == "" || strings.TrimSpace(token) != token {
-		return "", ErrUnauthenticated
+		return AuthenticatedAgent{}, ErrUnauthenticated
 	}
 	sum := sha256.Sum256([]byte(token))
 	digest := hex.EncodeToString(sum[:])
-	for configured, agentID := range binding.digests {
+	for configured, principal := range binding.digests {
 		if subtle.ConstantTimeCompare([]byte(configured), []byte(digest)) == 1 {
-			return agentID, nil
+			return principal, nil
 		}
 	}
-	return "", ErrUnauthenticated
+	return AuthenticatedAgent{}, ErrUnauthenticated
 }
 
 func validIdentifier(value string) bool {

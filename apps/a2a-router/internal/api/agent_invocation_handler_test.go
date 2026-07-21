@@ -53,7 +53,7 @@ func newTestAgentHandler(t *testing.T, ledgerReader NestedLedgerReader, versionR
 	t.Helper()
 	token := "agent-test-token"
 	binding, err := nested.NewAgentBinding([]nested.AgentPrincipal{
-		{AgentID: "agent_caller01", TokenSHA256: agentTokenDigest(token)},
+		{WorkspaceID: "ws_test789", AgentID: "agent_caller01", TokenSHA256: agentTokenDigest(token)},
 	})
 	if err != nil {
 		t.Fatalf("NewAgentBinding() error = %v", err)
@@ -372,7 +372,7 @@ func TestAgentHandlerErrorResponseShape(t *testing.T) {
 func TestNewAgentInvocationHandlerValidation(t *testing.T) {
 	token := "test-token"
 	binding, _ := nested.NewAgentBinding([]nested.AgentPrincipal{
-		{AgentID: "agent01", TokenSHA256: agentTokenDigest(token)},
+		{WorkspaceID: "workspace01", AgentID: "agent01", TokenSHA256: agentTokenDigest(token)},
 	})
 	serviceAuth, _ := auth.NewStaticAuthenticator([]auth.Principal{
 		{ID: "service", TokenSHA256: agentTokenDigest("svc-token")},
@@ -416,7 +416,7 @@ func TestNewAgentInvocationHandlerValidation(t *testing.T) {
 func TestAgentHandlerNestedJSONSuccessPath(t *testing.T) {
 	agentToken := "agent-test-token"
 	binding, err := nested.NewAgentBinding([]nested.AgentPrincipal{
-		{AgentID: "agent_caller01", TokenSHA256: agentTokenDigest(agentToken)},
+		{WorkspaceID: "ws_test789", AgentID: "agent_caller01", TokenSHA256: agentTokenDigest(agentToken)},
 	})
 	if err != nil {
 		t.Fatalf("NewAgentBinding() error = %v", err)
@@ -544,18 +544,17 @@ func TestAgentHandlerNestedJSONSuccessPath(t *testing.T) {
 	}
 }
 
-// TestAgentHandlerCrossWorkspaceParentTargetMismatch verifies that a parent
-// from another Workspace targeting a different Agent is rejected with 403
-// FORBIDDEN (the authenticated Agent does not match the parent target).
-func TestAgentHandlerCrossWorkspaceParentTargetMismatch(t *testing.T) {
-	// Parent in a different workspace targeting a DIFFERENT agent.
+// TestAgentHandlerCrossWorkspaceParentMismatch verifies that even the same
+// Agent ID cannot use a credential bound to one Workspace to reference a
+// parent from another Workspace.
+func TestAgentHandlerCrossWorkspaceParentMismatch(t *testing.T) {
 	foreignParent := contracts.InvocationDetailResponseV4{
 		Invocation: contracts.InvocationRecordV4{
 			InvocationID:     "inv_foreign999",
 			RootTaskID:       "task_foreign_root",
 			TraceID:          "trc_foreign_1",
 			WorkspaceID:      "ws_other_workspace",
-			TargetAgentID:    "agent_different",
+			TargetAgentID:    "agent_caller01",
 			AgentCardVersion: "1.0.0",
 			Capability:       "other-cap",
 			Status:           "running",
@@ -573,7 +572,7 @@ func TestAgentHandlerCrossWorkspaceParentTargetMismatch(t *testing.T) {
 	handler.serve(rec, req)
 
 	if rec.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want 403 for cross-workspace parent target mismatch", rec.Code)
+		t.Errorf("status = %d, want 403 for cross-workspace parent mismatch", rec.Code)
 	}
 }
 
@@ -583,7 +582,7 @@ func TestAgentHandlerCrossWorkspaceParentTargetMismatch(t *testing.T) {
 func TestAgentHandlerNestedSSESuccessPath(t *testing.T) {
 	agentToken := "agent-test-token"
 	binding, err := nested.NewAgentBinding([]nested.AgentPrincipal{
-		{AgentID: "agent_caller01", TokenSHA256: agentTokenDigest(agentToken)},
+		{WorkspaceID: "ws_test789", AgentID: "agent_caller01", TokenSHA256: agentTokenDigest(agentToken)},
 	})
 	if err != nil {
 		t.Fatalf("NewAgentBinding() error = %v", err)
@@ -652,16 +651,45 @@ func TestAgentHandlerNestedSSESuccessPath(t *testing.T) {
 		t.Fatalf("Content-Type = %s, want text/event-stream", ct)
 	}
 
-	// Assert SSE body contains accepted event with correct correlation.
-	body := rec.Body.String()
-	if !strings.Contains(body, `"type":"accepted"`) {
-		t.Errorf("SSE body missing accepted event: %s", body)
+	// Parse every SSE frame and validate the complete accepted/chunk/terminal
+	// sequence, including child lineage correlation.
+	frames := strings.Split(strings.TrimSuffix(rec.Body.String(), "\n\n"), "\n\n")
+	if len(frames) != 4 {
+		t.Fatalf("SSE frame count = %d, want 4: %s", len(frames), rec.Body.String())
 	}
-	if !strings.Contains(body, `"rootTaskId":"task_root456"`) {
-		t.Errorf("SSE body missing root task correlation: %s", body)
+	var sequence *contracts.RuntimeResultStreamSequenceValidator
+	var childInvocationID string
+	runtimeValidator, err := contracts.NewRuntimeContractValidator()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(body, `"traceId":"trc_abc123_1"`) {
-		t.Errorf("SSE body missing trace correlation: %s", body)
+	for index, frame := range frames {
+		if !strings.HasPrefix(frame, "data: ") {
+			t.Fatalf("frame[%d] missing data prefix: %q", index, frame)
+		}
+		var event contracts.InvocationResultStreamEventV2
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(frame, "data: ")), &event); err != nil {
+			t.Fatalf("decode frame[%d]: %v", index, err)
+		}
+		if sequence == nil {
+			childInvocationID = event.InvocationID
+			sequence, err = contracts.NewRuntimeResultStreamSequenceValidator(runtimeValidator, event.InvocationID, "task_root456", "trc_abc123_1")
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		if event.Sequence != int64(index) || event.InvocationID != childInvocationID || event.RootTaskID != "task_root456" || event.TraceID != "trc_abc123_1" {
+			t.Fatalf("frame[%d] correlation/sequence invalid: %#v", index, event)
+		}
+		if err := sequence.Accept(event); err != nil {
+			t.Fatalf("validate frame[%d]: %v", index, err)
+		}
+	}
+	if !sequence.IsTerminal() {
+		t.Fatal("SSE sequence did not reach a terminal event")
+	}
+	if err := sequence.Finish(); err != nil {
+		t.Fatalf("finish SSE sequence: %v", err)
 	}
 
 	// Assert Ledger has parent lineage.
@@ -695,7 +723,7 @@ func TestAgentHandlerDispatchChildResolverFailure(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			agentToken := "agent-test-token"
 			binding, _ := nested.NewAgentBinding([]nested.AgentPrincipal{
-				{AgentID: "agent_caller01", TokenSHA256: agentTokenDigest(agentToken)},
+				{WorkspaceID: "ws_test789", AgentID: "agent_caller01", TokenSHA256: agentTokenDigest(agentToken)},
 			})
 			serviceAuth, _ := auth.NewStaticAuthenticator([]auth.Principal{
 				{ID: "router-service", TokenSHA256: agentTokenDigest("service-token")},

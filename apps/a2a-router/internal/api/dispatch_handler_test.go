@@ -61,6 +61,18 @@ type transportStub struct {
 	targetErr error
 }
 
+func TestValidateDispatchRejectsRootParentLineage(t *testing.T) {
+	request := contracts.DispatchInvocationRequestV3{
+		InvocationID: "inv-root", RootTaskID: "task-root", ParentInvocationID: "inv-parent",
+		TraceID: "trc_root_1", Caller: contracts.Caller{Type: "user", ID: "user-1"},
+		WorkspaceID: "workspace-1", TargetAgentID: "agent-1", AgentCardVersion: "1.0.0",
+		Capability: "capability-1", Input: json.RawMessage(`{}`), Stream: false,
+	}
+	if err := validateDispatch(request); err == nil {
+		t.Fatal("root dispatch accepted parentInvocationId")
+	}
+}
+
 type streamingTransportStub struct {
 	transportStub
 	events []streammodel.Event

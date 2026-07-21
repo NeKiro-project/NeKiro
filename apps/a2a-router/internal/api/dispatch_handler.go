@@ -445,6 +445,9 @@ func (handler *DispatchHandler) readRequest(request *http.Request) (contracts.Di
 }
 
 func validateDispatch(value contracts.DispatchInvocationRequestV3) error {
+	if value.ParentInvocationID != "" {
+		return errors.New("root dispatch must not carry parent invocation id")
+	}
 	for _, identifier := range []string{value.InvocationID, value.RootTaskID, value.WorkspaceID, value.TargetAgentID, value.Capability, value.Caller.ID} {
 		if !validIdentifier(identifier) {
 			return errors.New("dispatch identifier is invalid")

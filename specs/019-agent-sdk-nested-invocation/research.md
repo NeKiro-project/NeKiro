@@ -3,7 +3,7 @@
 ## Existing evidence
 
 1. ADR 0006 freezes `router-agent.v1.yaml` as the only SDK destination and
-   requires one opaque credential bound to one exact Agent ID.
+   requires one opaque credential bound to one exact `(Workspace, Agent)` pair.
 2. `contracts.NestedInvocationRequestV1` already excludes trusted caller,
    Workspace, root Task, Trace, endpoint, credential, and child identity fields.
 3. `apps/a2a-router/internal/transport/a2a` already propagates platform context

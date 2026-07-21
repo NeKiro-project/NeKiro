@@ -23,7 +23,7 @@ func TestNewAgentBindingValidation(t *testing.T) {
 	}{
 		{
 			"valid single principal",
-			[]AgentPrincipal{{AgentID: "agent01", TokenSHA256: validDigest}},
+			[]AgentPrincipal{{WorkspaceID: "workspace01", AgentID: "agent01", TokenSHA256: validDigest}},
 			false,
 		},
 		{
@@ -38,42 +38,55 @@ func TestNewAgentBindingValidation(t *testing.T) {
 		},
 		{
 			"invalid agent id",
-			[]AgentPrincipal{{AgentID: "agent 01", TokenSHA256: validDigest}},
+			[]AgentPrincipal{{WorkspaceID: "workspace01", AgentID: "agent 01", TokenSHA256: validDigest}},
 			true,
 		},
 		{
 			"empty agent id",
-			[]AgentPrincipal{{AgentID: "", TokenSHA256: validDigest}},
+			[]AgentPrincipal{{WorkspaceID: "workspace01", AgentID: "", TokenSHA256: validDigest}},
+			true,
+		},
+		{
+			"empty workspace id",
+			[]AgentPrincipal{{WorkspaceID: "", AgentID: "agent01", TokenSHA256: validDigest}},
 			true,
 		},
 		{
 			"invalid token digest",
-			[]AgentPrincipal{{AgentID: "agent01", TokenSHA256: "not-hex"}},
+			[]AgentPrincipal{{WorkspaceID: "workspace01", AgentID: "agent01", TokenSHA256: "not-hex"}},
 			true,
 		},
 		{
 			"short token digest",
-			[]AgentPrincipal{{AgentID: "agent01", TokenSHA256: "abcd"}},
+			[]AgentPrincipal{{WorkspaceID: "workspace01", AgentID: "agent01", TokenSHA256: "abcd"}},
 			true,
 		},
 		{
 			"uppercase token digest",
-			[]AgentPrincipal{{AgentID: "agent01", TokenSHA256: strings.ToUpper(validDigest)}},
+			[]AgentPrincipal{{WorkspaceID: "workspace01", AgentID: "agent01", TokenSHA256: strings.ToUpper(validDigest)}},
 			true,
 		},
 		{
-			"duplicate agent id",
+			"duplicate workspace and agent",
 			[]AgentPrincipal{
-				{AgentID: "agent01", TokenSHA256: validDigest},
-				{AgentID: "agent01", TokenSHA256: testTokenDigest("other-token")},
+				{WorkspaceID: "workspace01", AgentID: "agent01", TokenSHA256: validDigest},
+				{WorkspaceID: "workspace01", AgentID: "agent01", TokenSHA256: testTokenDigest("other-token")},
 			},
 			true,
 		},
 		{
+			"same agent in distinct workspaces",
+			[]AgentPrincipal{
+				{WorkspaceID: "workspace01", AgentID: "agent01", TokenSHA256: validDigest},
+				{WorkspaceID: "workspace02", AgentID: "agent01", TokenSHA256: testTokenDigest("other-token")},
+			},
+			false,
+		},
+		{
 			"duplicate token digest",
 			[]AgentPrincipal{
-				{AgentID: "agent01", TokenSHA256: validDigest},
-				{AgentID: "agent02", TokenSHA256: validDigest},
+				{WorkspaceID: "workspace01", AgentID: "agent01", TokenSHA256: validDigest},
+				{WorkspaceID: "workspace02", AgentID: "agent02", TokenSHA256: validDigest},
 			},
 			true,
 		},
@@ -91,7 +104,7 @@ func TestNewAgentBindingValidation(t *testing.T) {
 func TestAgentBindingAuthenticate(t *testing.T) {
 	token := "my-secret-token"
 	digest := testTokenDigest(token)
-	binding, err := NewAgentBinding([]AgentPrincipal{{AgentID: "agent01", TokenSHA256: digest}})
+	binding, err := NewAgentBinding([]AgentPrincipal{{WorkspaceID: "workspace01", AgentID: "agent01", TokenSHA256: digest}})
 	if err != nil {
 		t.Fatalf("NewAgentBinding() error = %v", err)
 	}
@@ -100,7 +113,7 @@ func TestAgentBindingAuthenticate(t *testing.T) {
 		name          string
 		authHeader    string
 		headerCount   int
-		wantAgentID   string
+		wantPrincipal AuthenticatedAgent
 		wantErr       bool
 		wantForbidden bool
 	}{
@@ -108,7 +121,7 @@ func TestAgentBindingAuthenticate(t *testing.T) {
 			"valid token",
 			"Bearer " + token,
 			1,
-			"agent01",
+			AuthenticatedAgent{WorkspaceID: "workspace01", AgentID: "agent01"},
 			false,
 			false,
 		},
@@ -116,7 +129,7 @@ func TestAgentBindingAuthenticate(t *testing.T) {
 			"missing header",
 			"",
 			0,
-			"",
+			AuthenticatedAgent{},
 			true,
 			false,
 		},
@@ -124,7 +137,7 @@ func TestAgentBindingAuthenticate(t *testing.T) {
 			"empty header",
 			"",
 			1,
-			"",
+			AuthenticatedAgent{},
 			true,
 			false,
 		},
@@ -132,7 +145,7 @@ func TestAgentBindingAuthenticate(t *testing.T) {
 			"no bearer prefix",
 			token,
 			1,
-			"",
+			AuthenticatedAgent{},
 			true,
 			false,
 		},
@@ -140,7 +153,7 @@ func TestAgentBindingAuthenticate(t *testing.T) {
 			"empty bearer token",
 			"Bearer ",
 			1,
-			"",
+			AuthenticatedAgent{},
 			true,
 			false,
 		},
@@ -148,7 +161,7 @@ func TestAgentBindingAuthenticate(t *testing.T) {
 			"whitespace token",
 			"Bearer  token ",
 			1,
-			"",
+			AuthenticatedAgent{},
 			true,
 			false,
 		},
@@ -156,7 +169,7 @@ func TestAgentBindingAuthenticate(t *testing.T) {
 			"unknown token",
 			"Bearer unknown-token",
 			1,
-			"",
+			AuthenticatedAgent{},
 			true,
 			false,
 		},
@@ -167,13 +180,13 @@ func TestAgentBindingAuthenticate(t *testing.T) {
 			if tt.headerCount > 0 {
 				req.Header.Set("Authorization", tt.authHeader)
 			}
-			agentID, err := binding.Authenticate(req)
+			principal, err := binding.Authenticate(req)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Authenticate() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if agentID != tt.wantAgentID {
-				t.Errorf("Authenticate() agentID = %v, want %v", agentID, tt.wantAgentID)
+			if principal != tt.wantPrincipal {
+				t.Errorf("Authenticate() principal = %v, want %v", principal, tt.wantPrincipal)
 			}
 			if tt.wantForbidden && err != ErrForbidden {
 				t.Errorf("Authenticate() expected ErrForbidden, got %v", err)
@@ -186,8 +199,8 @@ func TestAgentBindingMultiplePrincipals(t *testing.T) {
 	token1 := "token-agent-1"
 	token2 := "token-agent-2"
 	binding, err := NewAgentBinding([]AgentPrincipal{
-		{AgentID: "agent01", TokenSHA256: testTokenDigest(token1)},
-		{AgentID: "agent02", TokenSHA256: testTokenDigest(token2)},
+		{WorkspaceID: "workspace01", AgentID: "agent01", TokenSHA256: testTokenDigest(token1)},
+		{WorkspaceID: "workspace02", AgentID: "agent02", TokenSHA256: testTokenDigest(token2)},
 	})
 	if err != nil {
 		t.Fatalf("NewAgentBinding() error = %v", err)
@@ -195,15 +208,15 @@ func TestAgentBindingMultiplePrincipals(t *testing.T) {
 
 	req1 := httptest.NewRequest("POST", "/agent/v1/invocations", nil)
 	req1.Header.Set("Authorization", "Bearer "+token1)
-	agentID1, err := binding.Authenticate(req1)
-	if err != nil || agentID1 != "agent01" {
-		t.Errorf("expected agent01, got %s, err %v", agentID1, err)
+	principal1, err := binding.Authenticate(req1)
+	if err != nil || principal1 != (AuthenticatedAgent{WorkspaceID: "workspace01", AgentID: "agent01"}) {
+		t.Errorf("unexpected first principal: %v, err %v", principal1, err)
 	}
 
 	req2 := httptest.NewRequest("POST", "/agent/v1/invocations", nil)
 	req2.Header.Set("Authorization", "Bearer "+token2)
-	agentID2, err := binding.Authenticate(req2)
-	if err != nil || agentID2 != "agent02" {
-		t.Errorf("expected agent02, got %s, err %v", agentID2, err)
+	principal2, err := binding.Authenticate(req2)
+	if err != nil || principal2 != (AuthenticatedAgent{WorkspaceID: "workspace02", AgentID: "agent02"}) {
+		t.Errorf("unexpected second principal: %v, err %v", principal2, err)
 	}
 }

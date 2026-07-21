@@ -188,16 +188,8 @@ func (client *Client) ResolveInstalledVersion(ctx context.Context, requestValue 
 		if err != nil || traceID != platformError.TraceID {
 			return contracts.ResolveInstalledVersionResponse{}, errors.New("control plane version resolution error trace header is invalid")
 		}
-		// Validate request correlation: the error must echo the exact
-		// invocation/root/trace from the request after correlation.
-		if platformError.InvocationID != "" && platformError.InvocationID != requestValue.InvocationID {
-			return contracts.ResolveInstalledVersionResponse{}, errors.New("control plane version resolution error correlation changed")
-		}
-		if platformError.RootTaskID != "" && platformError.RootTaskID != requestValue.RootTaskID {
-			return contracts.ResolveInstalledVersionResponse{}, errors.New("control plane version resolution error correlation changed")
-		}
-		if platformError.TraceID != requestValue.TraceID {
-			return contracts.ResolveInstalledVersionResponse{}, errors.New("control plane version resolution error trace correlation changed")
+		if err := validateInstalledVersionFailure(response.StatusCode, requestValue, platformError); err != nil {
+			return contracts.ResolveInstalledVersionResponse{}, err
 		}
 		return contracts.ResolveInstalledVersionResponse{}, &Failure{StatusCode: response.StatusCode, Code: platformError.Code, TraceID: traceID, Body: append([]byte(nil), data...)}
 	}
@@ -224,4 +216,50 @@ func (client *Client) ResolveInstalledVersion(ctx context.Context, requestValue 
 		return contracts.ResolveInstalledVersionResponse{}, errors.New("control plane version resolution returned an invalid version")
 	}
 	return resolved, nil
+}
+
+func validateInstalledVersionFailure(statusCode int, request contracts.ResolveInstalledVersionRequest, platformError contracts.PlatformErrorV3) error {
+	hasInvocationID := platformError.InvocationID != ""
+	hasRootTaskID := platformError.RootTaskID != ""
+	if hasInvocationID != hasRootTaskID {
+		return errors.New("control plane version resolution error correlation is incomplete")
+	}
+	correlated := hasInvocationID
+
+	allowedCode := false
+	requiresCorrelated := false
+	requiresPreCorrelation := false
+	switch statusCode {
+	case http.StatusBadRequest:
+		allowedCode = platformError.Code == contracts.ErrorCodeValidationError
+	case http.StatusUnauthorized:
+		allowedCode = platformError.Code == contracts.ErrorCodeUnauthenticated
+		requiresPreCorrelation = true
+	case http.StatusForbidden:
+		allowedCode = platformError.Code == contracts.ErrorCodeInstallationDisabled ||
+			platformError.Code == contracts.ErrorCodeAgentDisabled ||
+			platformError.Code == contracts.ErrorCodeCapabilityNotAllowed
+		requiresCorrelated = true
+	case http.StatusNotFound:
+		allowedCode = platformError.Code == contracts.ErrorCodeNotFound || platformError.Code == contracts.ErrorCodeAgentNotInstalled
+		requiresCorrelated = true
+	case http.StatusServiceUnavailable:
+		allowedCode = platformError.Code == contracts.ErrorCodeDependency
+		requiresCorrelated = true
+	default:
+		return errors.New("control plane version resolution error status is not declared")
+	}
+	if !allowedCode {
+		return errors.New("control plane version resolution error status and code do not match")
+	}
+	if requiresCorrelated && !correlated {
+		return errors.New("control plane version resolution error requires correlation")
+	}
+	if requiresPreCorrelation && correlated {
+		return errors.New("control plane version resolution error must be pre-correlation")
+	}
+	if correlated && (platformError.InvocationID != request.InvocationID || platformError.RootTaskID != request.RootTaskID || platformError.TraceID != request.TraceID) {
+		return errors.New("control plane version resolution error correlation changed")
+	}
+	return nil
 }

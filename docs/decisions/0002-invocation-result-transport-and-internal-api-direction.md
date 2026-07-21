@@ -63,6 +63,7 @@ Internal operations are split by service owner and destination:
 | Contract | Served by | Called by | Operations |
 | --- | --- | --- | --- |
 | `control-plane-internal.v2.yaml` | Control Plane | A2A Router | Exact authorized Agent resolution with pre/post-correlation errors |
+| `control-plane-internal.v3.yaml` | Control Plane | A2A Router | Deterministic enabled-Installation version resolution for nested calls |
 | `router-internal.v2.yaml` | A2A Router | Control Plane | Dispatch/result delivery, Ledger event reads, trace reads |
 
 The Router resolves through the Control Plane contract and never reads Registry
@@ -72,7 +73,7 @@ contract defines a localhost fallback.
 
 ### Version and failure semantics
 
-Northbound v3, Router Internal v2, Invocation Event v0.2, Platform Error v2/v3,
+Northbound v3, Router Internal v3, Control Plane Internal v2/v3, Invocation Event v0.3, Platform Error v2/v3,
 and Invocation Result v1 are active contracts. Historical Northbound v1/v2,
 Router Internal v1, and Invocation Event v0.1 files remain unchanged as
 migration evidence.
@@ -83,6 +84,14 @@ It has no detail, endpoint, credential, payload, Agent output, dependency error,
 or stack fields. Invocation Event v0.2 makes terminal type, status, and error
 classification coherent: `TIMEOUT` belongs only to `timed_out`, `CANCELED`
 belongs only to `canceled`, and `failed` excludes both.
+
+### Amendment: Spec 019 nested invocation
+
+Spec 019 adds Control Plane Internal v3 as an additive, active contract for
+deterministic installed-version selection. It does not change v2 exact Card
+resolution and does not introduce a runtime fallback between the versions.
+Agent Router credentials are bound to one `(Workspace, Agent)` pair so a parent
+from another Workspace cannot be borrowed with the same Agent ID.
 
 ## Consequences
 

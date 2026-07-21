@@ -44,6 +44,6 @@ T000 -> T001-T004 -> [T005 || T006] -> T007 -> T008 -> [T009 || T010 || T011] ->
 ## Fallback Report
 
 ```text
-Fallback delta: removed 0, retained 0, added 0, net 0
+Fallback delta: removed 1, retained 0, added 0, net -1
 Added fallback evidence: none
 ```

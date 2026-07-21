@@ -126,28 +126,26 @@ credential-inference behavior.
 The spec edge case "a parent from another Workspace cannot create a child" is
 enforced by the following cooperating checks:
 
-1. The parent must be `running` and its `TargetAgentID` must equal the
-   authenticated Agent (rejects parents belonging to other Agents).
-2. The child inherits the parent's `WorkspaceID`; the Agent does not choose
+1. The parent must be `running`, its `TargetAgentID` must equal the
+   authenticated Agent, and its `WorkspaceID` must equal the Workspace bound
+   to that credential.
+2. The child inherits the parent's `WorkspaceID`; the request does not choose
    or supply a Workspace.
 3. The Control Plane resolution validates the target Agent is installed and
    enabled in the inherited Workspace.
 
-For an Agent installed in multiple Workspaces: a credential binds to one
-Agent ID (not one Workspace). If the same Agent is legitimately running in
-Workspaces X and Y simultaneously, it may reference either of its own running
-parents. This is correct behavior — the Agent IS the target of both parents.
-A future per-Workspace credential binding can restrict this further if
-multi-Workspace isolation becomes a product requirement.
+If an Agent is installed in multiple Workspaces, each `(Workspace, Agent)` pair
+uses a distinct Router credential binding. A token bound in Workspace X cannot
+reference a parent in Workspace Y, even when the Agent ID is the same.
 
 ## Requirements
 
 ### Functional Requirements
 
 - **FR-001**: Router MUST expose only the versioned Agent-facing `/agent/v1/invocations` boundary for SDK nested calls.
-- **FR-002**: Agent authentication MUST bind one explicit opaque credential to one exact Agent ID; missing, duplicate, unknown, and mismatched bindings MUST fail without defaults.
+- **FR-002**: Agent authentication MUST bind one explicit opaque credential to one exact `(workspaceId, agentId)` pair; missing, duplicate, unknown, and mismatched bindings MUST fail without defaults.
 - **FR-003**: The nested request MUST contain only `parentInvocationId`, `targetAgentId`, `capability`, `input`, and `stream`; trusted identity, lineage, endpoint, credential, and child ID fields MUST be rejected.
-- **FR-004**: Router MUST load the committed parent before child acceptance, require its status to be `running`, and require its target Agent to equal the authenticated Agent.
+- **FR-004**: Router MUST load the committed parent before child acceptance, require its status to be `running`, and require both its Workspace and target Agent to equal the authenticated principal.
 - **FR-005**: Router MUST derive child caller, Workspace, root Task, Trace, and parent facts from the committed parent and MUST generate a new child Invocation ID.
 - **FR-006**: Child execution MUST reuse the existing exact resolution, A2A transport, Ledger lifecycle, media negotiation, deadline, and result validation semantics.
 - **FR-007**: The SDK MUST validate inherited platform context and explicit configuration locally, propagate only the parent reference and untrusted work, and perform exactly one Router request without retry or redirect.
@@ -161,7 +159,7 @@ multi-Workspace isolation becomes a product requirement.
 
 - **Platform Context**: Trusted inherited Invocation, root Task, Trace, Workspace, and Agent identity presented by the managed transport and validated before SDK use.
 - **Nested Invocation Request**: Untrusted target capability/input and the existing parent Invocation reference.
-- **Agent Binding**: Explicit deployment-owned mapping from one opaque bearer credential to one Agent ID; never a Card or Ledger field.
+- **Agent Binding**: Explicit deployment-owned mapping from one opaque bearer credential to one `(Workspace, Agent)` pair; never a Card or Ledger field.
 - **Child Invocation**: A newly identified Ledger lifecycle whose parent, Workspace, root Task, Trace, and caller are derived from the committed parent.
 
 ## Runtime/Platform Boundary
@@ -201,6 +199,6 @@ multi-Workspace isolation becomes a product requirement.
 ## Fallback Report
 
 ```text
-Fallback delta: removed 0, retained 0, added 0, net 0
+Fallback delta: removed 1, retained 0, added 0, net -1
 Added fallback evidence: none
 ```

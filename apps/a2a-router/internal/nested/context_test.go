@@ -24,9 +24,13 @@ func runningParent() contracts.InvocationDetailResponseV4 {
 	}
 }
 
+func runningParentPrincipal() AuthenticatedAgent {
+	return AuthenticatedAgent{WorkspaceID: "ws_test789", AgentID: "agent_caller01"}
+}
+
 func TestDeriveChildContextSuccess(t *testing.T) {
 	parent := runningParent()
-	child, err := DeriveChildContext(parent, "agent_caller01")
+	child, err := DeriveChildContext(parent, runningParentPrincipal())
 	if err != nil {
 		t.Fatalf("DeriveChildContext() error = %v", err)
 	}
@@ -58,7 +62,7 @@ func TestDeriveChildContextSuccess(t *testing.T) {
 
 func TestDeriveChildContextParentNotFound(t *testing.T) {
 	parent := contracts.InvocationDetailResponseV4{}
-	_, err := DeriveChildContext(parent, "agent01")
+	_, err := DeriveChildContext(parent, runningParentPrincipal())
 	if err != ErrParentNotFound {
 		t.Errorf("expected ErrParentNotFound, got %v", err)
 	}
@@ -67,19 +71,19 @@ func TestDeriveChildContextParentNotFound(t *testing.T) {
 func TestDeriveChildContextParentNotRunning(t *testing.T) {
 	parent := runningParent()
 	parent.Invocation.Status = "succeeded"
-	_, err := DeriveChildContext(parent, "agent_caller01")
+	_, err := DeriveChildContext(parent, runningParentPrincipal())
 	if err != ErrParentNotRunning {
 		t.Errorf("expected ErrParentNotRunning, got %v", err)
 	}
 
 	parent.Invocation.Status = "failed"
-	_, err = DeriveChildContext(parent, "agent_caller01")
+	_, err = DeriveChildContext(parent, runningParentPrincipal())
 	if err != ErrParentNotRunning {
 		t.Errorf("expected ErrParentNotRunning, got %v", err)
 	}
 
 	parent.Invocation.Status = "pending"
-	_, err = DeriveChildContext(parent, "agent_caller01")
+	_, err = DeriveChildContext(parent, runningParentPrincipal())
 	if err != ErrParentNotRunning {
 		t.Errorf("expected ErrParentNotRunning, got %v", err)
 	}
@@ -87,15 +91,23 @@ func TestDeriveChildContextParentNotRunning(t *testing.T) {
 
 func TestDeriveChildContextTargetMismatch(t *testing.T) {
 	parent := runningParent()
-	_, err := DeriveChildContext(parent, "agent_different")
+	_, err := DeriveChildContext(parent, AuthenticatedAgent{WorkspaceID: "ws_test789", AgentID: "agent_different"})
 	if err != ErrParentTargetMismatch {
 		t.Errorf("expected ErrParentTargetMismatch, got %v", err)
 	}
 }
 
+func TestDeriveChildContextWorkspaceMismatch(t *testing.T) {
+	parent := runningParent()
+	_, err := DeriveChildContext(parent, AuthenticatedAgent{WorkspaceID: "ws_other", AgentID: "agent_caller01"})
+	if err != ErrParentWorkspaceMismatch {
+		t.Errorf("expected ErrParentWorkspaceMismatch, got %v", err)
+	}
+}
+
 func TestBuildChildDispatchRequest(t *testing.T) {
 	parent := runningParent()
-	child, err := DeriveChildContext(parent, "agent_caller01")
+	child, err := DeriveChildContext(parent, runningParentPrincipal())
 	if err != nil {
 		t.Fatalf("DeriveChildContext() error = %v", err)
 	}
@@ -168,12 +180,12 @@ func TestDeriveChildContextIDSourceFailure(t *testing.T) {
 	defer func() { invocationIDSource = original }()
 
 	parent := runningParent()
-	_, err := DeriveChildContext(parent, "agent_caller01")
+	_, err := DeriveChildContext(parent, runningParentPrincipal())
 	if err == nil {
 		t.Fatal("expected error from failing ID source")
 	}
 	// The error should not be one of the known parent-state errors.
-	if errors.Is(err, ErrParentNotFound) || errors.Is(err, ErrParentNotRunning) || errors.Is(err, ErrParentTargetMismatch) {
+	if errors.Is(err, ErrParentNotFound) || errors.Is(err, ErrParentNotRunning) || errors.Is(err, ErrParentTargetMismatch) || errors.Is(err, ErrParentWorkspaceMismatch) {
 		t.Errorf("ID source failure should not map to parent-state error, got %v", err)
 	}
 }
