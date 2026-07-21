@@ -27,16 +27,23 @@ Ledger remains Router-owned. Runtime images contain no database client.
 
 ## Files and Ownership
 
+- `apps/control-plane/internal/gateway/`, `apps/control-plane/internal/workspace/`:
+  register the previously contracted Internal v3 installed-version adapter.
+- `apps/a2a-router/internal/config/`, `apps/a2a-router/cmd/a2a-router/`:
+  require the deployment-owned Agent bindings/version URL and register the
+  previously implemented Agent Router v1 handler.
 - `apps/a2a-router/Dockerfile`, `agents/runtime-b/Dockerfile`,
-  `agents/runtime-a/Dockerfile`: process image owners.
+  `agents/runtime-a/Dockerfile`, both Runtime HTTP adapters, and
+  `.dockerignore`: process image/readiness owners.
 - `deploy/compose.yaml`: final process/network/migration composition owner.
 - `tests/e2e/invoke-record/`: acceptance harness owner; it may read PostgreSQL
   only for metadata/secrecy assertions and never writes platform tables.
 - `.github/workflows/ci.yml`: acceptance job owner.
 - `specs/021-invoke-record-acceptance/`: SDD and evidence owner.
 
-No contracts, SDK, Control Plane, Router, or Runtime business behavior changes
-are planned.
+No contracts, SDK, transport, Ledger, or Runtime business behavior changes are
+planned. Control Plane and Router receive only the deferred process adapters
+explicitly assigned to Issue #30 by Spec 019.
 
 ## Configuration
 

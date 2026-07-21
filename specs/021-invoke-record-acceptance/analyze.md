@@ -12,8 +12,8 @@
   its migration. The harness never mutates those schemas.
 - Runtime A's nested module remains the only location that imports
   `trpc-agent-go`; Runtime B remains an independent direct A2A implementation.
-- Tasks map one owner to each shared file: Compose/CI are T011-owned and no
-  child runtime task edits them.
+- Tasks map one owner to each shared file: T002 owns the adapters deferred by
+  Spec 019, while Compose/CI remain T011-owned and no earlier child edits them.
 - Failure semantics remain explicit. The E2E suite asserts safe code/status,
   not raw dependency text, and treats absent Docker/DB as failure.
 - No new fallback, retry, cache, alternate source, or result persistence is

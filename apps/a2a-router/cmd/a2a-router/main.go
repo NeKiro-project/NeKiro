@@ -12,6 +12,7 @@ import (
 	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/auth"
 	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/config"
 	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/ledger"
+	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/nested"
 	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/resolution"
 	a2atransport "github.com/Nene7ko/NeKiro/apps/a2a-router/internal/transport/a2a"
 	"github.com/jackc/pgx/v5"
@@ -102,7 +103,7 @@ func newHandler(cfg config.Config, doer resolution.HTTPDoer, agentHTTPClient *ht
 	if err != nil {
 		return nil, err
 	}
-	resolver, err := resolution.NewClient(doer, cfg.ControlPlaneResolveURL, cfg.ControlPlaneServiceToken, cfg.ControlPlaneResponseLimitBytes)
+	resolver, err := resolution.NewClientWithVersionURL(doer, cfg.ControlPlaneResolveURL, cfg.ControlPlaneVersionURL, cfg.ControlPlaneServiceToken, cfg.ControlPlaneResponseLimitBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -118,6 +119,10 @@ func newHandler(cfg config.Config, doer resolution.HTTPDoer, agentHTTPClient *ht
 	if !ok {
 		return nil, errors.New("router Ledger reader is required")
 	}
+	nestedLedgerReader, ok := ledgerAppender.(api.NestedLedgerReader)
+	if !ok {
+		return nil, errors.New("router nested Ledger reader is required")
+	}
 	dispatch, err = api.NewDispatchHandlerWithTransportAndLedgerAndStreaming(authenticator, resolver, transport, ledgerAppender, cfg.SSEEventLimitBytes, cfg.InternalRequestLimitBytes, cfg.ResolutionDeadline)
 	if err != nil {
 		return nil, err
@@ -126,9 +131,18 @@ func newHandler(cfg config.Config, doer resolution.HTTPDoer, agentHTTPClient *ht
 	if err != nil {
 		return nil, err
 	}
+	agentBinding, err := nested.NewAgentBinding(cfg.AgentPrincipals)
+	if err != nil {
+		return nil, err
+	}
+	agentHandler, err := api.NewAgentInvocationHandler(agentBinding, nestedLedgerReader, resolver, dispatch, cfg.AgentRequestLimitBytes, cfg.AgentDeadline)
+	if err != nil {
+		return nil, err
+	}
 	mux := http.NewServeMux()
 	mux.Handle("GET /readyz", api.NewReadinessHandler())
 	dispatch.RegisterRoutes(mux)
+	agentHandler.RegisterRoutes(mux)
 	if err := ledgerHandler.RegisterRoutes(mux, authenticator); err != nil {
 		return nil, err
 	}

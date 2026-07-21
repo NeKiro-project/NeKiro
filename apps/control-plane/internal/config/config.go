@@ -35,6 +35,7 @@ type Config struct {
 type InvocationRuntimeConfig struct {
 	RouterInternalURL          string
 	RouterBearerToken          string
+	InternalRequestLimitBytes  int64
 	PublicRequestLimitBytes    int64
 	SSEEventLimitBytes         int64
 	MetadataResponseLimitBytes int64
@@ -138,6 +139,10 @@ func LoadInvocationRuntime() (InvocationRuntimeConfig, error) {
 	if strings.ContainsAny(token, " \t\r\n") {
 		return InvocationRuntimeConfig{}, errors.New("NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN is invalid")
 	}
+	internalRequestLimit, err := requiredStrictInt64("NEKIRO_CONTROL_PLANE_INTERNAL_REQUEST_MAX_BYTES", 1, 2147483647)
+	if err != nil {
+		return InvocationRuntimeConfig{}, err
+	}
 	requestLimit, err := requiredStrictInt64("NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES", 1, 2147483647)
 	if err != nil {
 		return InvocationRuntimeConfig{}, err
@@ -154,7 +159,7 @@ func LoadInvocationRuntime() (InvocationRuntimeConfig, error) {
 	if err != nil {
 		return InvocationRuntimeConfig{}, err
 	}
-	return InvocationRuntimeConfig{RouterInternalURL: routerURL, RouterBearerToken: token, PublicRequestLimitBytes: requestLimit, SSEEventLimitBytes: sseLimit, MetadataResponseLimitBytes: metadataLimit, DeadlineMS: deadline}, nil
+	return InvocationRuntimeConfig{RouterInternalURL: routerURL, RouterBearerToken: token, InternalRequestLimitBytes: internalRequestLimit, PublicRequestLimitBytes: requestLimit, SSEEventLimitBytes: sseLimit, MetadataResponseLimitBytes: metadataLimit, DeadlineMS: deadline}, nil
 }
 
 func requiredStrictInt64(name string, minimum, maximum int64) (int64, error) {

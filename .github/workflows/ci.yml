@@ -135,5 +135,112 @@ jobs:
           NEKIRO_COMPOSE_DATABASE_URL: postgresql://compose_config_check:compose-config-check-only@postgres:5432/compose_config_check?sslmode=disable
           NEKIRO_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"compose-check","tokenSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]'
           NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"compose-router-check","tokenSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]'
+          NEKIRO_ROUTER_SERVICE_PRINCIPALS_JSON: '[{"id":"compose-control-plane","tokenSha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}]'
+          NEKIRO_ROUTER_AGENT_PRINCIPALS_JSON: '[{"workspaceId":"workspace-acceptance","agentId":"runtime-a","tokenSha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}]'
+          NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN: compose-router-token
+          NEKIRO_CONTROL_PLANE_SERVICE_TOKEN: compose-control-plane-token
+          NEKIRO_CONTROL_PLANE_INTERNAL_REQUEST_MAX_BYTES: "1048576"
+          NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES: "1048576"
+          NEKIRO_GATEWAY_SSE_EVENT_MAX_BYTES: "65536"
+          NEKIRO_GATEWAY_METADATA_RESPONSE_MAX_BYTES: "1048576"
+          NEKIRO_GATEWAY_INVOCATION_DEADLINE_MS: "30000"
+          NEKIRO_ROUTER_INTERNAL_REQUEST_LIMIT_BYTES: "1048576"
+          NEKIRO_ROUTER_AGENT_REQUEST_LIMIT_BYTES: "1048576"
+          NEKIRO_ROUTER_CONTROL_PLANE_RESPONSE_LIMIT_BYTES: "1048576"
+          NEKIRO_ROUTER_AGENT_RESPONSE_LIMIT_BYTES: "1048576"
+          NEKIRO_ROUTER_A2A_EVENT_LIMIT_BYTES: "1048576"
+          NEKIRO_ROUTER_SSE_EVENT_LIMIT_BYTES: "65536"
+          NEKIRO_ROUTER_RESOLUTION_DEADLINE_MS: "30000"
+          NEKIRO_ROUTER_AGENT_DEADLINE_MS: "30000"
+          RUNTIME_A_ROUTER_TOKEN: runtime-a-token
+          RUNTIME_A_RESPONSE_LIMIT_BYTES: "1048576"
+          RUNTIME_A_EVENT_LIMIT_BYTES: "65536"
           CONTROL_PLANE_PORT: "18080"
+          A2A_ROUTER_PORT: "18081"
         run: docker compose --file deploy/compose.yaml config --quiet
+
+  runtime-samples-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            agents/runtime-a/go.sum
+
+      - name: Test Runtime A module
+        working-directory: agents/runtime-a
+        run: go test -count=1 ./...
+
+      - name: Vet Runtime A module
+        working-directory: agents/runtime-a
+        run: go vet ./...
+
+  backend-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      POSTGRES_USER: nekiro_acceptance
+      POSTGRES_PASSWORD: acceptance-only-password
+      POSTGRES_DB: nekiro_acceptance
+      POSTGRES_PORT: "55432"
+      CONTROL_PLANE_PORT: "18080"
+      A2A_ROUTER_PORT: "18081"
+      NEKIRO_COMPOSE_DATABASE_URL: postgresql://nekiro_acceptance:acceptance-only-password@postgres:5432/nekiro_acceptance?sslmode=disable
+      NEKIRO_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"acceptance-owner","tokenSha256":"465aedffb32a2cb642cbca8fc75b806bcd33f703d70c49dcfb05e9db88df32d2"},{"id":"acceptance-user","tokenSha256":"2af4f9af4fa535905378ccee817aa532244dcf102f3d3ebeaf9a2a92abdeb42d"},{"id":"acceptance-other","tokenSha256":"7f85fe19123d4f88c475cb754dd30f422877ba3b3e2d5eed8ff8c2f9453ebeaf"}]'
+      NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"router-internal","tokenSha256":"f9232718425b5ebee721187a79703448bce513ecf0600eb161f9256ddac27c4d"}]'
+      NEKIRO_ROUTER_SERVICE_PRINCIPALS_JSON: '[{"id":"control-plane","tokenSha256":"5abfd00de27c6b2f57d45fdc90999134e4e088414ba1f39bf67ee0d1c9cec554"}]'
+      NEKIRO_ROUTER_AGENT_PRINCIPALS_JSON: '[{"workspaceId":"workspace-acceptance","agentId":"runtime-a","tokenSha256":"e304d0370532633d535824a897d5c03445b636e8d1649064aa35a8fb50fef200"}]'
+      NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN: router-internal-token
+      NEKIRO_CONTROL_PLANE_SERVICE_TOKEN: control-plane-internal-token
+      NEKIRO_CONTROL_PLANE_INTERNAL_REQUEST_MAX_BYTES: "1048576"
+      NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES: "1048576"
+      NEKIRO_GATEWAY_SSE_EVENT_MAX_BYTES: "65536"
+      NEKIRO_GATEWAY_METADATA_RESPONSE_MAX_BYTES: "1048576"
+      NEKIRO_GATEWAY_INVOCATION_DEADLINE_MS: "30000"
+      NEKIRO_ROUTER_INTERNAL_REQUEST_LIMIT_BYTES: "1048576"
+      NEKIRO_ROUTER_AGENT_REQUEST_LIMIT_BYTES: "1048576"
+      NEKIRO_ROUTER_CONTROL_PLANE_RESPONSE_LIMIT_BYTES: "1048576"
+      NEKIRO_ROUTER_AGENT_RESPONSE_LIMIT_BYTES: "1048576"
+      NEKIRO_ROUTER_A2A_EVENT_LIMIT_BYTES: "1048576"
+      NEKIRO_ROUTER_SSE_EVENT_LIMIT_BYTES: "65536"
+      NEKIRO_ROUTER_RESOLUTION_DEADLINE_MS: "30000"
+      NEKIRO_ROUTER_AGENT_DEADLINE_MS: "30000"
+      RUNTIME_A_ROUTER_TOKEN: runtime-a-router-token
+      RUNTIME_A_RESPONSE_LIMIT_BYTES: "1048576"
+      RUNTIME_A_EVENT_LIMIT_BYTES: "65536"
+      NEKIRO_E2E_CONTROL_PLANE_URL: http://127.0.0.1:18080
+      NEKIRO_E2E_OWNER_TOKEN: acceptance-owner-token
+      NEKIRO_E2E_USER_TOKEN: acceptance-user-token
+      NEKIRO_E2E_OTHER_TOKEN: acceptance-other-token
+      NEKIRO_E2E_DATABASE_URL: postgresql://nekiro_acceptance:acceptance-only-password@127.0.0.1:55432/nekiro_acceptance?sslmode=disable
+      NEKIRO_E2E_COMPOSE_FILE: deploy/compose.yaml
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Start clean backend Compose stack
+        run: docker compose --file deploy/compose.yaml up --build --detach --wait --wait-timeout 120
+
+      - name: Run real Invoke-to-Record acceptance
+        run: go test -tags=e2e -count=1 ./tests/e2e/invoke-record
+
+      - name: Capture backend logs
+        if: always()
+        run: docker compose --file deploy/compose.yaml logs --no-color
+
+      - name: Tear down clean backend stack
+        if: always()
+        run: docker compose --file deploy/compose.yaml down --volumes --remove-orphans

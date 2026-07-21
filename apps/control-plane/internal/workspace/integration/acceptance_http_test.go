@@ -143,7 +143,7 @@ func newAcceptanceHTTPHarness(t *testing.T) *acceptanceHTTPHarness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspaceHandler, err := gateway.NewWorkspaceHandler(publicAuth, internalAuth, workspaceService, traces, logger)
+	workspaceHandler, err := gateway.NewWorkspaceHandler(publicAuth, internalAuth, workspaceService, traces, logger, 1048576)
 	if err != nil {
 		t.Fatal(err)
 	}

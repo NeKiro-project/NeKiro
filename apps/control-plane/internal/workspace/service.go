@@ -255,6 +255,30 @@ func (service *Service) AuthorizeInvocation(ctx context.Context, caller Authenti
 	if err := service.authorizer.Authorize(value.OwnerID, caller.ID); err != nil {
 		return AuthorizedInvocation{}, err
 	}
+	return service.resolveAuthorizedInvocation(ctx, workspaceID, agentID, capability)
+}
+
+// ResolveInstalledVersion is the internal nested-invocation authorization
+// boundary. The caller is an authenticated platform service, so ownership is
+// established by the internal handler rather than an end-user owner policy.
+func (service *Service) ResolveInstalledVersion(ctx context.Context, request contracts.ResolveInstalledVersionRequest) (contracts.ResolveInstalledVersionResponse, error) {
+	if !ValidIdentifier(request.InvocationID) || !ValidIdentifier(request.RootTaskID) || !ValidIdentifier(request.WorkspaceID) || !ValidIdentifier(request.AgentID) || !ValidIdentifier(request.Capability) {
+		return contracts.ResolveInstalledVersionResponse{}, ErrInvalid
+	}
+	if _, err := contracts.ParseTraceID(string(request.TraceID)); err != nil {
+		return contracts.ResolveInstalledVersionResponse{}, ErrInvalid
+	}
+	if _, err := service.store.GetWorkspace(ctx, request.WorkspaceID); err != nil {
+		return contracts.ResolveInstalledVersionResponse{}, err
+	}
+	authorized, err := service.resolveAuthorizedInvocation(ctx, request.WorkspaceID, request.AgentID, request.Capability)
+	if err != nil {
+		return contracts.ResolveInstalledVersionResponse{}, err
+	}
+	return contracts.ResolveInstalledVersionResponse{Version: authorized.AgentCardVersion}, nil
+}
+
+func (service *Service) resolveAuthorizedInvocation(ctx context.Context, workspaceID, agentID, capability string) (AuthorizedInvocation, error) {
 	installation, err := service.store.GetCurrentInstallation(ctx, workspaceID, agentID)
 	if errors.Is(err, ErrNotFound) {
 		return AuthorizedInvocation{}, ErrAgentNotInstalled

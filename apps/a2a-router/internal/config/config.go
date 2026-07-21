@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/auth"
+	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/nested"
 	"github.com/Nene7ko/NeKiro/contracts"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -21,15 +22,19 @@ import (
 type Config struct {
 	ListenAddress                  string
 	RouterPrincipals               []auth.Principal
+	AgentPrincipals                []nested.AgentPrincipal
 	DatabaseURL                    string
 	ControlPlaneResolveURL         string
+	ControlPlaneVersionURL         string
 	ControlPlaneServiceToken       string
 	InternalRequestLimitBytes      int64
+	AgentRequestLimitBytes         int64
 	ControlPlaneResponseLimitBytes int64
 	AgentResponseLimitBytes        int64
 	A2AEventLimitBytes             int64
 	SSEEventLimitBytes             int64
 	ResolutionDeadline             time.Duration
+	AgentDeadline                  time.Duration
 }
 
 type jsonFrame struct {
@@ -54,12 +59,27 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("NEKIRO_ROUTER_SERVICE_PRINCIPALS_JSON is invalid: %w", err)
 	}
+	agentPrincipalsJSON, err := requiredEnv("NEKIRO_ROUTER_AGENT_PRINCIPALS_JSON")
+	if err != nil {
+		return Config{}, err
+	}
+	agentPrincipals, err := decodeAgentPrincipals([]byte(agentPrincipalsJSON))
+	if err != nil {
+		return Config{}, fmt.Errorf("NEKIRO_ROUTER_AGENT_PRINCIPALS_JSON is invalid: %w", err)
+	}
 	resolveURL, err := requiredEnv("NEKIRO_CONTROL_PLANE_RESOLVE_URL")
 	if err != nil {
 		return Config{}, err
 	}
 	if err := validateResolveURL(resolveURL); err != nil {
 		return Config{}, fmt.Errorf("NEKIRO_CONTROL_PLANE_RESOLVE_URL is invalid: %w", err)
+	}
+	versionURL, err := requiredEnv("NEKIRO_CONTROL_PLANE_VERSION_URL")
+	if err != nil {
+		return Config{}, err
+	}
+	if err := validateControlPlaneURL(versionURL, "/internal/v3/resolve-installed-version"); err != nil {
+		return Config{}, fmt.Errorf("NEKIRO_CONTROL_PLANE_VERSION_URL is invalid: %w", err)
 	}
 	token, err := requiredEnv("NEKIRO_CONTROL_PLANE_SERVICE_TOKEN")
 	if err != nil {
@@ -73,6 +93,10 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	requestLimit, err := requiredInt64("NEKIRO_ROUTER_INTERNAL_REQUEST_LIMIT_BYTES", contracts.RuntimeByteLimitMinimum, contracts.RuntimeByteLimitMaximum)
+	if err != nil {
+		return Config{}, err
+	}
+	agentRequestLimit, err := requiredInt64("NEKIRO_ROUTER_AGENT_REQUEST_LIMIT_BYTES", contracts.RuntimeByteLimitMinimum, contracts.RuntimeByteLimitMaximum)
 	if err != nil {
 		return Config{}, err
 	}
@@ -96,7 +120,11 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	return Config{ListenAddress: listen, RouterPrincipals: principals, DatabaseURL: databaseURL, ControlPlaneResolveURL: resolveURL, ControlPlaneServiceToken: token, InternalRequestLimitBytes: requestLimit, ControlPlaneResponseLimitBytes: responseLimit, AgentResponseLimitBytes: agentResponseLimit, A2AEventLimitBytes: a2aEventLimit, SSEEventLimitBytes: sseEventLimit, ResolutionDeadline: time.Duration(deadlineMS) * time.Millisecond}, nil
+	agentDeadlineMS, err := requiredInt64("NEKIRO_ROUTER_AGENT_DEADLINE_MS", contracts.RuntimeDeadlineMinimumMS, contracts.RuntimeDeadlineMaximumMS)
+	if err != nil {
+		return Config{}, err
+	}
+	return Config{ListenAddress: listen, RouterPrincipals: principals, AgentPrincipals: agentPrincipals, DatabaseURL: databaseURL, ControlPlaneResolveURL: resolveURL, ControlPlaneVersionURL: versionURL, ControlPlaneServiceToken: token, InternalRequestLimitBytes: requestLimit, AgentRequestLimitBytes: agentRequestLimit, ControlPlaneResponseLimitBytes: responseLimit, AgentResponseLimitBytes: agentResponseLimit, A2AEventLimitBytes: a2aEventLimit, SSEEventLimitBytes: sseEventLimit, ResolutionDeadline: time.Duration(deadlineMS) * time.Millisecond, AgentDeadline: time.Duration(agentDeadlineMS) * time.Millisecond}, nil
 }
 
 // LoadDatabaseURL validates the database boundary shared by the serving and
@@ -143,11 +171,42 @@ func validateListenAddress(value string) error {
 }
 
 func validateResolveURL(value string) error {
+	return validateControlPlaneURL(value, "/internal/v2/resolve-agent")
+}
+
+func validateControlPlaneURL(value, requiredPath string) error {
 	parsed, err := url.Parse(value)
-	if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "/internal/v2/resolve-agent" {
+	if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != requiredPath {
 		return errors.New("must be an absolute HTTP(S) Control Plane resolve URL without userinfo, query, or fragment")
 	}
 	return nil
+}
+
+func decodeAgentPrincipals(data []byte) ([]nested.AgentPrincipal, error) {
+	if err := rejectDuplicateMembers(data); err != nil {
+		return nil, err
+	}
+	var wire []struct {
+		WorkspaceID string `json:"workspaceId"`
+		AgentID     string `json:"agentId"`
+		TokenSHA256 string `json:"tokenSha256"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&wire); err != nil {
+		return nil, err
+	}
+	if err := requireEOF(decoder); err != nil {
+		return nil, err
+	}
+	principals := make([]nested.AgentPrincipal, len(wire))
+	for index, principal := range wire {
+		principals[index] = nested.AgentPrincipal{WorkspaceID: principal.WorkspaceID, AgentID: principal.AgentID, TokenSHA256: principal.TokenSHA256}
+	}
+	if _, err := nested.NewAgentBinding(principals); err != nil {
+		return nil, err
+	}
+	return principals, nil
 }
 
 func validateDatabaseURL(value string) error {
