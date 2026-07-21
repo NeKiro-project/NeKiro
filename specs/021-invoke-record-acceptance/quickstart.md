@@ -37,6 +37,8 @@ $env:RUNTIME_A_RESPONSE_LIMIT_BYTES = "1048576"
 $env:RUNTIME_A_EVENT_LIMIT_BYTES = "65536"
 docker compose --file deploy/compose.yaml up --build --detach
 $env:NEKIRO_E2E_CONTROL_PLANE_URL = "http://127.0.0.1:18080"
+$env:NEKIRO_E2E_ROUTER_URL = "http://127.0.0.1:18081"
+$env:NEKIRO_E2E_ROUTER_TOKEN = "router-internal-token"
 $env:NEKIRO_E2E_OWNER_TOKEN = "acceptance-owner-token"
 $env:NEKIRO_E2E_USER_TOKEN = "acceptance-user-token"
 $env:NEKIRO_E2E_OTHER_TOKEN = "acceptance-other-token"
@@ -58,6 +60,25 @@ docker compose --file deploy/compose.yaml config --quiet
 The E2E report must include JSON, SSE, nested lineage, restart, isolation,
 failure, secrecy, and 100-concurrent outcomes. A skipped Compose run is not a
 passing acceptance result.
+
+## Verification evidence
+
+Local static evidence on 2026-07-21:
+
+```text
+go test -count=1 ./...                                      PASS
+go vet ./...                                                PASS
+agents/runtime-a: go test -count=1 ./...                    PASS
+agents/runtime-a: go vet ./...                              PASS
+go test -tags=e2e -run '^$' ./tests/e2e/invoke-record          PASS (compile-only)
+docker compose --file deploy/compose.yaml config --quiet    PASS
+```
+
+The local Docker client is installed, but its `desktop-linux` daemon is not
+available (`failed to connect ... dockerDesktopLinuxEngine`). Therefore a real
+Compose/PostgreSQL E2E result is not claimed locally; the required
+`backend-acceptance` CI job is the authoritative clean-stack gate and must pass
+before T012/T015 are checked.
 
 ## Fallback audit
 

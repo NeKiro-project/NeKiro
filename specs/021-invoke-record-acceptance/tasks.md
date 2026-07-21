@@ -32,3 +32,10 @@ T001 -> T002 -> T003 -> T004 -> T005 -> T006 -> T007 -> T008 -> T009 -> T010 -> 
 Fallback delta: removed 0, retained 0, added 0, net 0
 Added fallback evidence: none
 ```
+
+## Phase 4: Convergence
+
+- [ ] T012 Verify the Compose-config, Linux race, clean Docker/PostgreSQL, and real Invoke-to-Record CI gates; treat unavailable Docker/DB as a failed gate per FR-008 and SC-006 (partial).
+- [ ] T013 Capture the completed static, contract, nested Runtime A, PostgreSQL, Compose, and E2E command results—including the local Docker-unavailable limitation—in `quickstart.md` per T009/SC-006 (partial).
+- [ ] T014 Run fresh independent Standards and Spec reviews against the post-fix HEAD, append any new findings, and confirm no P0-P2 blocker remains per T010/SC-006 (partial).
+- [ ] T015 Mark T008-T011 and this convergence phase complete only after CI, review, and Converge pass; update Spec 010 T011 and the GitHub #30/#19 handoff facts, then close the child and parent issues when all acceptance checks are satisfied per T011/SC-006 (partial).

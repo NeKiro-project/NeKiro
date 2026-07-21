@@ -176,8 +176,14 @@ func validateResolveURL(value string) error {
 
 func validateControlPlaneURL(value, requiredPath string) error {
 	parsed, err := url.Parse(value)
-	if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != requiredPath {
+	if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.ForceQuery || parsed.RawQuery != "" || strings.Contains(value, "#") || parsed.Fragment != "" || parsed.Path != requiredPath {
 		return errors.New("must be an absolute HTTP(S) Control Plane resolve URL without userinfo, query, or fragment")
+	}
+	if portText := parsed.Port(); portText != "" {
+		port, err := strconv.Atoi(portText)
+		if err != nil || port < 1 || port > 65535 {
+			return errors.New("Control Plane resolve URL port must be an integer from 1 through 65535")
+		}
 	}
 	return nil
 }

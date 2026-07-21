@@ -31,6 +31,9 @@ jobs:
       - name: Test Go with coverage
         run: go test -coverprofile coverage.txt ./...
 
+      - name: Race test Go
+        run: go test -race ./...
+
       - name: Upload Go coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
@@ -182,6 +185,10 @@ jobs:
         working-directory: agents/runtime-a
         run: go vet ./...
 
+      - name: Race test Runtime A module
+        working-directory: agents/runtime-a
+        run: go test -race ./...
+
   backend-acceptance:
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -216,6 +223,8 @@ jobs:
       RUNTIME_A_RESPONSE_LIMIT_BYTES: "1048576"
       RUNTIME_A_EVENT_LIMIT_BYTES: "65536"
       NEKIRO_E2E_CONTROL_PLANE_URL: http://127.0.0.1:18080
+      NEKIRO_E2E_ROUTER_URL: http://127.0.0.1:18081
+      NEKIRO_E2E_ROUTER_TOKEN: router-internal-token
       NEKIRO_E2E_OWNER_TOKEN: acceptance-owner-token
       NEKIRO_E2E_USER_TOKEN: acceptance-user-token
       NEKIRO_E2E_OTHER_TOKEN: acceptance-other-token
