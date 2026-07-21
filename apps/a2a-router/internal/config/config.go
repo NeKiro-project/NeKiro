@@ -182,7 +182,7 @@ func validateControlPlaneURL(value, requiredPath string) error {
 	if portText := parsed.Port(); portText != "" {
 		port, err := strconv.Atoi(portText)
 		if err != nil || port < 1 || port > 65535 {
-			return errors.New("Control Plane resolve URL port must be an integer from 1 through 65535")
+			return errors.New("control plane resolve URL port must be an integer from 1 through 65535")
 		}
 	}
 	return nil
