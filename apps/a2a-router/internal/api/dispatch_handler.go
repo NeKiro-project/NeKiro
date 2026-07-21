@@ -195,6 +195,105 @@ func (handler *DispatchHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /internal/v3/invocations", handler.dispatch)
 }
 
+// DispatchChild performs resolution, transport, and Ledger for an
+// already-validated child Invocation request. It is called by the nested
+// Agent handler after authentication, parent validation, and child context
+// derivation. The accept header controls JSON/SSE result mode.
+// Unlike the internal dispatch path, DispatchChild accepts caller type
+// "agent" and propagates ParentInvocationID to Ledger events.
+func (handler *DispatchHandler) DispatchChild(writer http.ResponseWriter, request *http.Request, dispatchRequest contracts.DispatchInvocationRequestV3, accept string) {
+	if _, err := contracts.NegotiateInvocationResultMode(dispatchRequest.Stream, accept); err != nil {
+		handler.writePreError(writer, dispatchRequest.TraceID, contracts.ErrorCodeNotAcceptable)
+		return
+	}
+	if err := validateChildDispatch(dispatchRequest); err != nil {
+		handler.writePreError(writer, dispatchRequest.TraceID, contracts.ErrorCodeValidationError)
+		return
+	}
+	invocationStartedAt := time.Now()
+	ctx, cancel := context.WithTimeout(request.Context(), handler.deadline)
+	defer cancel()
+	resolved, err := handler.resolver.Resolve(ctx, contracts.ResolveAgentRequest{
+		InvocationID: dispatchRequest.InvocationID, RootTaskID: dispatchRequest.RootTaskID,
+		TraceID: dispatchRequest.TraceID, WorkspaceID: dispatchRequest.WorkspaceID,
+		AgentID: dispatchRequest.TargetAgentID, Version: dispatchRequest.AgentCardVersion,
+		Capability: dispatchRequest.Capability,
+	})
+	if err != nil {
+		code := contracts.ErrorCodeDependency
+		var failure *resolution.Failure
+		if errors.As(err, &failure) {
+			// Map through the Agent boundary; never forward internal
+			// Control Plane codes or body across Agent Router v1.
+			code = mapControlPlaneCodeToAgentBoundary(failure.Code)
+		} else if errors.Is(err, context.DeadlineExceeded) {
+			code = contracts.ErrorCodeTimeout
+		} else if errors.Is(err, context.Canceled) {
+			code = contracts.ErrorCodeCanceled
+		}
+		handler.writePreError(writer, dispatchRequest.TraceID, code)
+		return
+	}
+	if handler.transport != nil && dispatchRequest.Stream {
+		if handler.streaming == nil || handler.ledger == nil {
+			handler.writeCorrelatedError(writer, dispatchRequest, contracts.ErrorCodeRouteNotFound)
+			return
+		}
+		streamingPreflight, ok := handler.transport.(StreamingTransport)
+		if !ok {
+			handler.writeCorrelatedError(writer, dispatchRequest, contracts.ErrorCodeRouteNotFound)
+			return
+		}
+		targetErr := streamingPreflight.ValidateStreamingTarget(dispatchRequest, resolved)
+		inputValidator := streamingPreflight.ValidateStreamingInput
+		if targetErr != nil {
+			handler.dispatchNonStreamingWithLedger(ctx, writer, dispatchRequest, resolved, targetErr)
+			return
+		}
+		if err := inputValidator(dispatchRequest, resolved); err != nil {
+			handler.writePreError(writer, dispatchRequest.TraceID, dispatchErrorCode(err))
+			return
+		}
+		streamCtx, streamCancel := resolvedDeadlineContext(ctx, resolved.Card.Limits.TimeoutMS, invocationStartedAt)
+		defer streamCancel()
+		handler.dispatchStreamingWithLedger(streamCtx, func() {
+			cancel()
+			streamCancel()
+		}, writer, dispatchRequest, resolved)
+		return
+	}
+	if handler.transport != nil && !dispatchRequest.Stream {
+		targetErr := handler.transport.ValidateNonStreamingTarget(dispatchRequest, resolved)
+		if targetErr != nil {
+			if handler.ledger != nil {
+				handler.dispatchNonStreamingWithLedger(ctx, writer, dispatchRequest, resolved, targetErr)
+				return
+			}
+			handler.writeCorrelatedError(writer, dispatchRequest, dispatchErrorCode(targetErr))
+			return
+		}
+		if err := handler.transport.ValidateNonStreamingInput(dispatchRequest, resolved); err != nil {
+			handler.writePreError(writer, dispatchRequest.TraceID, dispatchErrorCode(err))
+			return
+		}
+		nonStreamingCtx, nonStreamingCancel := resolvedDeadlineContext(ctx, resolved.Card.Limits.TimeoutMS, invocationStartedAt)
+		defer nonStreamingCancel()
+		if handler.ledger != nil {
+			handler.dispatchNonStreamingWithLedger(nonStreamingCtx, writer, dispatchRequest, resolved, nil)
+			return
+		}
+		result, err := handler.transport.SendNonStreaming(nonStreamingCtx, dispatchRequest, resolved)
+		if err != nil {
+			code := dispatchErrorCode(err)
+			handler.writeCorrelatedError(writer, dispatchRequest, code)
+			return
+		}
+		handler.writeInvocationResult(writer, dispatchRequest, result)
+		return
+	}
+	handler.writeCorrelatedError(writer, dispatchRequest, contracts.ErrorCodeRouteNotFound)
+}
+
 func (handler *DispatchHandler) dispatch(writer http.ResponseWriter, request *http.Request) {
 	if _, err := handler.authenticator.Authenticate(request); err != nil {
 		handler.writeGeneratedPreError(writer, authErrorCode(err))
@@ -346,6 +445,9 @@ func (handler *DispatchHandler) readRequest(request *http.Request) (contracts.Di
 }
 
 func validateDispatch(value contracts.DispatchInvocationRequestV3) error {
+	if value.ParentInvocationID != "" {
+		return errors.New("root dispatch must not carry parent invocation id")
+	}
 	for _, identifier := range []string{value.InvocationID, value.RootTaskID, value.WorkspaceID, value.TargetAgentID, value.Capability, value.Caller.ID} {
 		if !validIdentifier(identifier) {
 			return errors.New("dispatch identifier is invalid")
@@ -363,6 +465,34 @@ func validateDispatch(value contracts.DispatchInvocationRequestV3) error {
 	var input map[string]json.RawMessage
 	if json.Unmarshal(value.Input, &input) != nil || input == nil {
 		return errors.New("dispatch input must be object")
+	}
+	return nil
+}
+
+// validateChildDispatch validates a trusted child dispatch request. Unlike
+// validateDispatch, it accepts caller type "agent" and requires a non-empty
+// ParentInvocationID for Ledger lineage.
+func validateChildDispatch(value contracts.DispatchInvocationRequestV3) error {
+	for _, identifier := range []string{value.InvocationID, value.RootTaskID, value.WorkspaceID, value.TargetAgentID, value.Capability, value.Caller.ID} {
+		if !validIdentifier(identifier) {
+			return errors.New("child dispatch identifier is invalid")
+		}
+	}
+	if _, err := semver.StrictNewVersion(value.AgentCardVersion); err != nil {
+		return errors.New("child dispatch Agent Card version is invalid")
+	}
+	if _, err := contracts.ParseTraceID(string(value.TraceID)); err != nil {
+		return err
+	}
+	if value.Caller.Type != "agent" {
+		return errors.New("child dispatch caller must be agent")
+	}
+	if !validIdentifier(value.ParentInvocationID) {
+		return errors.New("child dispatch parent invocation id is invalid")
+	}
+	var input map[string]json.RawMessage
+	if json.Unmarshal(value.Input, &input) != nil || input == nil {
+		return errors.New("child dispatch input must be object")
 	}
 	return nil
 }
@@ -417,7 +547,8 @@ func (handler *DispatchHandler) dispatchNonStreamingWithLedger(ctx context.Conte
 	if targetErr == nil {
 		initialEvents = append(initialEvents, lifecycleEvent(request, 2, "started", "running", startedAt.Add(2*time.Microsecond)))
 	}
-	if !handler.appendInitialLedgerEvents(ctx, writer, request, startedAt, initialEvents) {
+	childMode := request.ParentInvocationID != ""
+	if !handler.appendInitialLedgerEventsMode(ctx, writer, request, startedAt, initialEvents, childMode) {
 		return
 	}
 	if targetErr != nil {
@@ -471,11 +602,12 @@ func (handler *DispatchHandler) dispatchNonStreamingWithLedger(ctx context.Conte
 
 func (handler *DispatchHandler) dispatchStreamingWithLedger(ctx context.Context, cancel context.CancelFunc, response http.ResponseWriter, request contracts.DispatchInvocationRequestV3, resolved contracts.ResolveAgentResponse) {
 	startedAt := time.Now().UTC().Truncate(time.Microsecond)
-	if !handler.appendInitialLedgerEvents(ctx, response, request, startedAt, []contracts.InvocationEventV03{
+	childMode := request.ParentInvocationID != ""
+	if !handler.appendInitialLedgerEventsMode(ctx, response, request, startedAt, []contracts.InvocationEventV03{
 		lifecycleEvent(request, 0, "created", "pending", startedAt),
 		lifecycleEvent(request, 1, "routing", "routing", startedAt.Add(time.Microsecond)),
 		lifecycleEvent(request, 2, "started", "running", startedAt.Add(2*time.Microsecond)),
-	}) {
+	}, childMode) {
 		return
 	}
 	appendEvent := func(event contracts.InvocationEventV03) error {
@@ -641,7 +773,11 @@ func ledgerContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), ledgerCommitGrace)
 }
 
-func (handler *DispatchHandler) appendInitialLedgerEvents(ctx context.Context, writer http.ResponseWriter, request contracts.DispatchInvocationRequestV3, startedAt time.Time, events []contracts.InvocationEventV03) bool {
+// appendInitialLedgerEventsMode appends initial lifecycle events. When
+// childMode is true and the sequence-0 created event fails, a
+// pre-correlation error is written because child acceptance never occurred
+// (FR-008). After sequence-0 commits, correlated errors are used.
+func (handler *DispatchHandler) appendInitialLedgerEventsMode(ctx context.Context, writer http.ResponseWriter, request contracts.DispatchInvocationRequestV3, startedAt time.Time, events []contracts.InvocationEventV03, childMode bool) bool {
 	for _, event := range events {
 		if err := handler.ledger.Append(ctx, event); err == nil {
 			continue
@@ -660,7 +796,13 @@ func (handler *DispatchHandler) appendInitialLedgerEvents(ctx context.Context, w
 				}
 			}
 		}
-		handler.writeCorrelatedError(writer, request, contracts.ErrorCodeDependency)
+		// In child mode, sequence-0 failure means child acceptance never
+		// occurred; emit a pre-correlation error per FR-008.
+		if childMode && event.Sequence == 0 {
+			handler.writePreError(writer, request.TraceID, contracts.ErrorCodeDependency)
+		} else {
+			handler.writeCorrelatedError(writer, request, contracts.ErrorCodeDependency)
+		}
 		return false
 	}
 	return true
@@ -800,20 +942,21 @@ func streamWriteErrorCode(ctx context.Context, err error) contracts.PlatformErro
 
 func lifecycleEvent(request contracts.DispatchInvocationRequestV3, sequence int64, eventType, status string, occurredAt time.Time) contracts.InvocationEventV03 {
 	return contracts.InvocationEventV03{
-		SchemaVersion:    contracts.RuntimeInvocationEventSchemaVersion,
-		EventID:          lifecycleEventID(request.InvocationID, sequence, eventType),
-		Sequence:         sequence,
-		OccurredAt:       occurredAt.UTC().Format(time.RFC3339Nano),
-		Type:             eventType,
-		Status:           status,
-		InvocationID:     request.InvocationID,
-		RootTaskID:       request.RootTaskID,
-		TraceID:          request.TraceID,
-		Caller:           request.Caller,
-		WorkspaceID:      request.WorkspaceID,
-		TargetAgentID:    request.TargetAgentID,
-		AgentCardVersion: request.AgentCardVersion,
-		Capability:       request.Capability,
+		SchemaVersion:      contracts.RuntimeInvocationEventSchemaVersion,
+		EventID:            lifecycleEventID(request.InvocationID, sequence, eventType),
+		Sequence:           sequence,
+		OccurredAt:         occurredAt.UTC().Format(time.RFC3339Nano),
+		Type:               eventType,
+		Status:             status,
+		InvocationID:       request.InvocationID,
+		RootTaskID:         request.RootTaskID,
+		ParentInvocationID: request.ParentInvocationID,
+		TraceID:            request.TraceID,
+		Caller:             request.Caller,
+		WorkspaceID:        request.WorkspaceID,
+		TargetAgentID:      request.TargetAgentID,
+		AgentCardVersion:   request.AgentCardVersion,
+		Capability:         request.Capability,
 	}
 }
 

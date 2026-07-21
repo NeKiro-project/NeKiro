@@ -1,9 +1,9 @@
 # Implementation Plan: Agent SDK Nested Invocation
 
-**Branch**: `codex/016-nonstream-a2a-dispatch` | **Date**: 2026-07-16 | **Spec**: [spec.md](spec.md)
+**Branch**: `codex/019-agent-sdk-nested-invocation` | **Date**: 2026-07-16 | **Spec**: [spec.md](spec.md)
 
-**Status**: Planning blocked until T000 resolves deterministic target-Agent
-version selection in a versioned Control Plane contract.
+**Status**: Implementation complete; the Control Plane v3 handler remains a
+separately owned process-wiring task in #30.
 
 ## Summary
 
@@ -13,9 +13,10 @@ parent projection, derives trusted child context, and delegates child execution
 to the existing DispatchHandler/transport/Ledger path. No Agent Runtime code or
 new persistence is introduced.
 
-The current exact resolver requires a Card version, while Agent Router v1 does
-not carry one. No implementation may choose a version or add a compatibility
-fallback until T000 is decided.
+Agent Router v1 intentionally does not carry a Card version. The Router first
+uses Control Plane Internal v3 to resolve the exact enabled Installation pin,
+then uses the existing exact resolver. No implementation chooses a version or
+adds a compatibility fallback.
 
 ## Technical Context
 
@@ -42,9 +43,10 @@ continues to own result modes, route resolution, transport, and lifecycle facts.
 
 ## Trust and Failure Decisions
 
-- Agent credentials are an explicit `[]auth.Principal` binding supplied by the
-  process owner; the SDK receives one raw token only through its constructor and
-  never serializes it into a request body or result.
+- Agent credentials are an explicit binding supplied by the process owner from
+  one opaque token to one exact `(workspaceId, agentId)` pair; the SDK receives
+  one raw token only through its constructor and never serializes it into a
+  request body or result.
 - Parent `InvocationDetailResponseV4` is read through the Router Ledger port.
   A missing parent is `404`, a target mismatch is `403`, and a non-running parent
   is `409`; all happen before child `created` acceptance.
@@ -87,6 +89,6 @@ the parent acceptance task.
 ## Fallback Report
 
 ```text
-Fallback delta: removed 0, retained 0, added 0, net 0
+Fallback delta: removed 1, retained 0, added 0, net -1
 Added fallback evidence: none
 ```

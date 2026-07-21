@@ -517,6 +517,15 @@ func TestRuntimeContractSchemasAndContentExclusion(t *testing.T) {
 	assertObjectKeysAbsent(t, "Invocation Event 0.3", properties, "input", "result", "chunk", "output", "payload", "endpoint", "credential")
 }
 
+func TestRouterInternalRootRequestRejectsParentInvocationIDOnWire(t *testing.T) {
+	var request DispatchInvocationRequestV3
+	decoder := json.NewDecoder(strings.NewReader(`{"invocationId":"inv-1","rootTaskId":"task-1","parentInvocationId":"inv-parent","traceId":"trace-1","caller":{"type":"user","id":"user-1"},"workspaceId":"workspace-1","targetAgentId":"agent-1","agentCardVersion":"1.0.0","capability":"summarize","input":{},"stream":false}`))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err == nil {
+		t.Fatal("Router Internal root request accepted parentInvocationId")
+	}
+}
+
 func TestRuntimeContractPolicyFreezesAcceptanceAndInterruption(t *testing.T) {
 	t.Parallel()
 

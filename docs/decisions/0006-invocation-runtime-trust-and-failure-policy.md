@@ -20,16 +20,25 @@ forgery, secret fallback, false Ledger success, or incompatible APIs.
 
 `router-agent.v1.yaml` is the only Agent SDK destination. An explicit opaque
 Bearer credential is bound by required Router deployment configuration to one
-exact Agent ID. Missing, invalid, duplicate, or mismatched bindings fail before
-acceptance. The credential and any fingerprint/locator are prohibited from
+exact `(Workspace, Agent)` pair. The same Agent installed in two Workspaces
+requires two distinct credential bindings. Missing, invalid, duplicate, or
+mismatched bindings fail before acceptance. The credential and any
+fingerprint/locator are prohibited from
 Cards, DTOs, Ledger, errors, and logs.
 
 The nested request contains only parent Invocation ID, target Agent,
 capability, input, and result mode. Router loads one committed parent, requires
-it to be running and its target Agent to equal the authenticated Agent, then
-generates the child ID and derives Workspace, root Task, Trace, parent, and
-caller facts. Request-supplied trusted fields are structurally rejected. The
-SDK has no endpoint field and cannot bypass Router.
+it to be running and both its Workspace and target Agent to equal the
+authenticated principal, then generates the child ID and derives Workspace,
+root Task, Trace, parent, and caller facts. Request-supplied trusted fields are
+structurally rejected. The SDK has no endpoint field and cannot bypass Router.
+
+Control Plane Internal v3 resolves the exact installed version for nested
+calls. Its errors are phase-aware: `401` is pre-correlation; `403`, `404`, and
+`503` require exact request Invocation/root Task/Trace correlation; `400` may
+use either complete shape. Undeclared statuses, status/code mismatches,
+asymmetric identifiers, and correlation changes are invalid dependency
+responses.
 
 ### Phase 1 Agent transport authentication
 
@@ -109,6 +118,10 @@ Every result event is compact UTF-8 JSON on exactly one `data:` line followed
 by exactly one blank line and an immediate flush. Literal CR/LF is JSON escaped.
 Multiple data lines, other SSE fields, malformed JSON, oversized data values,
 missing blank delimiters, and EOF without a terminal result event are invalid.
+The Go Agent SDK requires explicit JSON-response and SSE-event limits, exposes
+SSE incrementally, and validates framing, event schema, correlation, sequence,
+chunk indexes, and terminal completion. It retains only validated safe Platform
+Error v4 fields and never returns a raw Router error body.
 
 ### Shared media negotiation
 
@@ -158,8 +171,11 @@ the lineage.
   required because new exact errors are embedded in those facts/frames.
 - Northbound v3 unscoped Invocation/Trace reads migrate to Workspace-scoped v4
   detail/lineage paths; v4 does not return raw event arrays.
-- Invocation Result v1, Control Plane Internal v2, Agent Card 0.2, A2A Profile
-  Schema 0.2, and A2A protocol 0.3.0 are unchanged.
+- Invocation Result v1, Control Plane Internal v2 exact Card resolution, Agent
+  Card 0.2, A2A Profile Schema 0.2, and A2A protocol 0.3.0 are unchanged.
+- Control Plane Internal v3 additively introduces deterministic installed-
+  version resolution for nested calls; it is the active nested version-
+  selection contract and is not a fallback for v2 exact Card resolution.
 
 No deployed runtime consumer exists. First implementations consume targets
 only. Historical artifacts remain byte-unchanged migration evidence and are
@@ -190,6 +206,6 @@ not served, decoded, retried, or used as fallback alternatives.
 ## Fallback Report
 
 ```text
-Fallback delta: removed 0, retained 0, added 0, net 0
+Fallback delta: removed 1, retained 0, added 0, net -1
 Added fallback evidence: none
 ```

@@ -9,6 +9,7 @@ const (
 	NorthboundInvocationAPIVersion        = "4"
 	RouterInternalRuntimeAPIVersion       = "3"
 	AgentRouterAPIVersion                 = "1"
+	ControlPlaneInternalV3APIVersion      = "3"
 	RuntimePlatformErrorSchemaVersion     = "4"
 	RuntimeInvocationEventSchemaVersion   = "0.3"
 	RuntimeResultStreamEventSchemaVersion = "2"
@@ -34,16 +35,19 @@ type NestedInvocationRequestV1 struct {
 }
 
 type DispatchInvocationRequestV3 struct {
-	InvocationID     string          `json:"invocationId"`
-	RootTaskID       string          `json:"rootTaskId"`
-	TraceID          TraceID         `json:"traceId"`
-	Caller           Caller          `json:"caller"`
-	WorkspaceID      string          `json:"workspaceId"`
-	TargetAgentID    string          `json:"targetAgentId"`
-	AgentCardVersion string          `json:"agentCardVersion"`
-	Capability       string          `json:"capability"`
-	Input            json.RawMessage `json:"input"`
-	Stream           bool            `json:"stream"`
+	InvocationID string `json:"invocationId"`
+	RootTaskID   string `json:"rootTaskId"`
+	// ParentInvocationID is trusted in-process lineage for DispatchChild. It
+	// is deliberately excluded from the Router Internal v3 root HTTP contract.
+	ParentInvocationID string          `json:"-"`
+	TraceID            TraceID         `json:"traceId"`
+	Caller             Caller          `json:"caller"`
+	WorkspaceID        string          `json:"workspaceId"`
+	TargetAgentID      string          `json:"targetAgentId"`
+	AgentCardVersion   string          `json:"agentCardVersion"`
+	Capability         string          `json:"capability"`
+	Input              json.RawMessage `json:"input"`
+	Stream             bool            `json:"stream"`
 }
 
 type PreCorrelationPlatformErrorV4 struct {
@@ -122,4 +126,22 @@ type InvocationDetailResponseV4 struct {
 type TraceResponseV4 struct {
 	TraceID     TraceID              `json:"traceId"`
 	Invocations []InvocationRecordV4 `json:"invocations"`
+}
+
+// ResolveInstalledVersionRequest is the Control Plane Internal v3 request for
+// resolving the deterministic installed Agent Card version from the enabled
+// Installation. It intentionally has no version field; the Control Plane
+// derives it from the pinned installedVersion.
+type ResolveInstalledVersionRequest struct {
+	InvocationID string  `json:"invocationId"`
+	RootTaskID   string  `json:"rootTaskId"`
+	TraceID      TraceID `json:"traceId"`
+	WorkspaceID  string  `json:"workspaceId"`
+	AgentID      string  `json:"agentId"`
+	Capability   string  `json:"capability"`
+}
+
+// ResolveInstalledVersionResponse carries the exact pinned installedVersion.
+type ResolveInstalledVersionResponse struct {
+	Version string `json:"version"`
 }

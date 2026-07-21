@@ -57,8 +57,8 @@ Cross-language contracts are owned by language-neutral artifacts:
 - `contracts/schemas/` contains versioned JSON Schema documents.
 - `contracts/openapi/control-plane.v3.yaml` defines the active Northbound API;
   `control-plane.v2.yaml` remains unchanged migration evidence.
-- `contracts/openapi/control-plane-internal.v2.yaml` defines Router-to-Control Plane exact Agent resolution.
-- `contracts/openapi/router-internal.v2.yaml` defines Control Plane-to-Router dispatch, result transport, Ledger reads, and trace reads.
+- `contracts/openapi/control-plane-internal.v2.yaml` defines Router-to-Control Plane exact Agent resolution; `control-plane-internal.v3.yaml` defines nested installed-version resolution.
+- `contracts/openapi/router-internal.v3.yaml` defines active Control Plane-to-Router dispatch, result transport, and Workspace-scoped Invocation/Trace reads; v2 is historical migration evidence.
 - `contracts/a2a-profile/v0.3.0/profile.v0.2.json` pins the active supported A2A subset and context headers.
 - `contracts/*.go` maps these contracts into Go and verifies the mapping against the source schemas.
 
@@ -102,13 +102,13 @@ represented as not found, an empty list, or success.
 | Method | Path | Owner | Purpose |
 | --- | --- | --- | --- |
 | `POST` | `/internal/v2/resolve-agent` | Control Plane | Resolve an authorized installed exact Agent Card v0.2 and capability |
-| `POST` | `/internal/v2/invocations` | Router | Execute an authorized invocation and return a transient JSON or SSE result |
-| `GET` | `/internal/v2/invocations/:id` | Router | Read metadata-only Router-owned Ledger facts |
-| `GET` | `/internal/v2/invocations/:id/events` | Router | Stream metadata-only `RouterEventEnvelope` values over SSE |
-| `GET` | `/internal/v2/traces/:traceId` | Router | Read metadata-only invocation lineage |
+| `POST` | `/internal/v3/resolve-installed-version` | Control Plane | Resolve the exact enabled Installation pin for a nested call |
+| `POST` | `/internal/v3/invocations` | Router | Execute an authorized root invocation and return a transient JSON or SSE result |
+| `GET` | `/internal/v3/workspaces/:workspaceId/invocations/:invocationId` | Router | Read Workspace-scoped metadata-only Invocation detail |
+| `GET` | `/internal/v3/workspaces/:workspaceId/traces/:traceId` | Router | Read Workspace-scoped metadata-only lineage |
 
-Control Plane Internal v2 is served by the Control Plane and called by the
-Router. Router Internal v2 is served by the Router and called by the Control
+Control Plane Internal v2/v3 are served by the Control Plane and called by the
+Router. Router Internal v3 is served by the Router and called by the Control
 Plane. Their server destinations are distinct and explicitly configured. The
 Router resolves cards through the internal Control Plane API and must not query
 Registry or Workspace tables directly.

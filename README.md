@@ -30,7 +30,8 @@ different Runtime implementations. See
 The repository has an active language-neutral contract set and its tested Go
 mappings: Agent Card `0.2`, Workspace `v1`, Installation `v2`, Control Plane
 Northbound `v3` plus the Invocation `v4` companion, Control Plane Internal API
-`v2`, Router Internal API `v3`, Agent Router API `v1`, Invocation Event `0.3`,
+`v2` exact Card resolution plus `v3` nested installed-version resolution,
+Router Internal API `v3`, Agent Router API `v1`, Invocation Event `0.3`,
 Platform Error `v2` / `v3` / `v4` by owning surface, Invocation Result `v1`,
 Result Stream Event `v2`, and A2A Profile Schema `0.2` for protocol `0.3.0`.
 Historical contract generations remain migration evidence; the runtime does
@@ -50,10 +51,11 @@ performs controlled exact resolution, invokes the deterministic Runtime B A2A
 sample, and records metadata-only append-only Ledger events with
 Workspace-scoped Invocation/Trace reads.
 
-Frontend work remains paused. The thin Agent SDK, Runtime A, cross-Runtime
-nested invocation, and the complete clean-environment E2E acceptance remain
-unimplemented. Existing Router and Runtime B slices therefore do not yet prove
-the complete Phase 1 loop.
+Frontend work remains paused. The thin Go Agent SDK and Router-owned nested
+adapter are implemented, while Runtime A, cross-Runtime nested invocation,
+process/Compose wiring, and the complete clean-environment E2E acceptance
+remain unimplemented. Existing slices therefore do not yet prove the complete
+Phase 1 loop.
 
 The first-stage architecture keeps these boundaries:
 

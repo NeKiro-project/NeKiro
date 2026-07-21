@@ -4,28 +4,41 @@
 
 **Created**: 2026-07-16
 
-**Status**: Draft — blocked on target-version resolution policy
+**Status**: Active — T000 resolved
 
 **Input**: Parent Spec 010 T009, accepted ADR 0006, and the active Agent
 Router API v1 contract.
 
-## Clarification Required
+## Clarification Resolved (T000)
 
-The active Router Agent v1 request contains `targetAgentId` and `capability`
-but no target Card version, while the only current Control Plane Internal v2
-resolver requires an exact `version`. The Router cannot safely invent a version,
-call an unversioned endpoint, or choose an arbitrary published version. Before
-implementation, the platform needs one explicit policy:
+**Decision**: Add a new Control Plane Internal v3 endpoint
+`/internal/v3/resolve-installed-version` that resolves the deterministic
+installed Agent Card version given workspace, agent, and capability.
 
-- add a version-selection capability to a new/versioned Control Plane internal
-  contract that resolves the Workspace's enabled installation by Agent and
-  capability;
-- add an explicit target version to the Agent Router request (which changes the
-  accepted v1 contract and ADR 0006); or
-- define another approved, deterministic version source and update the contract
-  evidence.
+**Rationale**:
 
-This is intentionally not guessed in the SDK or Router.
+1. Control Plane owns Workspace/Installation data and is the authority for
+   installed versions.
+2. Router does not make version selection decisions; it queries the Control
+   Plane for the exact pinned `installedVersion` from the enabled Installation.
+3. The new endpoint is additive and does not modify the existing v2
+   `resolve-agent` contract.
+4. The resolution is deterministic: one enabled Installation per
+   (workspace, agent) pair has exactly one pinned `installedVersion`.
+5. After obtaining the version, the Router calls the existing v2
+   `resolve-agent` endpoint for full Card and Installation authorization.
+
+**Contract**: `contracts/openapi/control-plane-internal.v3.yaml` defines the
+new `ResolveInstalledVersion` operation. The Router resolution client gains a
+`ResolveInstalledVersion` method.
+
+**Implementation deferral**: The Control Plane-owned handler for
+`/internal/v3/resolve-installed-version` is outside this issue's write scope
+(`sdks/agent-sdk/`, `apps/a2a-router/internal/api/agent_invocation_handler.go`,
+`apps/a2a-router/internal/nested/`, `specs/019-agent-sdk-nested-invocation/`).
+The contract, Router client, and handler are delivered here; the Control Plane
+service registration belongs to the parent acceptance task (#30) which owns
+process wiring and Compose deployment.
 
 ## Context
 
@@ -108,14 +121,31 @@ credential-inference behavior.
 - A child response is transient; result content is never written to Ledger or
   logged by the platform boundary.
 
+### Cross-Workspace Isolation Policy
+
+The spec edge case "a parent from another Workspace cannot create a child" is
+enforced by the following cooperating checks:
+
+1. The parent must be `running`, its `TargetAgentID` must equal the
+   authenticated Agent, and its `WorkspaceID` must equal the Workspace bound
+   to that credential.
+2. The child inherits the parent's `WorkspaceID`; the request does not choose
+   or supply a Workspace.
+3. The Control Plane resolution validates the target Agent is installed and
+   enabled in the inherited Workspace.
+
+If an Agent is installed in multiple Workspaces, each `(Workspace, Agent)` pair
+uses a distinct Router credential binding. A token bound in Workspace X cannot
+reference a parent in Workspace Y, even when the Agent ID is the same.
+
 ## Requirements
 
 ### Functional Requirements
 
 - **FR-001**: Router MUST expose only the versioned Agent-facing `/agent/v1/invocations` boundary for SDK nested calls.
-- **FR-002**: Agent authentication MUST bind one explicit opaque credential to one exact Agent ID; missing, duplicate, unknown, and mismatched bindings MUST fail without defaults.
+- **FR-002**: Agent authentication MUST bind one explicit opaque credential to one exact `(workspaceId, agentId)` pair; missing, duplicate, unknown, and mismatched bindings MUST fail without defaults.
 - **FR-003**: The nested request MUST contain only `parentInvocationId`, `targetAgentId`, `capability`, `input`, and `stream`; trusted identity, lineage, endpoint, credential, and child ID fields MUST be rejected.
-- **FR-004**: Router MUST load the committed parent before child acceptance, require its status to be `running`, and require its target Agent to equal the authenticated Agent.
+- **FR-004**: Router MUST load the committed parent before child acceptance, require its status to be `running`, and require both its Workspace and target Agent to equal the authenticated principal.
 - **FR-005**: Router MUST derive child caller, Workspace, root Task, Trace, and parent facts from the committed parent and MUST generate a new child Invocation ID.
 - **FR-006**: Child execution MUST reuse the existing exact resolution, A2A transport, Ledger lifecycle, media negotiation, deadline, and result validation semantics.
 - **FR-007**: The SDK MUST validate inherited platform context and explicit configuration locally, propagate only the parent reference and untrusted work, and perform exactly one Router request without retry or redirect.
@@ -129,7 +159,7 @@ credential-inference behavior.
 
 - **Platform Context**: Trusted inherited Invocation, root Task, Trace, Workspace, and Agent identity presented by the managed transport and validated before SDK use.
 - **Nested Invocation Request**: Untrusted target capability/input and the existing parent Invocation reference.
-- **Agent Binding**: Explicit deployment-owned mapping from one opaque bearer credential to one Agent ID; never a Card or Ledger field.
+- **Agent Binding**: Explicit deployment-owned mapping from one opaque bearer credential to one `(Workspace, Agent)` pair; never a Card or Ledger field.
 - **Child Invocation**: A newly identified Ledger lifecycle whose parent, Workspace, root Task, Trace, and caller are derived from the committed parent.
 
 ## Runtime/Platform Boundary
@@ -169,6 +199,6 @@ credential-inference behavior.
 ## Fallback Report
 
 ```text
-Fallback delta: removed 0, retained 0, added 0, net 0
+Fallback delta: removed 1, retained 0, added 0, net -1
 Added fallback evidence: none
 ```

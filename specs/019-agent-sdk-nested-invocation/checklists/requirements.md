@@ -14,7 +14,7 @@
 
 ## Requirement Completeness
 
-- [ ] Target-Agent version-selection policy is resolved in a versioned contract
+- [X] Target-Agent version-selection policy is resolved in a versioned contract
 - [X] Requirements are testable and unambiguous
 - [X] Success criteria are measurable
 - [X] Acceptance scenarios, edge cases, scope, and dependencies are defined
@@ -27,6 +27,6 @@
 
 ## Notes
 
-The implementation must consume the already accepted Agent Router v1 and ADR
-0006 decisions; it must not invent credential, target-version, or fallback
-policy. Planning is blocked until the clarification in `spec.md` is answered.
+The implementation consumes the accepted Agent Router v1 and ADR 0006
+decisions. Target version selection is the explicit Control Plane Internal v3
+resolution contract; no credential, version, or fallback policy is inferred.

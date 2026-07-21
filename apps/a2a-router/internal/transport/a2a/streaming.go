@@ -276,7 +276,7 @@ func (client *Client) SendStreaming(ctx context.Context, dispatch contracts.Disp
 			HeaderTraceID:            []string{string(dispatch.TraceID)},
 			HeaderInvocationID:       []string{dispatch.InvocationID},
 			HeaderRootTaskID:         []string{dispatch.RootTaskID},
-			HeaderParentInvocationID: []string{""},
+			HeaderParentInvocationID: []string{dispatch.ParentInvocationID},
 			HeaderWorkspaceID:        []string{dispatch.WorkspaceID},
 		}))
 		cancelHTTPClient := *client.httpClient
@@ -294,7 +294,7 @@ func (client *Client) SendStreaming(ctx context.Context, dispatch contracts.Disp
 			HeaderTraceID:            []string{string(dispatch.TraceID)},
 			HeaderInvocationID:       []string{dispatch.InvocationID},
 			HeaderRootTaskID:         []string{dispatch.RootTaskID},
-			HeaderParentInvocationID: []string{""},
+			HeaderParentInvocationID: []string{dispatch.ParentInvocationID},
 			HeaderWorkspaceID:        []string{dispatch.WorkspaceID},
 		}))
 

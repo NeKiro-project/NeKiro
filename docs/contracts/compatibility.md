@@ -19,8 +19,8 @@ consumers and must not redefine their semantics.
 | Workspace Schema | none | `v1` | New minimal authorization-root fact |
 | Installation Schema | `v1` | `v2` | Breaking: canonical semantic invariants are frozen |
 | Northbound API | `v1` / `v2` | `v3` | Breaking: v3 completes authenticated Workspace/Installation semantics and body-bearing uninstall |
-| Control Plane Internal API | `v1` | `v2` | Breaking: explicit pre-correlation failures and exact error set |
-| Router Internal API | `v1` | `v2` | Breaking: dispatch returns JSON/SSE results and no longer owns resolution |
+| Control Plane Internal API | `v1` | `v2` exact Card resolution / `v3` installed-version resolution | v2 is breaking from v1; v3 additively owns deterministic nested version selection |
+| Router Internal API | `v1` / `v2` | `v3` | Breaking: dispatch and Workspace-scoped metadata reads use the runtime contract |
 | Invocation Event Schema | `0.1` | `0.2` | Breaking: terminal status and error-code combinations are stricter |
 | Platform Error | `v1` | `v2` / `v3` | v2 remains active for Catalog/Invocation; v3 adds Workspace `INSTALLATION_DISABLED` |
 | Invocation Result | none | `v1` | New transient JSON and SSE result contracts |
@@ -35,6 +35,7 @@ and Workspace surfaces:
 | Northbound Invocation API | invocation routes in Control Plane `v3` | invocation-only `v4` | Breaking acceptance, size, error, and persistence-interruption semantics; Catalog/Workspace/Installation remain on v3 |
 | Router Internal API | `v1` / `v2` | `v3` | Breaking service-auth, acceptance, size, and post-side-effect failure semantics |
 | Agent Router API | none | `v1` | New authenticated Agent-SDK direction and parent-derived trust model |
+| Control Plane Internal API | `v1` | `v2` exact Card resolution / `v3` installed-version resolution | v3 adds a phase-aware nested version-selection operation without dual-read fallback |
 | Platform Error | `v1` / `v2` / `v3` | `v4` for invocation runtime | Breaking closed pre/correlated shapes and exact unsupported-auth/request-size/Agent-response-size outcomes |
 | Invocation Event | `0.1` / `0.2` | `0.3` | Breaking embedded Platform Error v4 revision |
 | Result Stream Event | `v1` | `v2` | Breaking embedded Platform Error v4 revision |
@@ -93,6 +94,9 @@ before their first runtime implementation:
   identity, distinguishes missing Installation, Installation disabled, Catalog
   version disabled, capability denial, and dependency failure, and defines a
   pre-correlation error shape for malformed/missing IDs.
+- Control Plane Internal v3 uses the same service boundary and validates
+  phase-specific status/code/correlation combinations for installed-version
+  resolution; it never falls back to v2 for that operation.
 - Platform Error v3 adds `INSTALLATION_DISABLED` with fixed message
   `The Agent installation is disabled.` `AGENT_DISABLED` retains its Catalog
   Agent-version meaning; existing Platform Error v2 remains unchanged.
@@ -102,7 +106,7 @@ before their first runtime implementation:
 Northbound v2 and Installation v1 remain byte-unchanged historical evidence. Installation v1's structural
 shape did not freeze the v2 semantic invariants, so first Workspace consumers
 must adopt Installation v2. Control Plane Internal v1 remains historical and
-must not be dual-read; first Router consumers use v2. Platform Error v2 remains
+must not be dual-read; first Router consumers use v2/v3 according to operation. Platform Error v2 remains
 the active Catalog/Invocation contract in Northbound v3, while first Workspace and
 internal-resolution consumers use v3. No deployed Workspace or Router
 resolution runtime exists, so these version increments need no compatibility
@@ -191,8 +195,9 @@ compatibility runtime is justified.
 - Do not poll Ledger APIs for result content. Results are not persisted,
   replayed, or recoverable after disconnect; obtaining output requires a new
   Invocation.
-- Route exact Agent resolution to Control Plane Internal v2. Route dispatch and
-  Ledger/trace reads to Router Internal v2.
+- Route nested installed-version selection to Control Plane Internal v3, then
+  exact Card resolution to Control Plane Internal v2. Route dispatch and
+  Ledger/trace reads to Router Internal v3.
 
 ## Failure And Data Semantics
 
