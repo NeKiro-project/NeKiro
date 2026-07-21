@@ -40,4 +40,4 @@ Transient JSON data returned in one A2A agent message:
 }
 ```
 
-The child result is preserved as JSON tokens. No input, credential, raw Router error, or Runtime-internal event data is copied into platform facts or logs.
+The child result is preserved as JSON tokens. `childInvocationId` is lineage metadata and is excluded when comparing deterministic business payloads. No input, credential, raw Router error, or Runtime-internal event data is copied into platform facts or logs.

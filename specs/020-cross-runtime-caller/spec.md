@@ -159,7 +159,10 @@ platform contracts, the thin SDK, and the A2A wire protocol.
 ### Measurable Outcomes
 
 - **SC-001**: 100% of valid Runtime A root requests in the focused test suite
-  return the same byte-equivalent combined JSON for the same input.
+  return the same byte-equivalent semantic combined JSON for the same input
+  after normalizing Router-generated Invocation/message identifiers; those
+  identifiers remain exact lineage metadata and are not treated as business
+  result content.
 - **SC-002**: 100% of focused nested-call tests show exactly one SDK request to
   the Router and zero requests to a Runtime B target URL.
 - **SC-003**: 100% of accepted nested results preserve the exact root Task ID,
