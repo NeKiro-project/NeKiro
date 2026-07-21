@@ -72,8 +72,8 @@ the direct callee only through the Router.
 invoke Agent B; verify exact parent/root/trace lineage and no shared Runtime
 internal type or storage.
 
-- [ ] T009 [P] [US3] Implement the thin Go Agent SDK, trusted context validation/propagation, authenticated nested Router handler/adapter, and post-implementation contract tests in `specs/019-agent-sdk-nested-invocation/`, `sdks/agent-sdk/`, `apps/a2a-router/internal/api/agent_invocation_handler.go`, and `apps/a2a-router/internal/nested/`
-- [ ] T010 [US3] Build and pin the isolated second-Runtime caller sample, integrate the SDK nested call, and add Runtime-independence evidence in `specs/020-cross-runtime-caller/` and `agents/runtime-a/`
+- [X] T009 [P] [US3] Implement the thin Go Agent SDK, trusted context validation/propagation, authenticated nested Router handler/adapter, and post-implementation contract tests in `specs/019-agent-sdk-nested-invocation/`, `sdks/agent-sdk/`, `apps/a2a-router/internal/api/agent_invocation_handler.go`, and `apps/a2a-router/internal/nested/`
+- [X] T010 [US3] Build and pin the isolated second-Runtime caller sample, integrate the SDK nested call, and add Runtime-independence evidence in `specs/020-cross-runtime-caller/` and `agents/runtime-a/`
 
 **Checkpoint**: Two different Runtime implementations complete one managed
 parent-child call through the same Router and Ledger semantics.

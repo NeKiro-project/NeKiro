@@ -131,6 +131,8 @@ historical artifacts remain unchanged migration evidence.
   Gateway destination only for `/v4/workspaces/{workspaceId}/invocations...`
   and `/v4/workspaces/{workspaceId}/traces/...`. The invocation-only document is not a second fact for
   the v3-owned domains.
+- Legacy Invocation paths embedded in `control-plane.v3.yaml` are migration
+  evidence only; no runtime may serve them or pair them with the v4 routes.
 - Control Plane Dispatch uses Router Internal v3. Agent SDKs use Agent Router
   v1 with an Agent-bound credential; the caller classes and credentials are not
   interchangeable.
@@ -206,7 +208,10 @@ failure, timeout, cancellation, and protocol failure are distinct states.
 Contracts must not collapse them into `null`, an empty collection, a boolean,
 or a normal success response.
 
-Platform Error v2 contains only fixed public messages and safe correlation.
-Agent input, result data, endpoint details, credentials, raw dependency errors,
-and stack data are forbidden. Invocation Event v0.2 and Ledger query contracts
-contain metadata only; no result or chunk field is compatible with that model.
+Catalog Platform Error v2, Workspace/Installation Platform Error v3, and runtime
+Platform Error v4 contain only fixed public messages and safe correlation on
+their respective surfaces. Agent input, result data, endpoint details,
+credentials, raw dependency errors, and stack data are forbidden. Runtime
+Invocation Event v0.3 and Ledger query contracts contain metadata only; the
+historical Invocation Event v0.2 remains migration evidence and no result or
+chunk field is compatible with the active metadata model.

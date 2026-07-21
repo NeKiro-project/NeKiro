@@ -1,6 +1,12 @@
 # Contract Plan: Invocation Routing and Ledger
 
-## Active Starting Surface
+## Historical Starting Surface
+
+This table records the pre-T001 planning baseline. It is retained as design
+history; the active runtime mapping is defined by Spec 011 and the delivered
+Specs 012-021. In particular, current Invocation/Trace Northbound routes use
+v4, Router Internal uses v3, and runtime events use Invocation Event 0.3 and
+Result Stream Event 2.
 
 | Boundary | Active source | Direction |
 | --- | --- | --- |

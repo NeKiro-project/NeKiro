@@ -8,6 +8,12 @@ This document is a planning note, not an active Spec Kit feature. It should be
 used to decide the next issue batch after the Minimal Workspace and Agent
 Installation issue group is fully accepted.
 
+The planning snapshot below predates Specs 010-021 and is retained as historical
+planning evidence. The backend Invoke-to-Record loop is now implemented and
+accepted; current status is recorded in `README.md`, `AGENTS.md`, and
+`specs/021-invoke-record-acceptance/quickstart.md`. Do not treat the older route
+examples or future-scope statements below as active runtime contracts.
+
 ## Current Read
 
 The repository has already established the contract and backend trust boundary

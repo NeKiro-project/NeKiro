@@ -51,11 +51,14 @@ performs controlled exact resolution, invokes the deterministic Runtime B A2A
 sample, and records metadata-only append-only Ledger events with
 Workspace-scoped Invocation/Trace reads.
 
-Frontend work remains paused. The thin Go Agent SDK and Router-owned nested
-adapter are implemented, while Runtime A, cross-Runtime nested invocation,
-process/Compose wiring, and the complete clean-environment E2E acceptance
-remain unimplemented. Existing slices therefore do not yet prove the complete
-Phase 1 loop.
+Frontend Console work remains paused and `apps/console` is not yet present. The
+thin Go Agent SDK, Router-owned nested adapter, isolated Runtime A, cross-Runtime
+nested invocation, process/Compose wiring, and the complete clean-environment
+backend E2E acceptance are implemented. CI run `29810057739` passed the static,
+contract, PostgreSQL, Runtime A, Compose, and Invoke-to-Record acceptance gates.
+The repository therefore proves the backend/headless Phase 1 loop, but not yet
+the user-facing Console or the later production governance and deployment
+integration stages.
 
 The first-stage architecture keeps these boundaries:
 
