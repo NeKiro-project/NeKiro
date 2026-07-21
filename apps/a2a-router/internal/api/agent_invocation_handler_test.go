@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -28,18 +29,22 @@ func agentTokenDigest(token string) string {
 type mockNestedLedgerReader struct {
 	invocation contracts.InvocationDetailResponseV4
 	err        error
+	calls      int
 }
 
 func (m *mockNestedLedgerReader) GetInvocationByParentID(_ context.Context, _ string) (contracts.InvocationDetailResponseV4, error) {
+	m.calls++
 	return m.invocation, m.err
 }
 
 type mockVersionResolver struct {
 	response contracts.ResolveInstalledVersionResponse
 	err      error
+	calls    int
 }
 
 func (m *mockVersionResolver) ResolveInstalledVersion(_ context.Context, _ contracts.ResolveInstalledVersionRequest) (contracts.ResolveInstalledVersionResponse, error) {
+	m.calls++
 	return m.response, m.err
 }
 
@@ -122,6 +127,86 @@ func TestAgentHandlerAuthFirst(t *testing.T) {
 			handler.serve(rec, req)
 			if rec.Code != tt.wantStatus {
 				t.Errorf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func TestAgentHandlerRejects100InvalidCasesWithoutChildSideEffects(t *testing.T) {
+	forbiddenFields := []string{
+		"invocationId", "rootTaskId", "traceId", "workspaceId", "caller",
+		"callerType", "callerId", "agentCardVersion", "version", "endpoint",
+		"url", "credential", "token", "authorization", "childInvocationId",
+		"childId", "unexpectedIdentity", "unexpectedRoute", "unexpectedTrace",
+		"unexpectedSecret", "unexpectedParent", "unexpectedWorkspace",
+		"unexpectedCaller", "unexpectedVersion", "unexpectedEndpoint",
+	}
+	invalidAccepts := []string{
+		"", "text/event-stream", "application/xml", "application/json; charset=utf-8", "Application/JSON",
+		" application/json", "application/json ", "application/json,text/event-stream", "application/*;q=1", "*/*;q=1",
+		"text/plain", "image/png", "application/octet-stream", "application/problem+json", "application/json;q=1",
+		"TEXT/EVENT-STREAM", "text/event-stream; charset=utf-8", "*", "application", "json",
+		"application//json", "application /json", "application/json, */*", "application/*, */*", "text/event-stream, application/json",
+	}
+	parentStatuses := []string{"pending", "routing", "succeeded", "failed", "canceled", "timed_out"}
+
+	for index := 0; index < 100; index++ {
+		t.Run(fmt.Sprintf("case-%03d", index), func(t *testing.T) {
+			token := "agent-test-token"
+			binding, err := nested.NewAgentBinding([]nested.AgentPrincipal{{
+				WorkspaceID: "ws_test789", AgentID: "agent_caller01", TokenSHA256: agentTokenDigest(token),
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			serviceAuth, err := auth.NewStaticAuthenticator([]auth.Principal{{ID: "router-service", TokenSHA256: agentTokenDigest("service-token")}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			parent := runningParentDetail()
+			reader := &mockNestedLedgerReader{invocation: parent}
+			versionResolver := &mockVersionResolver{response: contracts.ResolveInstalledVersionResponse{Version: "2.0.0"}}
+			resolver := &resolverStub{}
+			transport := &transportStub{}
+			ledgerRecorder := &ledgerRecorder{}
+			dispatch, err := NewDispatchHandlerWithTransportAndLedger(serviceAuth, resolver, transport, ledgerRecorder, 1048576, 30*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			handler, err := NewAgentInvocationHandler(binding, reader, versionResolver, dispatch, 1048576, 30*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			authorization := "Bearer " + token
+			body := validNestedBody()
+			accept := "application/json"
+			expectedParentReads := 0
+			switch category := index / 25; category {
+			case 0:
+				authorization = fmt.Sprintf("Bearer invalid-token-%d", index)
+			case 1:
+				field := forbiddenFields[index%len(forbiddenFields)]
+				body = strings.TrimSuffix(body, "}") + fmt.Sprintf(",%q:%q}", field, fmt.Sprintf("forged-%d", index))
+			case 2:
+				reader.invocation.Invocation.Status = parentStatuses[index%len(parentStatuses)]
+				expectedParentReads = 1
+			case 3:
+				accept = invalidAccepts[index%len(invalidAccepts)]
+			}
+
+			request := httptest.NewRequest(http.MethodPost, "/agent/v1/invocations", strings.NewReader(body))
+			request.Header.Set("Authorization", authorization)
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Accept", accept)
+			response := httptest.NewRecorder()
+			handler.serve(response, request)
+
+			if response.Code >= 200 && response.Code < 300 {
+				t.Fatalf("invalid case returned success: %d %s", response.Code, response.Body.String())
+			}
+			if reader.calls != expectedParentReads || versionResolver.calls != 0 || resolver.calls != 0 || transport.calls != 0 || len(ledgerRecorder.events) != 0 {
+				t.Fatalf("side effects: parent=%d version=%d route=%d transport=%d ledger=%d", reader.calls, versionResolver.calls, resolver.calls, transport.calls, len(ledgerRecorder.events))
 			}
 		})
 	}

@@ -58,7 +58,7 @@ Cross-language contracts are owned by language-neutral artifacts:
 - `contracts/openapi/control-plane.v3.yaml` defines the active Northbound API;
   `control-plane.v2.yaml` remains unchanged migration evidence.
 - `contracts/openapi/control-plane-internal.v2.yaml` defines Router-to-Control Plane exact Agent resolution; `control-plane-internal.v3.yaml` defines nested installed-version resolution.
-- `contracts/openapi/router-internal.v2.yaml` defines Control Plane-to-Router dispatch, result transport, Ledger reads, and trace reads.
+- `contracts/openapi/router-internal.v3.yaml` defines active Control Plane-to-Router dispatch, result transport, and Workspace-scoped Invocation/Trace reads; v2 is historical migration evidence.
 - `contracts/a2a-profile/v0.3.0/profile.v0.2.json` pins the active supported A2A subset and context headers.
 - `contracts/*.go` maps these contracts into Go and verifies the mapping against the source schemas.
 

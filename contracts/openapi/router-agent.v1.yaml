@@ -5,9 +5,9 @@ info:
   description: >-
     Agent-SDK-facing nested invocation boundary. It is distinct from the
     Control-Plane-only Router Internal API. The Bearer binding authenticates
-        exactly one Workspace and Agent pair and is never a Card or Ledger
-        field. The same Agent ID in two Workspaces requires two distinct
-        credential bindings; a credential cannot be reused across Workspaces.
+    exactly one Workspace and Agent pair and is never a Card or Ledger field.
+    The same Agent ID in two Workspaces requires two distinct credential
+    bindings; a credential cannot be reused across Workspaces.
 servers:
   - url: https://a2a-router.agent.nekiro.dev
     description: Explicit Agent-facing Router destination; no default or direct-Agent fallback
@@ -18,10 +18,11 @@ paths:
       summary: Create and dispatch one child Invocation
       description: >-
         The request supplies only an existing parent reference and untrusted
-        target work. Router derives caller Agent identity from authentication,
-        requires the committed parent target Agent to match that identity and
-        the parent to be running, copies Workspace/root Task/Trace from the
-        parent, and generates the child Invocation ID. Authentication, strict
+        target work. Router derives caller Workspace and Agent identity from
+        authentication, requires the committed parent Workspace and target
+        Agent to match that principal and the parent to be running, copies
+        root Task/Trace from the parent, and generates the child Invocation ID.
+        Authentication, strict
         shape, parent, and mode failures occur before child acceptance and
         create no child Ledger fact. A successful child created-event commit
         is acceptance. No direct target endpoint, retry, or replay exists.
@@ -77,8 +78,9 @@ components:
       bearerFormat: opaque-agent-binding
       description: >-
         Required Router deployment binding from one opaque secret to one exact
-        Agent ID. Missing/invalid bindings are rejected; no default identity,
-        anonymous mode, Card secret, or request identity is permitted.
+        Workspace and Agent pair. Missing/invalid bindings are rejected; no
+        default identity, anonymous mode, Card secret, or request identity is
+        permitted.
   parameters:
     ResultAccept:
       in: header
@@ -122,7 +124,7 @@ components:
       x-platform-error-codes: [UNAUTHENTICATED]
       content: { application/json: { schema: { $ref: "#/components/schemas/PreCorrelationPlatformError" } } }
     Forbidden:
-      description: Authenticated Agent does not match the committed parent target
+      description: Authenticated Workspace or Agent does not match the committed parent principal
       x-platform-error-codes: [FORBIDDEN]
       content: { application/json: { schema: { $ref: "#/components/schemas/PreCorrelationPlatformError" } } }
     ParentNotFound:

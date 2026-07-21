@@ -11,8 +11,8 @@
 4. `DispatchHandler` already owns exact resolution, A2A transport, deadlines,
    and append-only Ledger semantics; nested handling must delegate rather than
    duplicate those rules.
-5. `LedgerReader.GetInvocation` and the v4 projection validator provide the
-   trusted parent lookup and metadata-only boundary.
+5. `NestedLedgerReader.GetInvocationByParentID` and the v4 projection validator
+   provide the trusted parent lookup and metadata-only boundary.
 
 ## Rejected approaches
 

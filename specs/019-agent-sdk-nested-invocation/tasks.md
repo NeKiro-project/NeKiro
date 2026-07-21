@@ -34,11 +34,15 @@
 
 - [X] T013 Obtain independent Spec/Standards Review against AGENTS, ADR 0006, active contracts, and write scope.
 - [X] T014 Converge findings, update artifacts, rerun all tests/vet/race/diff checks, and record handoff evidence.
+- [X] T015 [Review] Make every Agent Router v1 operation, security, and forbidden-response description bind the exact Workspace/Agent principal.
+- [X] T016 [Review] Add the SC-002 deterministic 100-case invalid-request suite and prove zero child Ledger or target side effects.
+- [X] T017 [Review] Remove stale active Router Internal v2 directions and correct the parent Ledger reader evidence.
+- [X] T018 [Review] Remove agent-local notepad state from the PR and fix all CI lint failures before re-review.
 
 ## Dependencies
 
 ```text
-T000 -> T001-T004 -> [T005 || T006] -> T007 -> T008 -> [T009 || T010 || T011] -> T012 -> T013 -> T014
+T000 -> T001-T004 -> [T005 || T006] -> T007 -> T008 -> [T009 || T010 || T011] -> T012 -> T013 -> [T015-T018] -> T014
 ```
 
 ## Fallback Report

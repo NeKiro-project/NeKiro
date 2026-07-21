@@ -773,10 +773,6 @@ func ledgerContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), ledgerCommitGrace)
 }
 
-func (handler *DispatchHandler) appendInitialLedgerEvents(ctx context.Context, writer http.ResponseWriter, request contracts.DispatchInvocationRequestV3, startedAt time.Time, events []contracts.InvocationEventV03) bool {
-	return handler.appendInitialLedgerEventsMode(ctx, writer, request, startedAt, events, false)
-}
-
 // appendInitialLedgerEventsMode appends initial lifecycle events. When
 // childMode is true and the sequence-0 created event fails, a
 // pre-correlation error is written because child acceptance never occurred
