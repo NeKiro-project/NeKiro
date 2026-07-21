@@ -229,7 +229,7 @@ jobs:
       NEKIRO_E2E_USER_TOKEN: acceptance-user-token
       NEKIRO_E2E_OTHER_TOKEN: acceptance-other-token
       NEKIRO_E2E_DATABASE_URL: postgresql://nekiro_acceptance:acceptance-only-password@127.0.0.1:55432/nekiro_acceptance?sslmode=disable
-      NEKIRO_E2E_COMPOSE_FILE: deploy/compose.yaml
+      NEKIRO_E2E_COMPOSE_FILE: ${{ github.workspace }}/deploy/compose.yaml
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

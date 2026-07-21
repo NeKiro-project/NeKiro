@@ -43,7 +43,7 @@ $env:NEKIRO_E2E_OWNER_TOKEN = "acceptance-owner-token"
 $env:NEKIRO_E2E_USER_TOKEN = "acceptance-user-token"
 $env:NEKIRO_E2E_OTHER_TOKEN = "acceptance-other-token"
 $env:NEKIRO_E2E_DATABASE_URL = "postgresql://nekiro_acceptance:acceptance-only-password@127.0.0.1:55432/nekiro_acceptance?sslmode=disable"
-$env:NEKIRO_E2E_COMPOSE_FILE = "deploy/compose.yaml"
+$env:NEKIRO_E2E_COMPOSE_FILE = (Resolve-Path deploy/compose.yaml).Path
 go test -tags=e2e -count=1 ./tests/e2e/invoke-record
 docker compose --file deploy/compose.yaml down --volumes
 ```
