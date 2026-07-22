@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/tern/v2/migrate"
 )
 
-const ExpectedSchemaVersion int32 = 2
+const ExpectedSchemaVersion int32 = 3
 
 var ErrSchemaVersionMismatch = errors.New("catalog schema version mismatch")
 
@@ -127,9 +127,87 @@ ALTER TABLE catalog.agent_versions
     DROP COLUMN card_name;
 `
 
+// migration003 is generated from apps/control-plane/migrations/003_trusted_publication.sql.
+const migration003 = `CREATE TABLE catalog.providers (
+    provider_id varchar(128) COLLATE "C" PRIMARY KEY,
+    owner_identity varchar(128) COLLATE "C" NOT NULL,
+    verification_status varchar(16) NOT NULL,
+    verification_method varchar(64) NOT NULL,
+    verified_at timestamptz,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL,
+    CONSTRAINT providers_provider_id_format CHECK (provider_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'),
+    CONSTRAINT providers_owner_identity_format CHECK (owner_identity ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'),
+    CONSTRAINT providers_status CHECK (verification_status IN ('unverified', 'verified', 'suspended')),
+    CONSTRAINT providers_method CHECK (verification_method = 'http_well_known'),
+    CONSTRAINT providers_state_timestamps CHECK ((verification_status = 'unverified' AND verified_at IS NULL) OR (verification_status = 'verified' AND verified_at IS NOT NULL) OR verification_status = 'suspended')
+);
+
+ALTER TABLE catalog.agent_identities
+    ADD COLUMN provider_id varchar(128) COLLATE "C",
+    ADD CONSTRAINT agent_identities_provider_fk FOREIGN KEY (provider_id) REFERENCES catalog.providers(provider_id);
+
+CREATE INDEX agent_identities_provider_idx ON catalog.agent_identities (provider_id);
+
+CREATE TABLE catalog.endpoint_bindings (
+    binding_id varchar(128) COLLATE "C" PRIMARY KEY,
+    provider_id varchar(128) COLLATE "C" NOT NULL,
+    agent_id varchar(128) COLLATE "C" NOT NULL,
+    agent_card_version text COLLATE "C" NOT NULL,
+    endpoint text NOT NULL,
+    endpoint_origin text NOT NULL,
+    endpoint_path text NOT NULL,
+    verification_method varchar(64) NOT NULL,
+    verification_status varchar(16) NOT NULL,
+    verification_evidence_digest bytea,
+    verification_failure_code varchar(64),
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL,
+    verified_at timestamptz,
+    revoked_at timestamptz,
+    CONSTRAINT endpoint_bindings_provider_fk FOREIGN KEY (provider_id) REFERENCES catalog.providers(provider_id),
+    CONSTRAINT endpoint_bindings_agent_version_fk FOREIGN KEY (agent_id, agent_card_version) REFERENCES catalog.agent_versions(agent_id, version),
+    CONSTRAINT endpoint_bindings_identifier_format CHECK (binding_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$' AND agent_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'),
+    CONSTRAINT endpoint_bindings_evidence_digest_length CHECK (verification_evidence_digest IS NULL OR octet_length(verification_evidence_digest) = 32),
+    CONSTRAINT endpoint_bindings_status CHECK (verification_status IN ('pending', 'verified', 'failed', 'revoked')),
+    CONSTRAINT endpoint_bindings_method CHECK (verification_method = 'http_well_known'),
+    CONSTRAINT endpoint_bindings_state_timestamps CHECK (
+        (verification_status = 'pending' AND verification_evidence_digest IS NULL AND verification_failure_code IS NULL AND verified_at IS NULL AND revoked_at IS NULL)
+        OR (verification_status = 'verified' AND verification_evidence_digest IS NOT NULL AND verification_failure_code IS NULL AND verified_at IS NOT NULL AND revoked_at IS NULL)
+        OR (verification_status = 'failed' AND verification_evidence_digest IS NULL AND verification_failure_code IS NOT NULL AND verified_at IS NULL AND revoked_at IS NULL)
+        OR (verification_status = 'revoked' AND verification_evidence_digest IS NULL AND verification_failure_code IS NULL AND verified_at IS NULL AND revoked_at IS NOT NULL)
+    )
+);
+
+CREATE INDEX endpoint_bindings_provider_idx ON catalog.endpoint_bindings (provider_id, agent_id);
+
+CREATE TABLE catalog.verification_challenges (
+    challenge_id varchar(128) COLLATE "C" PRIMARY KEY,
+    binding_id varchar(128) COLLATE "C" NOT NULL,
+    proof_digest bytea NOT NULL,
+    expires_at timestamptz NOT NULL,
+    used_at timestamptz,
+    created_at timestamptz NOT NULL,
+    CONSTRAINT verification_challenges_binding_fk FOREIGN KEY (binding_id) REFERENCES catalog.endpoint_bindings(binding_id),
+    CONSTRAINT verification_challenges_identifier_format CHECK (challenge_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'),
+    CONSTRAINT verification_challenges_proof_digest_length CHECK (octet_length(proof_digest) = 32)
+);
+
+CREATE INDEX verification_challenges_binding_idx ON catalog.verification_challenges (binding_id, created_at DESC);
+
+---- create above / drop below ----
+
+DROP TABLE catalog.verification_challenges;
+DROP TABLE catalog.endpoint_bindings;
+DROP INDEX catalog.agent_identities_provider_idx;
+ALTER TABLE catalog.agent_identities DROP CONSTRAINT agent_identities_provider_fk, DROP COLUMN provider_id;
+DROP TABLE catalog.providers;
+`
+
 var migrationFiles = fstest.MapFS{
-	"001_catalog.sql":   &fstest.MapFile{Data: []byte(migration001), Mode: 0o444},
-	"002_card_text.sql": &fstest.MapFile{Data: []byte(migration002), Mode: 0o444},
+	"001_catalog.sql":             &fstest.MapFile{Data: []byte(migration001), Mode: 0o444},
+	"002_card_text.sql":           &fstest.MapFile{Data: []byte(migration002), Mode: 0o444},
+	"003_trusted_publication.sql": &fstest.MapFile{Data: []byte(migration003), Mode: 0o444},
 }
 
 type RowQuerier interface {
@@ -172,7 +250,45 @@ func CheckSchema(ctx context.Context, db RowQuerier) error {
 	var cardTextReady bool
 	var cardNameReady bool
 	var cardDescriptionReady bool
+	var providersPresent bool
+	var bindingsPresent bool
+	var challengesPresent bool
+	var trustColumnsReady bool
+	var trustForeignKeysReady bool
+	var trustStatusChecksReady bool
+	var trustDigestChecksReady bool
 	err := db.QueryRow(ctx, `
+WITH required_columns(table_name, column_name, is_nullable, data_type) AS (VALUES
+    ('agent_identities', 'provider_id', 'YES', 'character varying'),
+    ('providers', 'provider_id', 'NO', 'character varying'),
+    ('providers', 'owner_identity', 'NO', 'character varying'),
+    ('providers', 'verification_status', 'NO', 'character varying'),
+    ('providers', 'verification_method', 'NO', 'character varying'),
+    ('providers', 'verified_at', 'YES', 'timestamp with time zone'),
+    ('providers', 'created_at', 'NO', 'timestamp with time zone'),
+    ('providers', 'updated_at', 'NO', 'timestamp with time zone'),
+    ('endpoint_bindings', 'binding_id', 'NO', 'character varying'),
+    ('endpoint_bindings', 'provider_id', 'NO', 'character varying'),
+    ('endpoint_bindings', 'agent_id', 'NO', 'character varying'),
+    ('endpoint_bindings', 'agent_card_version', 'NO', 'text'),
+    ('endpoint_bindings', 'endpoint', 'NO', 'text'),
+    ('endpoint_bindings', 'endpoint_origin', 'NO', 'text'),
+    ('endpoint_bindings', 'endpoint_path', 'NO', 'text'),
+    ('endpoint_bindings', 'verification_method', 'NO', 'character varying'),
+    ('endpoint_bindings', 'verification_status', 'NO', 'character varying'),
+    ('endpoint_bindings', 'verification_evidence_digest', 'YES', 'bytea'),
+    ('endpoint_bindings', 'verification_failure_code', 'YES', 'character varying'),
+    ('endpoint_bindings', 'created_at', 'NO', 'timestamp with time zone'),
+    ('endpoint_bindings', 'updated_at', 'NO', 'timestamp with time zone'),
+    ('endpoint_bindings', 'verified_at', 'YES', 'timestamp with time zone'),
+    ('endpoint_bindings', 'revoked_at', 'YES', 'timestamp with time zone'),
+    ('verification_challenges', 'challenge_id', 'NO', 'character varying'),
+    ('verification_challenges', 'binding_id', 'NO', 'character varying'),
+    ('verification_challenges', 'proof_digest', 'NO', 'bytea'),
+    ('verification_challenges', 'expires_at', 'NO', 'timestamp with time zone'),
+    ('verification_challenges', 'used_at', 'YES', 'timestamp with time zone'),
+    ('verification_challenges', 'created_at', 'NO', 'timestamp with time zone')
+)
 SELECT version,
        to_regclass('catalog.agent_identities') IS NOT NULL,
        to_regclass('catalog.publication_clock') IS NOT NULL,
@@ -201,7 +317,42 @@ SELECT version,
           AND table_name = 'agent_versions'
           AND column_name = 'card_description'
           AND data_type = 'text'
-          AND is_nullable = 'NO')
+          AND is_nullable = 'NO'),
+       to_regclass('catalog.providers') IS NOT NULL,
+       to_regclass('catalog.endpoint_bindings') IS NOT NULL,
+       to_regclass('catalog.verification_challenges') IS NOT NULL,
+       (SELECT count(*) = 29
+        FROM required_columns expected
+        JOIN information_schema.columns actual
+          ON actual.table_schema = 'catalog'
+         AND actual.table_name = expected.table_name
+         AND actual.column_name = expected.column_name
+         AND actual.is_nullable = expected.is_nullable
+         AND actual.data_type = expected.data_type),
+       (SELECT count(*) = 4
+        FROM pg_constraint constraint_row
+        JOIN pg_class relation ON relation.oid = constraint_row.conrelid
+        JOIN pg_namespace namespace_row ON namespace_row.oid = relation.relnamespace
+        WHERE namespace_row.nspname = 'catalog'
+          AND constraint_row.conname IN ('agent_identities_provider_fk', 'endpoint_bindings_provider_fk', 'endpoint_bindings_agent_version_fk', 'verification_challenges_binding_fk')
+          AND constraint_row.contype = 'f'
+          AND constraint_row.convalidated),
+       (SELECT count(*) = 12
+        FROM pg_constraint constraint_row
+        JOIN pg_class relation ON relation.oid = constraint_row.conrelid
+        JOIN pg_namespace namespace_row ON namespace_row.oid = relation.relnamespace
+        WHERE namespace_row.nspname = 'catalog'
+          AND constraint_row.conname IN ('providers_provider_id_format', 'providers_owner_identity_format', 'providers_status', 'providers_method', 'providers_state_timestamps', 'endpoint_bindings_identifier_format', 'endpoint_bindings_evidence_digest_length', 'endpoint_bindings_status', 'endpoint_bindings_method', 'endpoint_bindings_state_timestamps', 'verification_challenges_identifier_format', 'verification_challenges_proof_digest_length')
+          AND constraint_row.contype = 'c'
+          AND constraint_row.convalidated),
+       (SELECT count(*) = 2
+        FROM pg_constraint constraint_row
+        JOIN pg_class relation ON relation.oid = constraint_row.conrelid
+        JOIN pg_namespace namespace_row ON namespace_row.oid = relation.relnamespace
+        WHERE namespace_row.nspname = 'catalog'
+          AND constraint_row.conname IN ('endpoint_bindings_evidence_digest_length', 'verification_challenges_proof_digest_length')
+          AND constraint_row.contype = 'c'
+          AND constraint_row.convalidated)
 FROM catalog.schema_version`).Scan(
 		&version,
 		&identitiesPresent,
@@ -212,11 +363,18 @@ FROM catalog.schema_version`).Scan(
 		&cardTextReady,
 		&cardNameReady,
 		&cardDescriptionReady,
+		&providersPresent,
+		&bindingsPresent,
+		&challengesPresent,
+		&trustColumnsReady,
+		&trustForeignKeysReady,
+		&trustStatusChecksReady,
+		&trustDigestChecksReady,
 	)
 	if err != nil {
 		return fmt.Errorf("read catalog schema version: %w", err)
 	}
-	if version != ExpectedSchemaVersion || !identitiesPresent || !clockPresent || !versionsPresent || !capabilitiesPresent || !clockReady || !cardTextReady || !cardNameReady || !cardDescriptionReady {
+	if version != ExpectedSchemaVersion || !identitiesPresent || !clockPresent || !versionsPresent || !capabilitiesPresent || !clockReady || !cardTextReady || !cardNameReady || !cardDescriptionReady || !providersPresent || !bindingsPresent || !challengesPresent || !trustColumnsReady || !trustForeignKeysReady || !trustStatusChecksReady || !trustDigestChecksReady {
 		return ErrSchemaVersionMismatch
 	}
 	return nil

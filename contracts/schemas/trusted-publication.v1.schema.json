@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.nekiro.dev/trusted-publication/v1",
+  "title": "NeKiro Trusted Publication v1",
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "endpointBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bindingId", "providerId", "agentId", "agentCardVersion", "endpoint", "verificationMethod", "verificationStatus", "createdAt", "updatedAt"],
+      "properties": {
+        "bindingId": { "$ref": "#/$defs/identifier" },
+        "providerId": { "$ref": "#/$defs/identifier" },
+        "agentId": { "$ref": "#/$defs/identifier" },
+        "agentCardVersion": { "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?(\\+[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$" },
+        "endpoint": { "type": "string", "format": "uri", "pattern": "^https?://" },
+        "verificationMethod": { "type": "string", "enum": ["http_well_known"] },
+        "verificationStatus": { "enum": ["pending", "verified", "failed", "revoked"] },
+        "verificationFailureCode": { "type": "string", "maxLength": 64 },
+        "verificationEvidenceDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "verifiedAt": { "type": "string", "format": "date-time" },
+        "revokedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "traceId"],
+      "properties": {
+        "code": { "type": "string", "enum": ["VALIDATION_ERROR", "UNAUTHENTICATED", "FORBIDDEN", "NOT_FOUND", "CONFLICT", "INVALID_ENDPOINT", "DISALLOWED_NETWORK", "ENDPOINT_UNAVAILABLE", "WRONG_PROOF", "CHALLENGE_EXPIRED", "CHALLENGE_REUSED", "REDIRECT_NOT_ALLOWED", "DEPENDENCY_ERROR", "INTERNAL_ERROR"] },
+        "message": { "type": "string", "minLength": 1 },
+        "traceId": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "challenge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["challengeId", "bindingId", "challengeUrl", "proof", "expiresAt"],
+      "properties": {
+        "challengeId": { "$ref": "#/$defs/identifier" },
+        "bindingId": { "$ref": "#/$defs/identifier" },
+        "challengeUrl": { "type": "string", "format": "uri" },
+        "proof": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

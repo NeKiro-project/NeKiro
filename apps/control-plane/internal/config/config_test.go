@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestLoadRequiresExplicitValidConfiguration(t *testing.T) {
@@ -136,6 +137,45 @@ func strings64(value string) string {
 		result += value
 	}
 	return result
+}
+
+func TestLoadTrustedPublicationRequiresExplicitTTLAndPrivateHostPolicy(t *testing.T) {
+	t.Setenv("NEKIRO_ENDPOINT_CHALLENGE_TTL_SECONDS", "300")
+	t.Setenv("NEKIRO_ENDPOINT_VERIFICATION_TIMEOUT_MS", "10000")
+	t.Setenv("NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON", `["runtime-a","runtime-b"]`)
+	loaded, err := LoadTrustedPublication()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ChallengeTTL.Seconds() != 300 || loaded.VerificationTimeout != 10*time.Second || len(loaded.AllowedPrivateHosts) != 2 {
+		t.Fatalf("trusted publication config=%#v", loaded)
+	}
+
+	for _, test := range []struct{ name, ttl, hosts string }{
+		{name: "zero ttl", ttl: "0", hosts: `[]`},
+		{name: "fraction ttl", ttl: "1.5", hosts: `[]`},
+		{name: "invalid hosts JSON", ttl: "300", hosts: `runtime-a`},
+		{name: "null hosts", ttl: "300", hosts: `null`},
+		{name: "duplicate host", ttl: "300", hosts: `["runtime-a","RUNTIME-A"]`},
+		{name: "duplicate trailing dot host", ttl: "300", hosts: `["runtime-a","runtime-a."]`},
+		{name: "empty trailing dot host", ttl: "300", hosts: `["."]`},
+		{name: "host with port", ttl: "300", hosts: `["runtime-a:8080"]`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("NEKIRO_ENDPOINT_CHALLENGE_TTL_SECONDS", test.ttl)
+			t.Setenv("NEKIRO_ENDPOINT_VERIFICATION_TIMEOUT_MS", "10000")
+			t.Setenv("NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON", test.hosts)
+			if _, err := LoadTrustedPublication(); err == nil {
+				t.Fatal("invalid trusted publication config was accepted")
+			}
+		})
+	}
+	t.Setenv("NEKIRO_ENDPOINT_CHALLENGE_TTL_SECONDS", "60")
+	t.Setenv("NEKIRO_ENDPOINT_VERIFICATION_TIMEOUT_MS", "60000")
+	t.Setenv("NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON", `[]`)
+	if _, err := LoadTrustedPublication(); err == nil {
+		t.Fatal("verification timeout equal to challenge TTL was accepted")
+	}
 }
 
 func TestLoadInvocationRuntimeRequiresExactNoDefaultConfiguration(t *testing.T) {

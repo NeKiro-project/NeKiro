@@ -1,0 +1,101 @@
+openapi: 3.0.3
+info:
+  title: NeKiro Trusted Publication API
+  version: 1.0.0
+paths:
+  /v4/providers/{providerId}/agents/{agentId}/endpoint-bindings:
+    post:
+      operationId: createEndpointBinding
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/providerId' }
+        - { $ref: '#/components/parameters/agentId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateEndpointBindingRequest' }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/EndpointBinding' } } } }
+        '400': { $ref: '#/components/responses/TrustedPublicationError' }
+        '401': { $ref: '#/components/responses/TrustedPublicationError' }
+        '403': { $ref: '#/components/responses/TrustedPublicationError' }
+        '404': { $ref: '#/components/responses/TrustedPublicationError' }
+        '409': { $ref: '#/components/responses/TrustedPublicationError' }
+        '503': { $ref: '#/components/responses/TrustedPublicationError' }
+        '500': { $ref: '#/components/responses/TrustedPublicationError' }
+  /v4/providers/{providerId}/endpoint-bindings/{bindingId}:
+    get:
+      operationId: getEndpointBinding
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/providerId' }
+        - { $ref: '#/components/parameters/bindingId' }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/EndpointBinding' } } } }
+        '401': { $ref: '#/components/responses/TrustedPublicationError' }
+        '403': { $ref: '#/components/responses/TrustedPublicationError' }
+        '404': { $ref: '#/components/responses/TrustedPublicationError' }
+        '400': { $ref: '#/components/responses/TrustedPublicationError' }
+        '503': { $ref: '#/components/responses/TrustedPublicationError' }
+        '500': { $ref: '#/components/responses/TrustedPublicationError' }
+  /v4/providers/{providerId}/endpoint-bindings/{bindingId}/challenges:
+    post:
+      operationId: createVerificationChallenge
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/providerId' }
+        - { $ref: '#/components/parameters/bindingId' }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/VerificationChallenge' } } } }
+        '400': { $ref: '#/components/responses/TrustedPublicationError' }
+        '401': { $ref: '#/components/responses/TrustedPublicationError' }
+        '403': { $ref: '#/components/responses/TrustedPublicationError' }
+        '404': { $ref: '#/components/responses/TrustedPublicationError' }
+        '409': { $ref: '#/components/responses/TrustedPublicationError' }
+        '503': { $ref: '#/components/responses/TrustedPublicationError' }
+        '500': { $ref: '#/components/responses/TrustedPublicationError' }
+  /v4/providers/{providerId}/endpoint-bindings/{bindingId}/challenges/{challengeId}/complete:
+    post:
+      operationId: completeVerificationChallenge
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/providerId' }
+        - { $ref: '#/components/parameters/bindingId' }
+        - { $ref: '#/components/parameters/challengeId' }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/EndpointBinding' } } } }
+        '400': { $ref: '#/components/responses/TrustedPublicationError' }
+        '401': { $ref: '#/components/responses/TrustedPublicationError' }
+        '403': { $ref: '#/components/responses/TrustedPublicationError' }
+        '404': { $ref: '#/components/responses/TrustedPublicationError' }
+        '409': { $ref: '#/components/responses/TrustedPublicationError' }
+        '503': { $ref: '#/components/responses/TrustedPublicationError' }
+        '500': { $ref: '#/components/responses/TrustedPublicationError' }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer }
+  parameters:
+    providerId: { name: providerId, in: path, required: true, schema: { type: string } }
+    agentId: { name: agentId, in: path, required: true, schema: { type: string } }
+    bindingId: { name: bindingId, in: path, required: true, schema: { type: string } }
+    challengeId: { name: challengeId, in: path, required: true, schema: { type: string } }
+  schemas:
+    CreateEndpointBindingRequest:
+      type: object
+      additionalProperties: false
+      required: [endpoint, method, version]
+      properties:
+        endpoint: { type: string, format: uri }
+        method: { type: string, enum: [http_well_known] }
+        version: { type: string, pattern: '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$' }
+    EndpointBinding: { $ref: '../schemas/trusted-publication.v1.schema.json#/$defs/endpointBinding' }
+    VerificationChallenge: { $ref: '../schemas/trusted-publication.v1.schema.json#/$defs/challenge' }
+    TrustedPublicationError: { $ref: '../schemas/trusted-publication.v1.schema.json#/$defs/error' }
+  responses:
+    TrustedPublicationError:
+      description: Trusted publication error
+      headers:
+        x-nek-trace-id: { schema: { type: string } }
+      content:
+        application/json: { schema: { $ref: '#/components/schemas/TrustedPublicationError' } }

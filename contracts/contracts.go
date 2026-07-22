@@ -103,6 +103,36 @@ type RegisterAgentRequest struct {
 	Card AgentCard `json:"card"`
 }
 
+type CreateEndpointBindingRequest struct {
+	Endpoint string `json:"endpoint"`
+	Method   string `json:"method"`
+	Version  string `json:"version"`
+}
+
+type EndpointBindingResponse struct {
+	BindingID                  string     `json:"bindingId"`
+	ProviderID                 string     `json:"providerId"`
+	AgentID                    string     `json:"agentId"`
+	AgentCardVersion           string     `json:"agentCardVersion"`
+	Endpoint                   string     `json:"endpoint"`
+	VerificationMethod         string     `json:"verificationMethod"`
+	VerificationStatus         string     `json:"verificationStatus"`
+	VerificationFailureCode    *string    `json:"verificationFailureCode,omitempty"`
+	VerificationEvidenceDigest *string    `json:"verificationEvidenceDigest,omitempty"`
+	CreatedAt                  time.Time  `json:"createdAt"`
+	UpdatedAt                  time.Time  `json:"updatedAt"`
+	VerifiedAt                 *time.Time `json:"verifiedAt,omitempty"`
+	RevokedAt                  *time.Time `json:"revokedAt,omitempty"`
+}
+
+type VerificationChallengeResponse struct {
+	ChallengeID  string    `json:"challengeId"`
+	BindingID    string    `json:"bindingId"`
+	ChallengeURL string    `json:"challengeUrl"`
+	Proof        string    `json:"proof"`
+	ExpiresAt    time.Time `json:"expiresAt"`
+}
+
 type SearchAgentsQuery struct {
 	Query      *string `json:"query,omitempty"`
 	Capability *string `json:"capability,omitempty"`

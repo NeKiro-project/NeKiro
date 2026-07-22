@@ -60,6 +60,26 @@ func TestCheckSchemaRejectsIncompleteSchemaV2(t *testing.T) {
 			degrade: `ALTER TABLE catalog.agent_versions ALTER COLUMN card_description DROP NOT NULL`,
 			restore: `ALTER TABLE catalog.agent_versions ALTER COLUMN card_description SET NOT NULL`,
 		},
+		{
+			name:    "Trusted publication foreign key",
+			degrade: `ALTER TABLE catalog.endpoint_bindings DROP CONSTRAINT endpoint_bindings_provider_fk`,
+			restore: `ALTER TABLE catalog.endpoint_bindings ADD CONSTRAINT endpoint_bindings_provider_fk FOREIGN KEY (provider_id) REFERENCES catalog.providers(provider_id)`,
+		},
+		{
+			name:    "Trusted provider state check",
+			degrade: `ALTER TABLE catalog.providers DROP CONSTRAINT providers_state_timestamps`,
+			restore: `ALTER TABLE catalog.providers ADD CONSTRAINT providers_state_timestamps CHECK ((verification_status = 'unverified' AND verified_at IS NULL) OR (verification_status = 'verified' AND verified_at IS NOT NULL) OR verification_status = 'suspended')`,
+		},
+		{
+			name:    "Trusted publication state check",
+			degrade: `ALTER TABLE catalog.endpoint_bindings DROP CONSTRAINT endpoint_bindings_state_timestamps`,
+			restore: `ALTER TABLE catalog.endpoint_bindings ADD CONSTRAINT endpoint_bindings_state_timestamps CHECK ((verification_status = 'pending' AND verification_evidence_digest IS NULL AND verification_failure_code IS NULL AND verified_at IS NULL AND revoked_at IS NULL) OR (verification_status = 'verified' AND verification_evidence_digest IS NOT NULL AND verification_failure_code IS NULL AND verified_at IS NOT NULL AND revoked_at IS NULL) OR (verification_status = 'failed' AND verification_evidence_digest IS NULL AND verification_failure_code IS NOT NULL AND verified_at IS NULL AND revoked_at IS NULL) OR (verification_status = 'revoked' AND verification_evidence_digest IS NULL AND verification_failure_code IS NULL AND verified_at IS NULL AND revoked_at IS NOT NULL))`,
+		},
+		{
+			name:    "Trusted publication digest check",
+			degrade: `ALTER TABLE catalog.verification_challenges DROP CONSTRAINT verification_challenges_proof_digest_length`,
+			restore: `ALTER TABLE catalog.verification_challenges ADD CONSTRAINT verification_challenges_proof_digest_length CHECK (octet_length(proof_digest) = 32)`,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

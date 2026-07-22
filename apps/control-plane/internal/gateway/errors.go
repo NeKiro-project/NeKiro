@@ -22,7 +22,7 @@ func platformErrorStatus(code contracts.PlatformErrorCode) (int, error) {
 		return http.StatusNotFound, nil
 	case contracts.ErrorCodeConflict:
 		return http.StatusConflict, nil
-	case contracts.ErrorCodeDependency:
+	case contracts.ErrorCodeDependency, contracts.ErrorCodeAgentUnavailable:
 		return http.StatusServiceUnavailable, nil
 	case contracts.ErrorCodeInternal:
 		return http.StatusInternalServerError, nil
