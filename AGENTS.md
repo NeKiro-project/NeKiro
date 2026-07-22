@@ -3,7 +3,7 @@
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/022-console-runtime-integration/plan.md
+at specs/023-trusted-agent-publication/plan.md
 <!-- SPECKIT END -->
 
 本文件是整个仓库的长期项目宪章，适用于所有目录、模块和参与者。它记录稳定的产品目标、领域语言、架构边界和交付标准，不替代具体需求、API 文档或 ADR。
@@ -176,7 +176,7 @@ agent-platform/
 - PostgreSQL 是第一阶段的持久化数据库，逻辑模块即使共用数据库实例也必须保持数据所有权边界。
 - Node.js 只用于前端构建、契约生成和必要的工程工具，不得用于实现 Control Plane、A2A Router 或其他后端核心服务。
 
-当前仓库已将跨边界契约事实来源迁移为语言无关的 JSON Schema、OpenAPI 和 A2A Profile。当前活动契约集为 Agent Card `0.2`、Workspace `1`、Installation `2`、Catalog/Northbound API `v3`、Control Plane Internal API `v2`（精确 Card 解析）与 `v3`（嵌套调用 installed-version 解析）、Northbound Invocation API `v4`、Router Internal API `v3`、Router Agent API `v1`、Invocation Event `0.3`、Platform Error `v4`（运行时）与 `v3`（Workspace/Installation/内部解析）、Invocation Result `v1` / Result Stream Event `v2`，以及 A2A Profile Schema `0.2` / protocol `0.3.0`；历史工件仅作为迁移证据保留，不提供运行时双读 fallback。
+当前仓库已将跨边界契约事实来源迁移为语言无关的 JSON Schema、OpenAPI 和 A2A Profile。当前活动契约集为 Agent Card `0.2`、Trusted Publication `v1`、Workspace `1`、Installation `2`、Catalog/Northbound API `v3`、Control Plane Internal API `v2`（精确 Card 解析）与 `v3`（嵌套调用 installed-version 解析）、Northbound Invocation API `v4`、Router Internal API `v3`、Router Agent API `v1`、Invocation Event `0.3`、Platform Error `v4`（运行时）与 `v3`（Workspace/Installation/内部解析）、Invocation Result `v1` / Result Stream Event `v2`，以及 A2A Profile Schema `0.2` / protocol `0.3.0`；历史工件仅作为迁移证据保留，不提供运行时双读 fallback。
 
 当前仓库已完成 Spec 002 的 Catalog、Spec 003/004/005/006/007/008/009 的 Workspace 与 Installation runtime，并在当前分支完成 Spec 012 Control Plane Invocation Dispatch、Spec 013 A2A Router Foundation、Spec 014 Router-owned Invocation Ledger、Spec 015 Runtime B direct A2A sample、Spec 016 non-streaming dispatch、Spec 017 streaming A2A delivery、Spec 018 Invocation/Trace metadata reads、Spec 019 Agent SDK nested invocation、Spec 020 cross-runtime caller，以及 Spec 021 Invoke-to-Record backend acceptance。已落地的运行时边界包括 Workspace owner policy、精确解析、Gateway v4 调用、Router-mediated JSON/SSE 调用、metadata-only Ledger、Workspace-scoped Invocation/Trace 查询、Workspace-bound Agent credentials、Runtime A -> Router -> Runtime B 嵌套调用，以及干净 Compose/PostgreSQL E2E 验收。Frontend Console 开发保持暂停且 `apps/console` 尚未存在；后续生产治理、完整部署集成和 T020/T021 所需的 retention、shutdown 与 in-flight 策略仍需独立 Spec/ADR，不得把后续未决策略提前实现为 fallback。本次状态更新原因是 Spec 021 的 CI acceptance 已通过，影响是后续实现必须复用现有 Workspace/Catalog ports、Router Ledger read port 和 active v4/v3 runtime contracts。
 

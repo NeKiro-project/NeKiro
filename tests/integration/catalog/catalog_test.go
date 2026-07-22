@@ -66,7 +66,7 @@ func TestCatalogPostgreSQLAndHTTPAcceptance(t *testing.T) {
 	binary := buildControlPlane(t, root)
 	assertV1ToV2Migration(t, databaseURL, root, pool)
 	runCommand(t, root, databaseURL, binary, "migrate", "up")
-	assertCatalogSchemaV2(t, pool)
+	assertCatalogSchemaV3(t, pool)
 	runCommand(t, root, databaseURL, binary, "migrate", "up")
 	assertUnsupportedMigrationLeavesPopulatedCatalog(t, root, databaseURL, binary, pool)
 
@@ -347,13 +347,13 @@ WHERE agent_id = 'unbounded-number-agent' AND version = '1.0.0'`).Scan(
 		if _, err := pool.Exec(ctx, `ALTER SCHEMA catalog_unavailable RENAME TO catalog`); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := pool.Exec(ctx, `UPDATE catalog.schema_version SET version = 3`); err != nil {
+		if _, err := pool.Exec(ctx, `UPDATE catalog.schema_version SET version = 4`); err != nil {
 			t.Fatal(err)
 		}
 		if ready := request(t, http.MethodGet, server.baseURL+"/readyz", "", nil); ready.status != http.StatusServiceUnavailable {
 			t.Fatalf("schema mismatch readiness = %d", ready.status)
 		}
-		if _, err := pool.Exec(ctx, `UPDATE catalog.schema_version SET version = 2`); err != nil {
+		if _, err := pool.Exec(ctx, `UPDATE catalog.schema_version SET version = 3`); err != nil {
 			t.Fatal(err)
 		}
 		var lastSequence int64
@@ -523,6 +523,24 @@ JOIN pg_attribute description
 	}
 }
 
+func assertCatalogSchemaV3(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	var version int
+	var providers, bindings, challenges bool
+	err := pool.QueryRow(context.Background(), `
+SELECT version,
+       to_regclass('catalog.providers') IS NOT NULL,
+       to_regclass('catalog.endpoint_bindings') IS NOT NULL,
+       to_regclass('catalog.verification_challenges') IS NOT NULL
+FROM catalog.schema_version`).Scan(&version, &providers, &bindings, &challenges)
+	if err != nil {
+		t.Fatalf("inspect Catalog schema v3: %v", err)
+	}
+	if version != 3 || !providers || !bindings || !challenges {
+		t.Fatalf("Catalog schema v3 = version %d, providers %t, bindings %t, challenges %t", version, providers, bindings, challenges)
+	}
+}
+
 func assertV1ToV2Migration(t *testing.T, databaseURL, root string, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
@@ -680,7 +698,7 @@ VALUES ($1, $2, $3)`, card.AgentID, card.Version, card.Skills[0].ID); err != nil
 	if output, err := command.CombinedOutput(); err == nil {
 		t.Fatalf("unsupported migrate down succeeded: %s", output)
 	}
-	assertCatalogSchemaV2(t, pool)
+	assertCatalogSchemaV3(t, pool)
 	after := readMigrationGuardSnapshot(t, pool)
 	if after != before {
 		t.Fatalf("unsupported migrate down changed Catalog\nbefore: %#v\nafter:  %#v", before, after)
@@ -802,12 +820,15 @@ func startServer(t *testing.T, root, databaseURL, binary string) *testServer {
 	server.command = exec.Command(binary, "serve")
 	server.command.Dir = root
 	server.command.Env = environmentWith(map[string]string{
-		"NEKIRO_DATABASE_URL":                      databaseURL,
-		"NEKIRO_LISTEN_ADDRESS":                    address,
-		"NEKIRO_AUTH_MODE":                         "development-static",
-		"NEKIRO_DEV_AUTH_PRINCIPALS_JSON":          string(principalsJSON),
-		"NEKIRO_INTERNAL_AUTH_MODE":                "development-static",
-		"NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON": string(internalPrincipalsJSON),
+		"NEKIRO_DATABASE_URL":                        databaseURL,
+		"NEKIRO_LISTEN_ADDRESS":                      address,
+		"NEKIRO_AUTH_MODE":                           "development-static",
+		"NEKIRO_DEV_AUTH_PRINCIPALS_JSON":            string(principalsJSON),
+		"NEKIRO_INTERNAL_AUTH_MODE":                  "development-static",
+		"NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON":   string(internalPrincipalsJSON),
+		"NEKIRO_ENDPOINT_CHALLENGE_TTL_SECONDS":      "300",
+		"NEKIRO_ENDPOINT_VERIFICATION_TIMEOUT_MS":    "10000",
+		"NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON": "[]",
 	})
 	server.command.Stdout = &server.logs
 	server.command.Stderr = &server.logs

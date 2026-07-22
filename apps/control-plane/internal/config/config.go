@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -41,6 +42,12 @@ type InvocationRuntimeConfig struct {
 	SSEEventLimitBytes         int64
 	MetadataResponseLimitBytes int64
 	DeadlineMS                 int64
+}
+
+type TrustedPublicationConfig struct {
+	ChallengeTTL        time.Duration
+	VerificationTimeout time.Duration
+	AllowedPrivateHosts []string
 }
 
 type jsonFrame struct {
@@ -197,6 +204,54 @@ func LoadInvocationRuntime() (InvocationRuntimeConfig, error) {
 		return InvocationRuntimeConfig{}, err
 	}
 	return InvocationRuntimeConfig{RouterInternalURL: routerURL, RouterBearerToken: token, InternalRequestLimitBytes: internalRequestLimit, PublicRequestLimitBytes: requestLimit, SSEEventLimitBytes: sseLimit, MetadataResponseLimitBytes: metadataLimit, DeadlineMS: deadline}, nil
+}
+
+func LoadTrustedPublication() (TrustedPublicationConfig, error) {
+	ttlSeconds, err := requiredStrictInt64("NEKIRO_ENDPOINT_CHALLENGE_TTL_SECONDS", 1, 3600)
+	if err != nil {
+		return TrustedPublicationConfig{}, err
+	}
+	timeoutMilliseconds, err := requiredStrictInt64("NEKIRO_ENDPOINT_VERIFICATION_TIMEOUT_MS", 1, 60000)
+	if err != nil {
+		return TrustedPublicationConfig{}, err
+	}
+	if time.Duration(timeoutMilliseconds)*time.Millisecond >= time.Duration(ttlSeconds)*time.Second {
+		return TrustedPublicationConfig{}, errors.New("NEKIRO_ENDPOINT_VERIFICATION_TIMEOUT_MS must be shorter than the challenge TTL")
+	}
+	allowlistJSON, err := requiredEnv("NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON")
+	if err != nil {
+		return TrustedPublicationConfig{}, err
+	}
+	if err := rejectDuplicateMembers([]byte(allowlistJSON)); err != nil {
+		return TrustedPublicationConfig{}, fmt.Errorf("NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON is invalid: %w", err)
+	}
+	var allowlist []string
+	decoder := json.NewDecoder(strings.NewReader(allowlistJSON))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&allowlist); err != nil {
+		return TrustedPublicationConfig{}, errors.New("NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON is invalid")
+	}
+	if err := requireEOF(decoder); err != nil {
+		return TrustedPublicationConfig{}, errors.New("NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON is invalid")
+	}
+	if allowlist == nil {
+		return TrustedPublicationConfig{}, errors.New("NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON must be an array")
+	}
+	seen := make(map[string]struct{}, len(allowlist))
+	for index, host := range allowlist {
+		if host == "" || host != strings.TrimSpace(host) || strings.ContainsAny(host, " /:@?#[]\\%") {
+			return TrustedPublicationConfig{}, fmt.Errorf("NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON entry %d is invalid", index+1)
+		}
+		normalized := strings.TrimSuffix(strings.ToLower(host), ".")
+		if normalized == "" {
+			return TrustedPublicationConfig{}, fmt.Errorf("NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON entry %d is invalid", index+1)
+		}
+		if _, exists := seen[normalized]; exists {
+			return TrustedPublicationConfig{}, fmt.Errorf("NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON contains duplicate host %q", host)
+		}
+		seen[normalized] = struct{}{}
+	}
+	return TrustedPublicationConfig{ChallengeTTL: time.Duration(ttlSeconds) * time.Second, VerificationTimeout: time.Duration(timeoutMilliseconds) * time.Millisecond, AllowedPrivateHosts: allowlist}, nil
 }
 
 func requiredStrictInt64(name string, minimum, maximum int64) (int64, error) {

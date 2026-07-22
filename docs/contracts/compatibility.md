@@ -16,6 +16,7 @@ consumers and must not redefine their semantics.
 | Contract | Historical | Active target | Compatibility impact |
 | --- | --- | --- | --- |
 | Agent Card Schema | `0.1` | `0.2` | Breaking: portable semantic rejection rules narrow accepted Cards |
+| Trusted Publication | none | `v1` | New Registry-owned provider, endpoint-binding, challenge, and typed verification-error contract |
 | Workspace Schema | none | `v1` | New minimal authorization-root fact |
 | Installation Schema | `v1` | `v2` | Breaking: canonical semantic invariants are frozen |
 | Northbound API | `v1` / `v2` | `v3` | Breaking: v3 completes authenticated Workspace/Installation semantics and body-bearing uninstall |

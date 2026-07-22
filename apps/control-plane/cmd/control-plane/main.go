@@ -65,6 +65,10 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	trustedPublicationConfig, err := config.LoadTrustedPublication()
+	if err != nil {
+		return err
+	}
 	authenticator, err := gateway.NewDevelopmentStaticAuthenticator(cfg.Principals)
 	if err != nil {
 		return fmt.Errorf("initialize authenticator: %w", err)
@@ -97,6 +101,10 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 		return errors.New("initialize contract validator")
 	}
 	catalogService, err := catalog.NewService(catalogStore, validator, time.Now)
+	if err != nil {
+		return err
+	}
+	trustService, err := catalog.NewTrustService(catalogStore, catalogStore, time.Now, catalog.NewEndpointPolicy(trustedPublicationConfig.AllowedPrivateHosts), http.DefaultClient, trustedPublicationConfig.ChallengeTTL, trustedPublicationConfig.VerificationTimeout)
 	if err != nil {
 		return err
 	}
@@ -143,6 +151,11 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 	}
 	mux := http.NewServeMux()
 	catalogHandler.RegisterRoutes(mux)
+	trustHandler, err := gateway.NewTrustHandler(authenticator, trustService, traces, logger)
+	if err != nil {
+		return err
+	}
+	trustHandler.RegisterRoutes(mux)
 	workspaceHandler.RegisterRoutes(mux)
 	invocationHandler.RegisterRoutes(mux)
 	invocationReadHandler.RegisterRoutes(mux)
