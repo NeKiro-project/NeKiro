@@ -149,7 +149,7 @@ func (v *RuntimeContractValidator) ValidateInvocationEventV03(event InvocationEv
 // Invocation Event 0.3; it is never inferred by Catalog for new versions.
 func ValidateInvocationReleaseProvenance(releaseID, cardDigest string) error {
 	if (releaseID == "") != (cardDigest == "") {
-		return errors.New("Invocation release provenance must contain both Release ID and Card digest")
+		return errors.New("invocation release provenance must contain both release ID and card digest")
 	}
 	if releaseID == "" {
 		return nil
@@ -158,11 +158,11 @@ func ValidateInvocationReleaseProvenance(releaseID, cardDigest string) error {
 		return err
 	}
 	if len(cardDigest) != 64 || cardDigest != strings.ToLower(cardDigest) {
-		return errors.New("Agent Card digest must be canonical lower-case SHA-256")
+		return errors.New("agent card digest must be canonical lower-case SHA-256")
 	}
 	decoded, err := hex.DecodeString(cardDigest)
 	if err != nil || len(decoded) != 32 {
-		return errors.New("Agent Card digest must be canonical lower-case SHA-256")
+		return errors.New("agent card digest must be canonical lower-case SHA-256")
 	}
 	return nil
 }
