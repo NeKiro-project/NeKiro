@@ -30,7 +30,7 @@ type ReleaseHandler struct {
 
 func NewReleaseHandler(authenticator Authenticator, service ReleaseCatalogService, traces *TraceGenerator, logger *slog.Logger) (*ReleaseHandler, error) {
 	if authenticator == nil || service == nil || traces == nil || logger == nil {
-		return nil, errors.New("Agent Release gateway dependencies are required")
+		return nil, errors.New("agent release gateway dependencies are required")
 	}
 	return &ReleaseHandler{authenticator: authenticator, service: service, traces: traces, logger: logger}, nil
 }

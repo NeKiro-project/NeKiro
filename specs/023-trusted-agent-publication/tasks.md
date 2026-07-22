@@ -86,3 +86,7 @@ T016 -> T017 -> T018
   Release transitions, concurrent publication, verified-only suspend/revoke,
   and explicit pre-v4 fixture seeding. Full database-backed integration runs
   require `NEKIRO_TEST_DATABASE_URL` and are not executed when it is absent.
+- The existing clean Invoke-to-Record acceptance now provisions one-time proof
+  files in the Sample Agent containers and exercises the trusted
+  Register -> Verify -> Publish -> Install path. T017 remains open for the
+  complete trusted-publication negative-path acceptance matrix.

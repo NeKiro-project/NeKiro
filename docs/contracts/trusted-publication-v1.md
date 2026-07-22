@@ -63,6 +63,13 @@ The following settings are required:
 
 The verification timeout must be shorter than the challenge TTL.
 
+The Compose Sample Agents expose the same well-known route from an explicitly
+configured `NEKIRO_AGENT_CHALLENGE_DIRECTORY`. The operator writes the
+exact one-time proof to a file named exactly after `challengeId`, without
+adding a trailing newline, and removes it after challenge completion. This
+Agent-side directory has no default; a missing, blank, relative, or malformed
+path fails Sample Agent startup instead of silently selecting storage.
+
 ## Failure semantics
 
 Failure responses use the trusted-publication error contract. Invalid endpoint,

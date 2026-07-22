@@ -31,7 +31,7 @@ type ReleaseService struct {
 
 func NewReleaseService(store ReleaseStore, versions AgentVersionReader, trust TrustStore, clock Clock) (*ReleaseService, error) {
 	if store == nil || versions == nil || trust == nil || clock == nil {
-		return nil, errors.New("Agent Release dependencies are required")
+		return nil, errors.New("agent release dependencies are required")
 	}
 	return &ReleaseService{store: store, versions: versions, trust: trust, clock: clock, newID: newTrustID}, nil
 }

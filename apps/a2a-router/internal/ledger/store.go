@@ -453,7 +453,7 @@ func digestBytes(value string) ([]byte, error) {
 	}
 	decoded, err := hex.DecodeString(value)
 	if err != nil || len(decoded) != 32 {
-		return nil, errors.New("Invocation Card digest is invalid")
+		return nil, errors.New("invocation card digest is invalid")
 	}
 	return decoded, nil
 }
