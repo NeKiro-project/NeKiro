@@ -216,3 +216,10 @@ keep implementation, SDD artifacts, and verification evidence aligned.
 credential material forbidden on every public response surface.
 
 - [x] T043 Split credential/key/JTI sentinels from content-only storage/error sentinels so successful JSON/SSE output remains valid while FR-010/SC-004 secrecy checks stay complete.
+
+## Phase 12: CI Compose Remediation
+
+**Purpose**: Make the Runtime B container consume the same thin Agent SDK
+adapter already used by its source build.
+
+- [x] T044 Copy `sdks/agent-sdk` into the Runtime B Docker build context before compiling, per FR-012/SC-003 and the failed backend-acceptance build evidence from CI run `30059903275`.
