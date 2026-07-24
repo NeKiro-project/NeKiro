@@ -223,3 +223,10 @@ credential material forbidden on every public response surface.
 adapter already used by its source build.
 
 - [x] T044 Copy `sdks/agent-sdk` into the Runtime B Docker build context before compiling, per FR-012/SC-003 and the failed backend-acceptance build evidence from CI run `30059903275`.
+
+## Phase 13: CI Lint Remediation
+
+**Purpose**: Align new Router credential validation errors with the repository's
+Go lint gate without changing failure semantics.
+
+- [x] T045 Lowercase Router credential `Config.Validate` error strings per the ST1005 findings in CI run `30060127995` and re-run the credential tests.

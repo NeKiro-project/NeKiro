@@ -63,16 +63,16 @@ func LoadConfig(lookup func(string) (string, bool)) (Config, error) {
 
 func (config Config) Validate() error {
 	if err := contracts.ValidateRouterAgentIssuer(config.Issuer); err != nil {
-		return fmt.Errorf("Router credential issuer is invalid: %w", err)
+		return fmt.Errorf("router credential issuer is invalid: %w", err)
 	}
 	if err := contracts.ValidateRouterAgentKeyID(config.KeyID); err != nil {
-		return fmt.Errorf("Router credential key ID is invalid: %w", err)
+		return fmt.Errorf("router credential key ID is invalid: %w", err)
 	}
 	if !validPrivateKey(config.PrivateKey) {
-		return errors.New("Router credential private key is invalid")
+		return errors.New("router credential private key is invalid")
 	}
 	if config.TTL < time.Second || config.TTL > contracts.RouterAgentCredentialMaximumTTL || config.TTL%time.Second != 0 {
-		return errors.New("Router credential TTL is invalid")
+		return errors.New("router credential TTL is invalid")
 	}
 	return nil
 }
