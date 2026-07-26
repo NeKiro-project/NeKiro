@@ -134,8 +134,11 @@ after each reviewed slice, the resulting source is imported into the platform
 repository as a normal `apps/console` workspace package so existing root CI
 commands discover real frontend scripts. The imported copy is generated from
 the reviewed upstream source and is not a second hand-edited production path.
-Add only the backend acceptance fixture required to prove the reverse nested
-direction.
+Add only the deterministic Runtime B caller behavior and backend acceptance
+fixture required to prove the reverse nested direction. Runtime B may reuse the
+existing Agent SDK and Router Agent v1 boundary, but it must not gain a direct
+Runtime A endpoint, platform storage access, a new runtime framework, or a
+second public contract.
 
 ## PR and Review Slices
 
@@ -143,7 +146,7 @@ direction.
 | --- | --- | --- | --- |
 | A | Console #2 | standalone `NeKiro-Console/src/api`, API tests, trusted transport validation | All active Trusted Publication requests and strict response/error mappings pass focused tests |
 | B | Console #4 | standalone `NeKiro-Console/src/App.tsx`, API client configuration, and production components | Provider can complete Binding/Challenge/Release lifecycle; Workspace owner preflights an explicit published Release and installation validates the exact returned Release ID |
-| C | NeKiro #60 | backend E2E fixture only | Runtime B -> Router -> Runtime A returns with one correlated root/child lineage and provenance |
+| C | NeKiro #60 | Runtime B deterministic caller fixture and backend E2E acceptance | Runtime B -> Router -> Runtime A returns with one correlated root/child lineage and provenance |
 | D | Console #3 / parent #59 | standalone Console CI/browser acceptance plus reviewed import to `apps/console` and root CI | CI executes real typecheck/tests/build/browser acceptance; live production route proves the loop |
 
 Each slice is implemented on its own branch/PR. Before coding a slice, a
