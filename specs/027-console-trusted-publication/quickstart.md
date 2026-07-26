@@ -82,3 +82,5 @@ docker compose --project-name nekiro-console-acceptance --file deploy/compose.ya
 
 The acceptance must include the reverse B -> Router -> A lineage and must
 report exact Release IDs, parent/child Invocation IDs, and Trace IDs on failure.
+Runtime A and Runtime B must each receive separate explicit Router Agent
+tokens and response/event limits; missing values must fail Compose interpolation.
