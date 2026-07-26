@@ -204,6 +204,15 @@ jobs:
         working-directory: agents/runtime-a
         run: go test -race ./...
 
+      - name: Test Runtime B sample
+        run: go test -count=1 ./agents/runtime-b ./agents/runtime-b/cmd/runtime-b
+
+      - name: Vet Runtime B sample
+        run: go vet ./agents/runtime-b ./agents/runtime-b/cmd/runtime-b
+
+      - name: Race test Runtime B sample
+        run: go test -race ./agents/runtime-b ./agents/runtime-b/cmd/runtime-b
+
   backend-acceptance:
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -291,7 +300,7 @@ jobs:
                   NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN NEKIRO_CONTROL_PLANE_SERVICE_TOKEN
                   NEKIRO_ROUTER_AGENT_CREDENTIAL_KEY_ID NEKIRO_ROUTER_AGENT_CREDENTIAL_PRIVATE_KEY_BASE64URL
                   NEKIRO_AGENT_ROUTER_KEY_ID NEKIRO_AGENT_ROUTER_PUBLIC_KEY_BASE64URL
-                  RUNTIME_A_ROUTER_TOKEN NEKIRO_E2E_ROUTER_TOKEN NEKIRO_E2E_OWNER_TOKEN
+                  RUNTIME_A_ROUTER_TOKEN RUNTIME_B_ROUTER_TOKEN NEKIRO_E2E_ROUTER_TOKEN NEKIRO_E2E_OWNER_TOKEN
                   NEKIRO_E2E_USER_TOKEN NEKIRO_E2E_OTHER_TOKEN NEKIRO_E2E_DATABASE_URL
                 );
                 @secrets = grep { defined($_) && length($_) } @ENV{@secret_names};
