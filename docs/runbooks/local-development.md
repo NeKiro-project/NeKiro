@@ -57,6 +57,12 @@ Every current variable is required:
 | `NEKIRO_AGENT_ROUTER_ISSUER` | Exact Router issuer trusted by each Agent adapter |
 | `NEKIRO_AGENT_ROUTER_KEY_ID` | Exact Router key ID trusted by each Agent adapter |
 | `NEKIRO_AGENT_ROUTER_PUBLIC_KEY_BASE64URL` | 32 raw Ed25519 public-key bytes encoded as unpadded Base64url |
+| `RUNTIME_A_ROUTER_TOKEN` | Raw Router Agent token supplied only to Runtime A |
+| `RUNTIME_A_RESPONSE_LIMIT_BYTES` | Explicit Runtime A nested response limit |
+| `RUNTIME_A_EVENT_LIMIT_BYTES` | Explicit Runtime A nested event limit |
+| `RUNTIME_B_ROUTER_TOKEN` | Raw Router Agent token supplied only to Runtime B |
+| `RUNTIME_B_RESPONSE_LIMIT_BYTES` | Explicit Runtime B nested response limit |
+| `RUNTIME_B_EVENT_LIMIT_BYTES` | Explicit Runtime B nested event limit |
 
 Choose non-empty values locally. Do not commit `.env`, reuse these credentials
 for production, or place production credentials in this Compose deployment.
@@ -178,6 +184,9 @@ limits are the minimum of the configured limit and the exact Agent Card limit.
 Missing or invalid values fail startup; there is no no-op Ledger, fallback
 endpoint, or default credential.
 
+Each Agent process separately requires its own Router token and explicit
+response/event limits. Runtime B's managed nested fixture targets Runtime A
+through `http://a2a-router:8081`; it has no direct Runtime A endpoint setting.
 Each Agent process separately requires `NEKIRO_AGENT_ROUTER_ISSUER`,
 `NEKIRO_AGENT_ROUTER_AUDIENCE`, `NEKIRO_AGENT_ROUTER_KEY_ID`, and
 `NEKIRO_AGENT_ROUTER_PUBLIC_KEY_BASE64URL`. Readiness and ownership challenge

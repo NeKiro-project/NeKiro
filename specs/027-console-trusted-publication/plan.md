@@ -134,11 +134,11 @@ after each reviewed slice, the resulting source is imported into the platform
 repository as a normal `apps/console` workspace package so existing root CI
 commands discover real frontend scripts. The imported copy is generated from
 the reviewed upstream source and is not a second hand-edited production path.
-Add only the deterministic Runtime B caller behavior and backend acceptance
-fixture required to prove the reverse nested direction. Runtime B may reuse the
-existing Agent SDK and Router Agent v1 boundary, but it must not gain a direct
-Runtime A endpoint, platform storage access, a new runtime framework, or a
-second public contract.
+Add only the deterministic Runtime B caller behavior, the corresponding
+Runtime A responder fixture, and backend acceptance required to prove the
+reverse nested direction. Runtime B and Runtime A may reuse the existing Agent
+SDK and Router Agent v1 boundary, but neither may gain a direct peer endpoint,
+platform storage access, a new runtime framework, or a second public contract.
 
 ## PR and Review Slices
 

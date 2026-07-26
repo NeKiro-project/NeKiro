@@ -97,7 +97,7 @@ Implementation PR: https://github.com/NeKiro-project/NeKiro-Console/pull/6
 
 ### Implementation
 
-- [ ] T025 [US4] Extend the deterministic Runtime B sample with explicit Router URL/token, target Agent ID/capability, response/event limits, and Router Agent credential configuration; inject the existing Agent SDK and invoke only the configured target through Agent Router v1 for the reverse fixture. Do not add a direct Runtime A endpoint, platform storage access, a new runtime framework, retry, or fallback.
+- [ ] T025 [US4] Extend the deterministic Runtime B sample with explicit Router URL/token, target Agent ID/capability, response/event limits, and Router Agent credential configuration; inject the existing Agent SDK and invoke only the configured target through Agent Router v1 for the reverse fixture. Extend the existing Runtime A adapter with a separately declared deterministic responder capability while preserving its `runtime.cross` caller path. Do not add a direct peer endpoint, platform storage access, a new runtime framework, retry, or fallback.
 - [ ] T026 [US4] Add the reverse fixture setup and assertions in `tests/e2e/invoke-record/invoke_record_test.go` for B root -> A child `parentInvocationId`, one `rootTaskId`, one `traceId`, distinct exact Release IDs/Card digests, returned result correlation, and no direct endpoint access or exposed Agent host port.
 
 ### Tests
