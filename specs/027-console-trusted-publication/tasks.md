@@ -93,12 +93,12 @@ Implementation PR: https://github.com/NeKiro-project/NeKiro-Console/pull/6
 
 **Pre-implementation gate**:
 
-- [ ] T024 [US4] Launch a subagent to read NeKiro Issue #60, Spec 027 US4, FR-009 through FR-011/FR-016, Specs 019-021/026, and the existing `tests/e2e/invoke-record/invoke_record_test.go`. Record the exact fixture direction, expected Release provenance, direct-access boundary, and forbidden fallback behavior.
+- [X] T024 [US4] Launch a subagent to read NeKiro Issue #60, Spec 027 US4, FR-009 through FR-011/FR-016, Specs 019-021/026, and the existing `tests/e2e/invoke-record/invoke_record_test.go`. Record the exact fixture direction, expected Release provenance, direct-access boundary, and forbidden fallback behavior.
 
 ### Implementation
 
-- [ ] T025 [US4] Extend the deterministic Runtime B sample with explicit Router URL/token, target Agent ID/capability, response/event limits, and Router Agent credential configuration; inject the existing Agent SDK and invoke only the configured target through Agent Router v1 for the reverse fixture. Extend the existing Runtime A adapter with a separately declared deterministic responder capability while preserving its `runtime.cross` caller path. Do not add a direct peer endpoint, platform storage access, a new runtime framework, retry, or fallback.
-- [ ] T026 [US4] Add the reverse fixture setup and assertions in `tests/e2e/invoke-record/invoke_record_test.go` for B root -> A child `parentInvocationId`, one `rootTaskId`, one `traceId`, distinct exact Release IDs/Card digests, returned result correlation, and no direct endpoint access or exposed Agent host port.
+- [X] T025 [US4] Extend the deterministic Runtime B sample with explicit Router URL/token, target Agent ID/capability, response/event limits, and Router Agent credential configuration; inject the existing Agent SDK and invoke only the configured target through Agent Router v1 for the reverse fixture. Extend the existing Runtime A adapter with a separately declared deterministic responder capability while preserving its `runtime.cross` caller path. Do not add a direct peer endpoint, platform storage access, a new runtime framework, retry, or fallback.
+- [X] T026 [US4] Add the reverse fixture setup and assertions in `tests/e2e/invoke-record/invoke_record_test.go` for B root -> A child `parentInvocationId`, one `rootTaskId`, one `traceId`, distinct exact Release IDs/Card digests, returned result correlation, and no direct endpoint access or exposed Agent host port.
 
 ### Tests
 
@@ -107,6 +107,16 @@ Implementation PR: https://github.com/NeKiro-project/NeKiro-Console/pull/6
 **Review gate**:
 
 - [ ] T028 [US4] Launch an independent review agent for NeKiro Issue #60 against the Slice C diff, Specs 019-027, active A2A/Router/Invocation contracts, and acceptance evidence; do not proceed to Slice D until it reports no High/Medium findings.
+
+Slice C execution record: T024 pre-implementation scope review completed by
+the Zeno subagent; T025-T026 implemented in commits `92f290c` and `7462919`.
+The first independent review found three Medium issues, all fixed in
+`7462919`; the second review found no code High finding and only this task
+bookkeeping gap. T027 remains pending because this workstation has no Docker
+daemon and could not download the uncached Go modules; `docker compose config
+--quiet`, `docker compose config --format json` wiring, Runtime B production
+build, SDK tests, and Runtime B command vet passed locally. T028 remains
+pending until a fresh review is run after this record update.
 
 ## Phase 5: Slice D - Real frontend CI and browser acceptance (Console Issue #3 / parent #59)
 
