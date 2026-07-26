@@ -102,7 +102,7 @@ Implementation PR: https://github.com/NeKiro-project/NeKiro-Console/pull/6
 
 ### Tests
 
-- [ ] T027 [US4] Run the focused clean Compose E2E and existing backend unit/contract/race/vet gates required by the modified acceptance; preserve exact failures for unavailable endpoint, timeout, cancellation, and credential boundary cases.
+- [x] T027 [US4] Run the focused clean Compose E2E and existing backend unit/contract/race/vet gates required by the modified acceptance; preserve exact failures for unavailable endpoint, timeout, cancellation, and credential boundary cases.
 
 **Review gate**:
 
@@ -112,11 +112,21 @@ Slice C execution record: T024 pre-implementation scope review completed by
 the Zeno subagent; T025-T026 implemented in commits `92f290c` and `7462919`.
 The first independent review found three Medium issues, all fixed in
 `7462919`; the second review found no code High finding and only this task
-bookkeeping gap. T027 remains pending because this workstation has no Docker
-daemon and could not download the uncached Go modules; `docker compose config
---quiet`, `docker compose config --format json` wiring, Runtime B production
-build, SDK tests, and Runtime B command vet passed locally. T028 remains
-pending until a fresh review is run after this record update.
+bookkeeping gap. T027 was then verified by CI run `30211184685`: clean Compose
+backend acceptance, Runtime A/B test-vet-race gates, workspace integration,
+Compose configuration, frontend checks, and root Go test/race passed. The
+fork-only Codecov upload step failed after coverage completed, so its skipped
+vet/lint steps are an infrastructure/reporting limitation rather than a
+runtime acceptance failure. This workstation still has no Docker daemon and
+cannot download uncached Go modules. The fresh Slice C review then found two
+Medium boundary issues: nested responses did not derive a missing A2A context
+ID, and Runtime B accepted a Router origin with an explicit empty port. Both
+were fixed with regression coverage in the current follow-up commit. The
+review's two Low observations (an additional nested input cap and an explicit
+HTTP client timeout) remain non-blocking because the managed Router path
+already enforces the active request deadline/byte limits; no new policy was
+approved for expanding this slice. T028 remains pending until CI validates the
+fixes and a new independent review reports no High/Medium findings.
 
 ## Phase 5: Slice D - Real frontend CI and browser acceptance (Console Issue #3 / parent #59)
 
