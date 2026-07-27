@@ -220,6 +220,33 @@ jobs:
       - name: Run production browser acceptance
         run: pnpm --dir apps/console run test:e2e
 
+      - name: Capture sanitized console acceptance backend logs
+        if: always()
+        shell: bash
+        run: |
+          docker compose --project-name "$NEKIRO_E2E_COMPOSE_PROJECT" --file "$NEKIRO_E2E_COMPOSE_FILE" logs --no-color 2>&1 |
+            perl -pe '
+              BEGIN {
+                @secret_names = qw(
+                  POSTGRES_PASSWORD NEKIRO_COMPOSE_DATABASE_URL
+                  NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN NEKIRO_CONTROL_PLANE_SERVICE_TOKEN
+                  NEKIRO_ROUTER_AGENT_CREDENTIAL_KEY_ID NEKIRO_ROUTER_AGENT_CREDENTIAL_PRIVATE_KEY_BASE64URL
+                  NEKIRO_AGENT_ROUTER_KEY_ID NEKIRO_AGENT_ROUTER_PUBLIC_KEY_BASE64URL
+                  RUNTIME_A_ROUTER_TOKEN RUNTIME_B_ROUTER_TOKEN
+                  VITE_NEKIRO_PROVIDER_TOKEN VITE_NEKIRO_OWNER_TOKEN
+                );
+                @secrets = grep { defined($_) && length($_) } @ENV{@secret_names};
+                @fixtures = qw(
+                  browser-json browser-sse
+                );
+              }
+              for my $value (@secrets, @fixtures) { s/\Q$value\E/[REDACTED]/g; }
+              s/\b[0-9a-f]{64}\b/[REDACTED-64-HEX]/g;
+              s{(?:[A-Za-z0-9_-]+\.){2}[A-Za-z0-9_-]+}{[REDACTED-ROUTER-CREDENTIAL]}g;
+              s/\b[A-Za-z0-9_-]{86}\b/[REDACTED-ED25519-SIGNATURE]/g;
+              s/\brtj_[A-Za-z0-9._:-]*/[REDACTED-ROUTER-JTI]/g;
+            '
+
       - name: Tear down fresh platform Compose
         if: always()
         run: docker compose --project-name "$NEKIRO_E2E_COMPOSE_PROJECT" --file "$NEKIRO_E2E_COMPOSE_FILE" down --volumes --remove-orphans
