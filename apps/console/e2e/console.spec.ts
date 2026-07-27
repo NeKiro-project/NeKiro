@@ -39,7 +39,7 @@ const runtimeB: AgentFixture = {
   name: 'Browser Runtime B',
   endpoint: 'http://runtime-b:8092',
   service: 'runtime-b',
-  capability: 'runtime.cross',
+  capability: 'runtime.echo',
 };
 
 test.describe.configure({mode: 'serial'});
