@@ -112,6 +112,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify Console workspace package
+        run: >-
+          node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('apps/console/package.json','utf8')); for (const name of ['typecheck','test','build']) { if (typeof p.scripts?.[name] !== 'string' || p.scripts[name].trim() === '') throw new Error('apps/console script is missing: ' + name); }"
+
       - name: Typecheck frontend
         run: pnpm typecheck
 
@@ -120,6 +124,105 @@ jobs:
 
       - name: Build frontend
         run: pnpm build
+
+  console-browser-acceptance:
+    needs: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      # Deterministic CI-only fixtures. These values are never production
+      # configuration and are not written into the imported Console source.
+      POSTGRES_USER: nekiro_console_acceptance
+      POSTGRES_PASSWORD: nekiro-console-acceptance-only
+      POSTGRES_DB: nekiro_console_acceptance
+      POSTGRES_PORT: "55432"
+      CONTROL_PLANE_PORT: "18080"
+      A2A_ROUTER_PORT: "18081"
+      NEKIRO_COMPOSE_DATABASE_URL: postgresql://nekiro_console_acceptance:nekiro-console-acceptance-only@postgres:5432/nekiro_console_acceptance?sslmode=disable
+      NEKIRO_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"root-console-provider","tokenSha256":"4def860d949646b1515e6d28096af112224f06cf6a5941ab0ac51b9a458b1252"},{"id":"root-console-owner","tokenSha256":"4162f45cb0487cc2205850cc622fbecaa976a87f7aae8a96fa1676e2a984d2ac"}]'
+      NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"root-console-router-internal","tokenSha256":"e3a864d8b9d70000e50e42d94761cc5d5996a36f39137735dca3a830f23cf4ba"}]'
+      NEKIRO_ROUTER_SERVICE_PRINCIPALS_JSON: '[{"id":"root-console-control-plane","tokenSha256":"4285e7349a2517fbdbfac9c1bc072a5ff1ef702d6cfe1826d62f02d73334bdc0"}]'
+      NEKIRO_ROUTER_AGENT_PRINCIPALS_JSON: '[{"workspaceId":"root-console-workspace","agentId":"runtime-a","tokenSha256":"fd59489764dad19b9c276a8fb0187fdb187f3de6b426467c0af9659edbe4159f"},{"workspaceId":"root-console-workspace","agentId":"runtime-b","tokenSha256":"43a0b80acc0b4436c4433b8313bc4c41cbb5534751c458f6e2cfe4af602ca34f"}]'
+      NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN: root-console-router-internal-token
+      NEKIRO_CONTROL_PLANE_SERVICE_TOKEN: root-console-control-plane-token
+      NEKIRO_CORS_ALLOWED_ORIGINS: http://127.0.0.1:4173
+      NEKIRO_ENDPOINT_CHALLENGE_TTL_SECONDS: "300"
+      NEKIRO_ENDPOINT_VERIFICATION_TIMEOUT_MS: "10000"
+      NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON: '["runtime-a","runtime-b"]'
+      NEKIRO_CONTROL_PLANE_INTERNAL_REQUEST_MAX_BYTES: "1048576"
+      NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES: "1048576"
+      NEKIRO_GATEWAY_SSE_EVENT_MAX_BYTES: "65536"
+      NEKIRO_GATEWAY_METADATA_RESPONSE_MAX_BYTES: "1048576"
+      NEKIRO_GATEWAY_INVOCATION_DEADLINE_MS: "30000"
+      NEKIRO_ROUTER_INTERNAL_REQUEST_LIMIT_BYTES: "1048576"
+      NEKIRO_ROUTER_AGENT_REQUEST_LIMIT_BYTES: "1048576"
+      NEKIRO_ROUTER_CONTROL_PLANE_RESPONSE_LIMIT_BYTES: "1048576"
+      NEKIRO_ROUTER_AGENT_RESPONSE_LIMIT_BYTES: "1048576"
+      NEKIRO_ROUTER_A2A_EVENT_LIMIT_BYTES: "1048576"
+      NEKIRO_ROUTER_SSE_EVENT_LIMIT_BYTES: "65536"
+      NEKIRO_ROUTER_RESOLUTION_DEADLINE_MS: "30000"
+      NEKIRO_ROUTER_AGENT_DEADLINE_MS: "30000"
+      NEKIRO_ROUTER_AGENT_CREDENTIAL_ISSUER: https://a2a-router.nekiro.test
+      NEKIRO_ROUTER_AGENT_CREDENTIAL_KEY_ID: root-console-browser-key-1
+      NEKIRO_ROUTER_AGENT_CREDENTIAL_PRIVATE_KEY_BASE64URL: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8DoQe_884Qvh1w3RjnS8CZZ-TWMJulDV8d3IZkElUxuA
+      NEKIRO_ROUTER_AGENT_CREDENTIAL_TTL_SECONDS: "30"
+      NEKIRO_AGENT_ROUTER_ISSUER: https://a2a-router.nekiro.test
+      NEKIRO_AGENT_ROUTER_KEY_ID: root-console-browser-key-1
+      NEKIRO_AGENT_ROUTER_PUBLIC_KEY_BASE64URL: A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg
+      RUNTIME_A_ROUTER_TOKEN: root-console-runtime-a-token
+      RUNTIME_A_RESPONSE_LIMIT_BYTES: "1048576"
+      RUNTIME_A_EVENT_LIMIT_BYTES: "65536"
+      RUNTIME_B_ROUTER_TOKEN: root-console-runtime-b-token
+      RUNTIME_B_RESPONSE_LIMIT_BYTES: "1048576"
+      RUNTIME_B_EVENT_LIMIT_BYTES: "65536"
+      NEKIRO_E2E_BASE_URL: http://127.0.0.1:4173
+      NEKIRO_E2E_COMPOSE_PROJECT: nekiro-root-console-browser
+      NEKIRO_E2E_COMPOSE_FILE: ${{ github.workspace }}/deploy/compose.yaml
+      VITE_NEKIRO_API_BASE_URL: http://gateway.nekiro.test:18080
+      VITE_NEKIRO_PROVIDER_ID: root-console-provider
+      VITE_NEKIRO_PROVIDER_NAME: Root Console Provider
+      VITE_NEKIRO_PROVIDER_TOKEN: root-console-provider-token
+      VITE_NEKIRO_OWNER_TOKEN: root-console-owner-token
+      VITE_NEKIRO_DEFAULT_WORKSPACE_ID: root-console-workspace
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.3.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.16.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Map the Gateway to an explicit non-IP origin
+        run: echo "127.0.0.1 gateway.nekiro.test" | sudo tee -a /etc/hosts
+
+      - name: Start fresh platform Compose
+        run: docker compose --project-name "$NEKIRO_E2E_COMPOSE_PROJECT" --file "$NEKIRO_E2E_COMPOSE_FILE" up --build --detach --wait --wait-timeout 120
+
+      - name: Install Chromium
+        run: pnpm --dir apps/console exec playwright install --with-deps chromium
+
+      - name: Build production Console with explicit browser configuration
+        run: pnpm --dir apps/console run build
+
+      - name: Run production browser acceptance
+        run: pnpm --dir apps/console run test:e2e
+
+      - name: Tear down fresh platform Compose
+        if: always()
+        run: docker compose --project-name "$NEKIRO_E2E_COMPOSE_PROJECT" --file "$NEKIRO_E2E_COMPOSE_FILE" down --volumes --remove-orphans
 
   compose-config:
     runs-on: ubuntu-latest
