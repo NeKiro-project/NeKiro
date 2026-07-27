@@ -3,6 +3,8 @@ import {execFileSync} from 'node:child_process';
 import {expect, test, type Locator, type Page} from '@playwright/test';
 
 const providerId = required('VITE_NEKIRO_PROVIDER_ID');
+const apiBaseURL = required('VITE_NEKIRO_API_BASE_URL');
+const ownerToken = required('VITE_NEKIRO_OWNER_TOKEN');
 const workspaceId = required('VITE_NEKIRO_DEFAULT_WORKSPACE_ID');
 const composeFile = required('NEKIRO_E2E_COMPOSE_FILE');
 const composeProject = required('NEKIRO_E2E_COMPOSE_PROJECT');
@@ -114,6 +116,7 @@ test('production Console completes trusted publication, invocation, trace, and i
   await page.getByRole('button', {name: 'Invoke', exact: true}).click();
   const jsonResponse = await jsonResponsePromise;
   const jsonResponseBody = await jsonResponse.text();
+  if (jsonResponse.status() !== 200) await logInvocationTraceDiagnostic(page, jsonResponseBody);
   expect(jsonResponse.status(), `JSON invocation response: ${summarizeResponse(jsonResponse.status(), jsonResponseBody)}`).toBe(200);
 
   const response = page.locator('pre').filter({hasText: 'invocationId'}).last();
@@ -323,6 +326,68 @@ function summarizeResponse(status: number, body: string): string {
     .map((key) => `${key}=${record[key] as string}`)
     .join(',');
   return `status=${status}, keys=${keys}${safeFields ? ', ' + safeFields : ''}`;
+}
+
+async function logInvocationTraceDiagnostic(page: Page, body: string): Promise<void> {
+  let value: unknown;
+  try {
+    value = JSON.parse(body);
+  } catch {
+    console.log('JSON invocation trace diagnostic: error_body=non-json');
+    return;
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    console.log('JSON invocation trace diagnostic: error_body=non-object-json');
+    return;
+  }
+  const error = value as Record<string, unknown>;
+  const traceId = typeof error.traceId === 'string' ? error.traceId : '';
+  if (!traceId) {
+    console.log('JSON invocation trace diagnostic: trace_id=missing');
+    return;
+  }
+  try {
+    const response = await page.request.get(`${apiBaseURL}/v4/workspaces/${encodeURIComponent(workspaceId)}/traces/${encodeURIComponent(traceId)}`, {
+      headers: {Authorization: `Bearer ${ownerToken}`, Accept: 'application/json'},
+    });
+    const traceBody = await response.text();
+    console.log(`JSON invocation trace diagnostic: ${summarizeTrace(response.status(), traceBody)}`);
+  } catch (diagnosticError) {
+    const errorName = diagnosticError instanceof Error ? diagnosticError.name : 'unknown';
+    console.log(`JSON invocation trace diagnostic: request_error=${errorName}`);
+  }
+}
+
+function summarizeTrace(status: number, body: string): string {
+  let value: unknown;
+  try {
+    value = JSON.parse(body);
+  } catch {
+    return `status=${status}, body=non-json`;
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return `status=${status}, body=non-object-json`;
+  }
+  const record = value as Record<string, unknown>;
+  const invocations = Array.isArray(record.invocations) ? record.invocations : [];
+  const states = invocations.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item)))
+    .map((item) => [
+      diagnosticIdentifier(item.invocationId),
+      item.parentInvocationId === undefined ? '' : diagnosticIdentifier(item.parentInvocationId),
+      diagnosticIdentifier(item.targetAgentId),
+      diagnosticEnum(item.status, ['pending', 'routing', 'running', 'succeeded', 'failed', 'canceled', 'timed_out']),
+      item.errorCode === undefined ? '' : diagnosticEnum(item.errorCode, ['VALIDATION_ERROR', 'UNAUTHENTICATED', 'FORBIDDEN', 'NOT_FOUND', 'CONFLICT', 'NOT_ACCEPTABLE', 'PAYLOAD_TOO_LARGE', 'AGENT_NOT_INSTALLED', 'INSTALLATION_DISABLED', 'AGENT_DISABLED', 'AGENT_RELEASE_UNPUBLISHED', 'AGENT_RELEASE_SUSPENDED', 'AGENT_RELEASE_REVOKED', 'CAPABILITY_NOT_ALLOWED', 'ROUTE_NOT_FOUND', 'AGENT_AUTH_UNSUPPORTED', 'AGENT_RESPONSE_TOO_LARGE', 'A2A_PROTOCOL_ERROR', 'AGENT_UNAVAILABLE', 'AGENT_EXECUTION_FAILED', 'DEPENDENCY_ERROR', 'TIMEOUT', 'CANCELED', 'INTERNAL_ERROR']),
+    ].join('/'))
+    .join(';');
+  return `status=${status}, invocation_states=${states || 'none'}`;
+}
+
+function diagnosticIdentifier(value: unknown): string {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value) ? value : 'invalid';
+}
+
+function diagnosticEnum(value: unknown, allowed: string[]): string {
+  return typeof value === 'string' && allowed.includes(value) ? value : 'invalid';
 }
 
 function required(name: string): string {
