@@ -141,14 +141,33 @@ already supplies the active deadline and input byte limits.
 
 **Pre-implementation gate**:
 
-- [ ] T029 [US5] Launch a subagent to read Console Issue #3, parent NeKiro Issue #59, Spec 027 US4-US5, FR-013 through FR-017, Slice A/B/C evidence, root workspace scripts, and existing CI. Record the browser runner, environment boundary, demo isolation, and failure conditions before editing CI or browser tests.
+- [x] T029 [US5] Launch a subagent to read Console Issue #3, parent NeKiro Issue #59, Spec 027 US4-US5, FR-013 through FR-017, Slice A/B/C evidence, root workspace scripts, and existing CI. Record the browser runner, environment boundary, demo isolation, and failure conditions before editing CI or browser tests.
+
+Slice D pre-implementation record: the Leibniz subagent completed a read-only
+review of Console Issue #3, parent Issue #59, Spec 027, Slice A/B/C evidence,
+the standalone Console, and root CI. It conditionally approved implementation
+with these fixed policies: use `@playwright/test` with an explicitly installed
+Chromium; build-time inject the exact Vite Gateway/provider/owner/Workspace
+values; use distinct provider and Workspace-owner principals/tokens; expose
+the Gateway through a non-IP test hostname such as `gateway.nekiro.test`; keep
+the production `/` route separate from the four exact `#/demo*` routes; and
+fail on missing prerequisites. No public contract or backend ADR is needed.
+Adding seed/fallback APIs, relaxing URL validation, or adding a new cancel
+contract would require a new Spec/ADR and is outside Slice D.
 
 ### Implementation
 
-- [ ] T030 [US5] Add the repository-approved browser acceptance harness under `E:/Progarms/NeKiro-Console/e2e/` or the existing test convention, with explicit Gateway/Workspace/provider configuration and no mock production data; cover the visible Register -> Verify -> Publish -> Discover -> Install -> Invoke -> Record path.
-- [ ] T031 [US5] Add browser assertions for JSON/SSE correlation, nested B -> Router -> A Trace display, exact lifecycle failures, challenge-proof non-persistence, and isolated `#/demo*` routes in `E:/Progarms/NeKiro-Console/e2e/`.
-- [ ] T032 [US5] Update standalone Console CI and the platform root CI/import configuration so `pnpm typecheck`, `pnpm test`, `pnpm build`, and browser acceptance execute non-empty production scripts and fail on missing configuration or skipped project discovery; import reviewed source into `E:/Progarms/NeKiro/apps/console` without `.git`, `node_modules`, `dist`, or credentials.
-- [ ] T033 [US5] Update `E:/Progarms/NeKiro-Console/README.md`, `E:/Progarms/NeKiro/docs/runbooks/local-development.md`, and Spec 027 quickstart with explicit environment requirements, provider/Workspace ownership, live workflow, and recovery boundaries.
+- [x] T030 [US5] Add the repository-approved browser acceptance harness under `E:/Progarms/NeKiro-Console/e2e/` or the existing test convention, with explicit Gateway/Workspace/provider configuration and no mock production data; cover the visible Register -> Verify -> Publish -> Discover -> Install -> Invoke -> Record path.
+- [x] T031 [US5] Add browser assertions for JSON/SSE correlation, nested B -> Router -> A Trace display, exact lifecycle failures, challenge-proof non-persistence, and isolated `#/demo*` routes in `E:/Progarms/NeKiro-Console/e2e/`.
+- [x] T032 [US5] Update standalone Console CI and the platform root CI/import configuration so `pnpm typecheck`, `pnpm test`, `pnpm build`, and browser acceptance execute non-empty production scripts and fail on missing configuration or skipped project discovery; import reviewed source into `E:/Progarms/NeKiro/apps/console` without `.git`, `node_modules`, `dist`, or credentials.
+- [x] T033 [US5] Update `E:/Progarms/NeKiro-Console/README.md`, `E:/Progarms/NeKiro/docs/runbooks/local-development.md`, and Spec 027 quickstart with explicit environment requirements, provider/Workspace ownership, live workflow, and recovery boundaries.
+
+Slice D implementation record: standalone PR #7 supplies the reviewed browser
+acceptance and production Console source; the root repository imports the
+same runtime files under `apps/console`, uses an explicit package filter for
+frontend checks, and adds a fresh current-checkout browser job. The standalone
+README already documents the live Gateway workflow and browser prerequisites;
+root runbook and this Quickstart document the integrated path.
 
 ### Tests
 
@@ -157,7 +176,16 @@ already supplies the active deadline and input byte limits.
 
 **Review gate**:
 
-- [ ] T036 [US5] Launch an independent review agent for Console Issue #3/parent #59 against the complete Slice D diff, Spec 027, CI behavior, browser evidence, secret boundary, and all prior review records; do not merge until it reports no High/Medium findings.
+- [x] T036 [US5] Launch an independent review agent for Console Issue #3/parent #59 against the complete Slice D diff, Spec 027, CI behavior, browser evidence, secret boundary, and all prior review records; do not merge until it reports no High/Medium findings.
+
+Slice D independent review record: Locke reviewed the complete integration
+against Console Issue #3, parent Issue #59, Spec 027, AGENTS.md, the root CI,
+the Gateway-only browser boundary, the secret boundary, and prior review
+records. The review found 0 High, 0 Medium, and 0 Low findings. It confirmed
+that the Quickstart consistently names six explicit browser configuration
+values, includes Compose startup, and that T030-T033 are complete. Root
+fresh-Compose browser and mapped backend verification remain pending until
+the main repository CI runs.
 
 ## Phase 6: Convergence and delivery records
 

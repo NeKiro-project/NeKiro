@@ -27,6 +27,38 @@ pnpm build
 
 The commands must discover `apps/console` and execute its non-empty scripts.
 
+The reviewed production source is imported from the standalone
+`NeKiro-project/NeKiro-Console` repository into `apps/console`; the standalone
+repository remains the upstream source for Console Issues #2/#4/#3. The root
+workspace owns the imported package, lockfile entry, and platform CI. Do not
+maintain a second hand-edited production Console implementation.
+
+Slice D browser checks use `@playwright/test` and an explicitly installed
+Chromium. Vite embeds six explicit `VITE_NEKIRO_*` values at build time: the
+Gateway origin, provider ID, provider display name, provider bearer, owner
+bearer, and Workspace identity. The browser test must provide all six values
+before `pnpm build`. CI maps the
+Gateway to a non-IP hostname such as `gateway.nekiro.test`, and uses distinct
+provider and Workspace-owner principals. Missing values fail the job; no
+localhost/IP relaxation, mock Gateway, route interception, or alternate
+endpoint is permitted.
+
+The root browser job uses the current platform checkout and fresh Compose
+stack. After supplying the six `VITE_NEKIRO_*` values and the required
+`NEKIRO_*` Compose values, its equivalent local commands are:
+
+```text
+docker compose --project-name nekiro-root-console-browser --file deploy/compose.yaml up --build --detach --wait --wait-timeout 120
+pnpm --dir apps/console exec playwright install --with-deps chromium
+pnpm --dir apps/console run build
+pnpm --dir apps/console run test:e2e
+docker compose --project-name nekiro-root-console-browser --file deploy/compose.yaml down --volumes --remove-orphans
+```
+
+Always tear down the acceptance Compose project with `--volumes
+--remove-orphans`. The browser route uses only the Gateway hostname and never
+calls an Agent or Router-internal endpoint directly.
+
 From the standalone Console repository, the same focused commands remain:
 
 ```text
