@@ -110,7 +110,11 @@ test('production Console completes trusted publication, invocation, trace, and i
   await selectOptionContaining(installationSelect, runtimeB.id);
   await page.getByLabel('Capability', {exact: true}).fill(runtimeB.capability);
   await page.getByLabel('Input JSON', {exact: true}).fill(JSON.stringify({fixture: 'nested', value: {message: 'browser-json'}}));
+  const jsonResponsePromise = page.waitForResponse((response) => response.url().includes('/v4/workspaces/' + workspaceId + '/invocations') && response.request().method() === 'POST' && (response.request().postData() ?? '').includes('"stream":false'));
   await page.getByRole('button', {name: 'Invoke', exact: true}).click();
+  const jsonResponse = await jsonResponsePromise;
+  const jsonResponseBody = await jsonResponse.text();
+  expect(jsonResponse.status(), `JSON invocation response: ${summarizeResponse(jsonResponse.status(), jsonResponseBody)}`).toBe(200);
 
   const response = page.locator('pre').filter({hasText: 'invocationId'}).last();
   await expect(response).toContainText('runtime-a');
@@ -300,6 +304,25 @@ function assertResultStream(body: string): void {
     }
   });
   if (last.type !== 'completed' || last.status !== 'succeeded') throw new Error('SSE response did not end with completed/succeeded');
+}
+
+function summarizeResponse(status: number, body: string): string {
+  let value: unknown;
+  try {
+    value = JSON.parse(body);
+  } catch {
+    return `status=${status}, body=non-json`;
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return `status=${status}, body=non-object-json`;
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort().join(',');
+  const safeFields = ['code', 'traceId', 'invocationId', 'rootTaskId']
+    .filter((key) => typeof record[key] === 'string')
+    .map((key) => `${key}=${record[key] as string}`)
+    .join(',');
+  return `status=${status}, keys=${keys}${safeFields ? ', ' + safeFields : ''}`;
 }
 
 function required(name: string): string {
