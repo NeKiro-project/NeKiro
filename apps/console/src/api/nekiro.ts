@@ -912,13 +912,12 @@ function validateAgentRelease(value: unknown, expected: {providerId?: string; ag
       result.verificationEvidenceDigest = requireDigest(record.verificationEvidenceDigest, 'verificationEvidenceDigest');
       result.verifiedAt = requireDateValue(record.verifiedAt, 'verifiedAt');
       result.suspendedAt = requireDateValue(record.suspendedAt, 'suspendedAt');
-      rejectPresent(record, ['publishedAt', 'revokedAt'], 'suspended Agent Release');
+      rejectPresent(record, ['revokedAt'], 'suspended Agent Release');
       break;
     case 'revoked':
       result.verificationEvidenceDigest = requireDigest(record.verificationEvidenceDigest, 'verificationEvidenceDigest');
       result.verifiedAt = requireDateValue(record.verifiedAt, 'verifiedAt');
       result.revokedAt = requireDateValue(record.revokedAt, 'revokedAt');
-      rejectPresent(record, ['publishedAt', 'suspendedAt'], 'revoked Agent Release');
       break;
   }
   if (expected.providerId !== undefined && result.providerId !== expected.providerId) throw new Error('Agent Release provider does not match the request');

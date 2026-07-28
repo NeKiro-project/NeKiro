@@ -697,6 +697,20 @@ test('Trusted Publication requires proof evidence for verified and published sta
   await assert.rejects(() => inconsistentPublishedClient.getAgentRelease('release-1'), /invalid response/);
 
   for (const state of ['suspended', 'revoked'] as const) {
+    const validTransition: Record<string, unknown> = {
+      ...trustedRelease(),
+      state,
+      suspendedAt: '2026-07-26T00:00:03Z',
+      revokedAt: state === 'revoked' ? '2026-07-26T00:00:04Z' : undefined,
+    };
+    if (state === 'suspended') delete validTransition.revokedAt;
+    const validTransitionClient = new NekiroApiClient({
+      baseUrl: 'https://api.example.test',
+      token: 'test-token',
+      fetchImpl: async () => trustedResponse(validTransition, 200),
+    });
+    assert.equal((await validTransitionClient.getAgentRelease('release-1')).state, state);
+
     const incompleteTransition: Record<string, unknown> = {...trustedRelease(), state};
     delete incompleteTransition.verificationEvidenceDigest;
     const transitionClient = new NekiroApiClient({
@@ -716,6 +730,15 @@ test('Trusted Publication requires proof evidence for verified and published sta
     });
     await assert.rejects(() => timestampClient.getAgentRelease('release-1'), /invalid response/);
   }
+
+  const revokedFromVerified: Record<string, unknown> = {...trustedRelease(), state: 'revoked', revokedAt: '2026-07-26T00:00:04Z'};
+  delete revokedFromVerified.publishedAt;
+  const revokedFromVerifiedClient = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'test-token',
+    fetchImpl: async () => trustedResponse(revokedFromVerified, 200),
+  });
+  assert.equal((await revokedFromVerifiedClient.getAgentRelease('release-1')).state, 'revoked');
 });
 
 test('Trusted Publication enforces operation-specific success status and strict endpoint data', async () => {
