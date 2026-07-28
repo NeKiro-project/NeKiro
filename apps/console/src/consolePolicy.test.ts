@@ -5,7 +5,16 @@ import type {AgentRelease} from './api/nekiro';
 import {canReleaseAction, isCurrentRequest, isTrustedEnabledInstallation, matchesPublishedRelease, nextRequestGeneration, agentKey} from './consolePolicy';
 
 const agent = {id: 'agent.echo', version: '1.2.3', ownerId: 'provider-1'};
-const release = {releaseId: 'release-1', providerId: 'provider-1', agentId: 'agent.echo', agentCardVersion: '1.2.3', state: 'published'} as AgentRelease;
+const release = {
+  releaseId: 'release-1',
+  providerId: 'provider-1',
+  agentId: 'agent.echo',
+  agentCardVersion: '1.2.3',
+  state: 'published',
+  verificationEvidenceDigest: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+  verifiedAt: '2026-07-26T00:00:01Z',
+  publishedAt: '2026-07-26T00:00:02Z',
+} as AgentRelease;
 
 test('console policy keeps Agent version identity in selection keys', () => {
   assert.equal(agentKey(agent), 'agent.echo@1.2.3');
@@ -29,6 +38,9 @@ test('console policy requires Release provenance before invocation', () => {
   assert.equal(matchesPublishedRelease(release, agent), true);
   assert.equal(matchesPublishedRelease({...release, state: 'suspended'}, agent), false);
   assert.equal(matchesPublishedRelease({...release, providerId: 'provider-2'}, agent), false);
+  assert.equal(matchesPublishedRelease({...release, verificationEvidenceDigest: undefined}, agent), false);
+  assert.equal(matchesPublishedRelease({...release, verifiedAt: undefined}, agent), false);
+  assert.equal(matchesPublishedRelease({...release, publishedAt: undefined}, agent), false);
 });
 
 test('console policy distinguishes stale request generations', () => {

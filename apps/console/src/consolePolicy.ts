@@ -15,7 +15,10 @@ export function matchesPublishedRelease(release: AgentRelease, agent: Pick<Agent
   return release.state === 'published'
     && release.providerId === agent.ownerId
     && release.agentId === agent.id
-    && release.agentCardVersion === agent.version;
+    && release.agentCardVersion === agent.version
+    && typeof release.verificationEvidenceDigest === 'string'
+    && typeof release.verifiedAt === 'string'
+    && typeof release.publishedAt === 'string';
 }
 
 export function canReleaseAction(state: AgentReleaseState | undefined, action: ReleaseLifecycleAction): boolean {

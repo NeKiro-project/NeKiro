@@ -610,6 +610,114 @@ test('Trusted Publication rejects malformed success relationships and unknown fi
   await assert.rejects(() => releaseClient.getAgentRelease('release-1'), /invalid response/);
 });
 
+test('Trusted Publication requires proof evidence for verified and published states', async () => {
+  const incompleteBinding = {...trustedBinding()};
+  delete incompleteBinding.verificationEvidenceDigest;
+  const bindingClient = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'test-token',
+    fetchImpl: async () => trustedResponse(incompleteBinding, 200),
+  });
+  await assert.rejects(() => bindingClient.getEndpointBinding('provider.main', 'binding-1'), /invalid response/);
+
+  const revokedBinding: Record<string, unknown> = {...trustedBinding(), verificationStatus: 'revoked', revokedAt: '2026-07-26T00:00:03Z'};
+  delete revokedBinding.verificationEvidenceDigest;
+  delete revokedBinding.verifiedAt;
+  const revokedBindingClient = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'test-token',
+    fetchImpl: async () => trustedResponse(revokedBinding, 200),
+  });
+  assert.equal((await revokedBindingClient.getEndpointBinding('provider.main', 'binding-1')).verificationStatus, 'revoked');
+
+  const missingRevokedAt = {...revokedBinding};
+  delete missingRevokedAt.revokedAt;
+  const missingRevokedAtClient = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'test-token',
+    fetchImpl: async () => trustedResponse(missingRevokedAt, 200),
+  });
+  await assert.rejects(() => missingRevokedAtClient.getEndpointBinding('provider.main', 'binding-1'), /invalid response/);
+
+  const pendingBinding: Record<string, unknown> = {...trustedBinding(), verificationStatus: 'pending'};
+  delete pendingBinding.verificationEvidenceDigest;
+  delete pendingBinding.verifiedAt;
+  const pendingBindingClient = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'test-token',
+    fetchImpl: async () => trustedResponse(pendingBinding, 200),
+  });
+  assert.equal((await pendingBindingClient.getEndpointBinding('provider.main', 'binding-1')).verificationStatus, 'pending');
+
+  const incompleteRelease = {...trustedRelease()};
+  delete incompleteRelease.publishedAt;
+  const releaseClient = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'test-token',
+    fetchImpl: async () => trustedResponse(incompleteRelease, 200),
+  });
+  await assert.rejects(() => releaseClient.getAgentRelease('release-1'), /invalid response/);
+
+  const missingVerifiedAt = {...trustedRelease()};
+  delete missingVerifiedAt.verifiedAt;
+  const missingVerifiedAtClient = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'test-token',
+    fetchImpl: async () => trustedResponse(missingVerifiedAt, 200),
+  });
+  await assert.rejects(() => missingVerifiedAtClient.getAgentRelease('release-1'), /invalid response/);
+
+  for (const state of ['draft', 'pending_verification'] as const) {
+    const validEarlyRelease: Record<string, unknown> = {...trustedRelease(), state};
+    delete validEarlyRelease.verificationEvidenceDigest;
+    delete validEarlyRelease.verifiedAt;
+    delete validEarlyRelease.publishedAt;
+    const earlyClient = new NekiroApiClient({
+      baseUrl: 'https://api.example.test',
+      token: 'test-token',
+      fetchImpl: async () => trustedResponse(validEarlyRelease, 200),
+    });
+    assert.equal((await earlyClient.getAgentRelease('release-1')).state, state);
+
+    const invalidEarlyRelease = {...validEarlyRelease, verificationEvidenceDigest: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'};
+    const invalidEarlyClient = new NekiroApiClient({
+      baseUrl: 'https://api.example.test',
+      token: 'test-token',
+      fetchImpl: async () => trustedResponse(invalidEarlyRelease, 200),
+    });
+    await assert.rejects(() => invalidEarlyClient.getAgentRelease('release-1'), /invalid response/);
+  }
+
+  const publishedWithSuspensionTime = {...trustedRelease(), suspendedAt: '2026-07-26T00:00:03Z'};
+  const inconsistentPublishedClient = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'test-token',
+    fetchImpl: async () => trustedResponse(publishedWithSuspensionTime, 200),
+  });
+  await assert.rejects(() => inconsistentPublishedClient.getAgentRelease('release-1'), /invalid response/);
+
+  for (const state of ['suspended', 'revoked'] as const) {
+    const incompleteTransition: Record<string, unknown> = {...trustedRelease(), state};
+    delete incompleteTransition.verificationEvidenceDigest;
+    const transitionClient = new NekiroApiClient({
+      baseUrl: 'https://api.example.test',
+      token: 'test-token',
+      fetchImpl: async () => trustedResponse(incompleteTransition, 200),
+    });
+    await assert.rejects(() => transitionClient.getAgentRelease('release-1'), /invalid response/);
+
+    const timestampField = state === 'suspended' ? 'suspendedAt' : 'revokedAt';
+    const incompleteTimestamp: Record<string, unknown> = {...trustedRelease(), state};
+    delete incompleteTimestamp[timestampField];
+    const timestampClient = new NekiroApiClient({
+      baseUrl: 'https://api.example.test',
+      token: 'test-token',
+      fetchImpl: async () => trustedResponse(incompleteTimestamp, 200),
+    });
+    await assert.rejects(() => timestampClient.getAgentRelease('release-1'), /invalid response/);
+  }
+});
+
 test('Trusted Publication enforces operation-specific success status and strict endpoint data', async () => {
   const wrongStatusClient = new NekiroApiClient({
     baseUrl: 'https://api.example.test',
