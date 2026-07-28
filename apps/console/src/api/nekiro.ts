@@ -1490,8 +1490,21 @@ export function toPlatformErrorView(error: unknown, fallbackMessage: string): Pl
   };
 }
 
-export function validateTrustedInstallation(value: Installation, release: AgentRelease, agentId: string): Installation {
-  if (value.agentId !== agentId || value.installedVersion !== release.agentCardVersion || value.installedReleaseId !== release.releaseId || value.status !== 'enabled') {
+export function validateTrustedInstallation(value: Installation, release: AgentRelease, expected: {
+  workspaceId: string;
+  agentId: string;
+  versionConstraint: string;
+  acceptedPermissions: string[];
+}): Installation {
+  const samePermissions = value.acceptedPermissions.length === expected.acceptedPermissions.length
+    && value.acceptedPermissions.every((permission, index) => permission === expected.acceptedPermissions[index]);
+  if (value.workspaceId !== expected.workspaceId
+    || value.agentId !== expected.agentId
+    || value.versionConstraint !== expected.versionConstraint
+    || value.installedVersion !== release.agentCardVersion
+    || value.installedReleaseId !== release.releaseId
+    || !samePermissions
+    || value.status !== 'enabled') {
     throw new NekiroApiError(200, 'NeKiro Installation did not preserve the preflight Release identity.', 'INVALID_RESPONSE');
   }
   return value;

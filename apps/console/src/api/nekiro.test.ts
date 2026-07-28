@@ -346,16 +346,34 @@ test('NekiroApiClient rejects Installation lifecycle responses that change immut
   }
 });
 
-test('trusted Installation validation rejects missing Release identity or non-enabled state', () => {
+test('trusted Installation validation preserves the exact request and Release identity', () => {
   const release = trustedRelease() as unknown as AgentRelease;
   const installation = {
     installationId: 'installation-1', workspaceId: 'workspace.alpha', agentId: 'agent.echo',
     versionConstraint: '1.2.3', installedVersion: '1.2.3', installedReleaseId: 'release-1',
-    acceptedPermissions: [], status: 'enabled' as const, installedAt: '2026-07-26T00:00:00Z', updatedAt: '2026-07-26T00:00:00Z',
+    acceptedPermissions: ['READ_LOGS', 'WRITE_STATE'], status: 'enabled' as const, installedAt: '2026-07-26T00:00:00Z', updatedAt: '2026-07-26T00:00:00Z',
   };
-  assert.doesNotThrow(() => validateTrustedInstallation(installation, release, 'agent.echo'));
-  assert.throws(() => validateTrustedInstallation({...installation, installedReleaseId: undefined}, release, 'agent.echo'), /Release identity/);
-  assert.throws(() => validateTrustedInstallation({...installation, status: 'disabled'}, release, 'agent.echo'), /Release identity/);
+  const expected = {
+    workspaceId: 'workspace.alpha',
+    agentId: 'agent.echo',
+    versionConstraint: '1.2.3',
+    acceptedPermissions: ['READ_LOGS', 'WRITE_STATE'],
+  };
+  assert.doesNotThrow(() => validateTrustedInstallation(installation, release, expected));
+
+  const mutations = [
+    {...installation, workspaceId: 'workspace.other'},
+    {...installation, agentId: 'agent.other'},
+    {...installation, versionConstraint: '^1.2.0'},
+    {...installation, installedVersion: '1.2.4'},
+    {...installation, installedReleaseId: 'release-2'},
+    {...installation, acceptedPermissions: ['WRITE_STATE', 'READ_LOGS']},
+    {...installation, acceptedPermissions: ['READ_LOGS']},
+    {...installation, status: 'disabled' as const},
+  ];
+  for (const mutated of mutations) {
+    assert.throws(() => validateTrustedInstallation(mutated, release, expected), /Release identity/);
+  }
 });
 
 test('provider and Workspace-owner clients keep bearer contexts separate', async () => {

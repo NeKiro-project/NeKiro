@@ -214,7 +214,12 @@ export default function App() {
       acceptedPermissions,
     });
     try {
-      validateTrustedInstallation(installation, release, agent.id);
+      validateTrustedInstallation(installation, release, {
+        workspaceId: operationWorkspaceId,
+        agentId: agent.id,
+        versionConstraint: release.agentCardVersion,
+        acceptedPermissions,
+      });
     } finally {
       if (activeWorkspaceRef.current?.workspaceId === operationWorkspaceId) {
         await loadInstallations(operationWorkspaceId);
