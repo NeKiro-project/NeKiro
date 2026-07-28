@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -74,7 +76,7 @@ func TestNewHandlerAssemblesReadinessWithoutDependencyProbe(t *testing.T) {
 		ResolutionDeadline:             time.Second,
 		AgentDeadline:                  time.Second,
 		AgentCredential:                credential.Config{Issuer: "https://a2a-router.nekiro.test", KeyID: "router-key-1", PrivateKey: ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)), TTL: 30 * time.Second},
-	}, failingDoer{}, &http.Client{}, ledgerAppenderStub{})
+	}, failingDoer{}, &http.Client{}, ledgerAppenderStub{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}

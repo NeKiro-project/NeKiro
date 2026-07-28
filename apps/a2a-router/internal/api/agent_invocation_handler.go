@@ -88,12 +88,14 @@ func (handler *AgentInvocationHandler) serve(writer http.ResponseWriter, request
 	// Step 1: Authenticate the Agent binding. Auth failures are pre-correlation.
 	authenticatedAgent, err := handler.binding.Authenticate(request)
 	if err != nil {
+		handler.dispatchHandler.logPreflight(request.Context(), "authentication_failed", contracts.ErrorCodeUnauthenticated, "")
 		handler.writePreError(writer, contracts.ErrorCodeUnauthenticated)
 		return
 	}
 
 	// Step 2: Read and strictly validate the nested request.
 	if request.Header.Get("Content-Type") != "application/json" {
+		handler.dispatchHandler.logPreflight(request.Context(), "content_type_rejected", contracts.ErrorCodeValidationError, "")
 		handler.writePreError(writer, contracts.ErrorCodeValidationError)
 		return
 	}
@@ -103,6 +105,7 @@ func (handler *AgentInvocationHandler) serve(writer http.ResponseWriter, request
 		if errors.Is(err, errPayloadTooLarge) {
 			code = contracts.ErrorCodePayloadTooLarge
 		}
+		handler.dispatchHandler.logPreflight(request.Context(), "request_parse_failed", code, "")
 		handler.writePreError(writer, code)
 		return
 	}
@@ -110,6 +113,7 @@ func (handler *AgentInvocationHandler) serve(writer http.ResponseWriter, request
 	// Step 3: Negotiate result mode before acceptance.
 	accept := request.Header.Get("Accept")
 	if _, err := contracts.NegotiateInvocationResultMode(nestedRequest.Stream, accept); err != nil {
+		handler.dispatchHandler.logPreflight(request.Context(), "result_negotiation_failed", contracts.ErrorCodeNotAcceptable, "")
 		handler.writePreError(writer, contracts.ErrorCodeNotAcceptable)
 		return
 	}
@@ -139,6 +143,7 @@ func (handler *AgentInvocationHandler) serve(writer http.ResponseWriter, request
 		if errors.Is(err, ledger.ErrNotFound) {
 			code = contracts.ErrorCodeNotFound
 		}
+		handler.dispatchHandler.logPreflight(request.Context(), "parent_lookup_failed", classifyNestedError(ctx, err, code), "")
 		handler.writePreError(writer, classifyNestedError(ctx, err, code))
 		return
 	}
@@ -154,6 +159,7 @@ func (handler *AgentInvocationHandler) serve(writer http.ResponseWriter, request
 		} else if errors.Is(err, nested.ErrParentTargetMismatch) || errors.Is(err, nested.ErrParentWorkspaceMismatch) {
 			code = contracts.ErrorCodeForbidden
 		}
+		handler.dispatchHandler.logPreflight(request.Context(), "parent_context_failed", code, childContext.TraceID)
 		handler.writePreError(writer, code)
 		return
 	}
@@ -171,7 +177,9 @@ func (handler *AgentInvocationHandler) serve(writer http.ResponseWriter, request
 		Capability:   nestedRequest.Capability,
 	})
 	if err != nil {
-		handler.writePreError(writer, classifyNestedError(ctx, err, contracts.ErrorCodeDependency))
+		code := classifyNestedError(ctx, err, contracts.ErrorCodeDependency)
+		handler.dispatchHandler.logPreflight(request.Context(), "resolution_failed", code, childContext.TraceID)
+		handler.writePreError(writer, code)
 		return
 	}
 

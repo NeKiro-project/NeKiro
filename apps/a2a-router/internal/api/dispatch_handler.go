@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -134,21 +135,22 @@ type DispatchHandler struct {
 	deadline           time.Duration
 	sseEventLimitBytes int64
 	streamValidator    *contracts.RuntimeContractValidator
+	logger             *slog.Logger
 }
 
-func NewDispatchHandler(authenticator Authenticator, resolver Resolver, requestLimit int64, deadline time.Duration) (*DispatchHandler, error) {
-	if authenticator == nil || resolver == nil || requestLimit < contracts.RuntimeByteLimitMinimum || requestLimit > contracts.RuntimeByteLimitMaximum || deadline < time.Duration(contracts.RuntimeDeadlineMinimumMS)*time.Millisecond || deadline > time.Duration(contracts.RuntimeDeadlineMaximumMS)*time.Millisecond {
+func NewDispatchHandler(authenticator Authenticator, resolver Resolver, requestLimit int64, deadline time.Duration, logger *slog.Logger) (*DispatchHandler, error) {
+	if authenticator == nil || resolver == nil || logger == nil || requestLimit < contracts.RuntimeByteLimitMinimum || requestLimit > contracts.RuntimeByteLimitMaximum || deadline < time.Duration(contracts.RuntimeDeadlineMinimumMS)*time.Millisecond || deadline > time.Duration(contracts.RuntimeDeadlineMaximumMS)*time.Millisecond {
 		return nil, errors.New("router dispatch dependencies are required")
 	}
 	streamValidator, err := contracts.NewRuntimeContractValidator()
 	if err != nil {
 		return nil, fmt.Errorf("router runtime stream validator is unavailable: %w", err)
 	}
-	return &DispatchHandler{authenticator: authenticator, resolver: resolver, requestLimit: requestLimit, deadline: deadline, streamValidator: streamValidator}, nil
+	return &DispatchHandler{authenticator: authenticator, resolver: resolver, requestLimit: requestLimit, deadline: deadline, streamValidator: streamValidator, logger: logger}, nil
 }
 
-func NewDispatchHandlerWithTransport(authenticator Authenticator, resolver Resolver, transport NonStreamingTransport, requestLimit int64, deadline time.Duration) (*DispatchHandler, error) {
-	handler, err := NewDispatchHandler(authenticator, resolver, requestLimit, deadline)
+func NewDispatchHandlerWithTransport(authenticator Authenticator, resolver Resolver, transport NonStreamingTransport, requestLimit int64, deadline time.Duration, logger *slog.Logger) (*DispatchHandler, error) {
+	handler, err := NewDispatchHandler(authenticator, resolver, requestLimit, deadline, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -162,8 +164,8 @@ func NewDispatchHandlerWithTransport(authenticator Authenticator, resolver Resol
 	return handler, nil
 }
 
-func NewDispatchHandlerWithTransportAndLedger(authenticator Authenticator, resolver Resolver, transport NonStreamingTransport, ledger InvocationLedgerAppender, requestLimit int64, deadline time.Duration) (*DispatchHandler, error) {
-	handler, err := NewDispatchHandlerWithTransport(authenticator, resolver, transport, requestLimit, deadline)
+func NewDispatchHandlerWithTransportAndLedger(authenticator Authenticator, resolver Resolver, transport NonStreamingTransport, ledger InvocationLedgerAppender, requestLimit int64, deadline time.Duration, logger *slog.Logger) (*DispatchHandler, error) {
+	handler, err := NewDispatchHandlerWithTransport(authenticator, resolver, transport, requestLimit, deadline, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -174,8 +176,8 @@ func NewDispatchHandlerWithTransportAndLedger(authenticator Authenticator, resol
 	return handler, nil
 }
 
-func NewDispatchHandlerWithTransportAndLedgerAndStreaming(authenticator Authenticator, resolver Resolver, transport NonStreamingTransport, ledger InvocationLedgerAppender, sseEventLimitBytes int64, requestLimit int64, deadline time.Duration) (*DispatchHandler, error) {
-	handler, err := NewDispatchHandlerWithTransportAndLedger(authenticator, resolver, transport, ledger, requestLimit, deadline)
+func NewDispatchHandlerWithTransportAndLedgerAndStreaming(authenticator Authenticator, resolver Resolver, transport NonStreamingTransport, ledger InvocationLedgerAppender, sseEventLimitBytes int64, requestLimit int64, deadline time.Duration, logger *slog.Logger) (*DispatchHandler, error) {
+	handler, err := NewDispatchHandlerWithTransportAndLedger(authenticator, resolver, transport, ledger, requestLimit, deadline, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -203,13 +205,16 @@ func (handler *DispatchHandler) RegisterRoutes(mux *http.ServeMux) {
 // "agent" and propagates ParentInvocationID to Ledger events.
 func (handler *DispatchHandler) DispatchChild(writer http.ResponseWriter, request *http.Request, dispatchRequest contracts.DispatchInvocationRequestV4, accept string) {
 	if _, err := contracts.NegotiateInvocationResultMode(dispatchRequest.Stream, accept); err != nil {
+		handler.logPreflight(request.Context(), "result_negotiation_failed", contracts.ErrorCodeNotAcceptable, dispatchRequest.TraceID)
 		handler.writePreError(writer, dispatchRequest.TraceID, contracts.ErrorCodeNotAcceptable)
 		return
 	}
 	if err := validateChildDispatch(dispatchRequest); err != nil {
+		handler.logPreflight(request.Context(), "request_validation_failed", contracts.ErrorCodeValidationError, dispatchRequest.TraceID)
 		handler.writePreError(writer, dispatchRequest.TraceID, contracts.ErrorCodeValidationError)
 		return
 	}
+	handler.logInvocation(request.Context(), dispatchRequest, "request_accepted")
 	invocationStartedAt := time.Now()
 	ctx, cancel := context.WithTimeout(request.Context(), handler.deadline)
 	defer cancel()
@@ -223,6 +228,7 @@ func (handler *DispatchHandler) DispatchChild(writer http.ResponseWriter, reques
 		code := contracts.ErrorCodeDependency
 		var failure *resolution.Failure
 		if errors.As(err, &failure) {
+			handler.logInvocation(request.Context(), dispatchRequest, "resolution_failed", "code", string(failure.Code), "http_status", failure.StatusCode)
 			// Map through the Agent boundary; never forward internal
 			// Control Plane codes or body across Agent Router v1.
 			code = mapControlPlaneCodeToAgentBoundary(failure.Code)
@@ -231,10 +237,14 @@ func (handler *DispatchHandler) DispatchChild(writer http.ResponseWriter, reques
 		} else if errors.Is(err, context.Canceled) {
 			code = contracts.ErrorCodeCanceled
 		}
+		if !errors.As(err, &failure) {
+			handler.logInvocation(request.Context(), dispatchRequest, "resolution_failed", "code", string(code))
+		}
 		handler.writePreError(writer, dispatchRequest.TraceID, code)
 		return
 	}
 	if err := validateResolvedReleaseProvenance(dispatchRequest, resolved); err != nil {
+		handler.logInvocation(request.Context(), dispatchRequest, "provenance_mismatch", "code", string(contracts.ErrorCodeDependency))
 		handler.writePreError(writer, dispatchRequest.TraceID, contracts.ErrorCodeDependency)
 		return
 	}
@@ -300,10 +310,12 @@ func (handler *DispatchHandler) DispatchChild(writer http.ResponseWriter, reques
 
 func (handler *DispatchHandler) dispatch(writer http.ResponseWriter, request *http.Request) {
 	if _, err := handler.authenticator.Authenticate(request); err != nil {
+		handler.logPreflight(request.Context(), "authentication_failed", authErrorCode(err), "")
 		handler.writeGeneratedPreError(writer, authErrorCode(err))
 		return
 	}
 	if request.Header.Get("Content-Type") != "application/json" {
+		handler.logPreflight(request.Context(), "content_type_rejected", contracts.ErrorCodeValidationError, "")
 		handler.writeGeneratedPreError(writer, contracts.ErrorCodeValidationError)
 		return
 	}
@@ -313,17 +325,21 @@ func (handler *DispatchHandler) dispatch(writer http.ResponseWriter, request *ht
 		if errors.Is(err, errPayloadTooLarge) {
 			code = contracts.ErrorCodePayloadTooLarge
 		}
+		handler.logPreflight(request.Context(), "request_parse_failed", code, "")
 		handler.writeGeneratedPreError(writer, code)
 		return
 	}
 	if _, err := contracts.NegotiateInvocationResultMode(dispatchRequest.Stream, request.Header.Get("Accept")); err != nil {
+		handler.logPreflight(request.Context(), "result_negotiation_failed", contracts.ErrorCodeNotAcceptable, dispatchRequest.TraceID)
 		handler.writePreError(writer, dispatchRequest.TraceID, contracts.ErrorCodeNotAcceptable)
 		return
 	}
 	if err := validateDispatch(dispatchRequest); err != nil {
+		handler.logPreflight(request.Context(), "request_validation_failed", contracts.ErrorCodeValidationError, dispatchRequest.TraceID)
 		handler.writePreError(writer, dispatchRequest.TraceID, contracts.ErrorCodeValidationError)
 		return
 	}
+	handler.logInvocation(request.Context(), dispatchRequest, "request_accepted")
 	invocationStartedAt := time.Now()
 	ctx, cancel := context.WithTimeout(request.Context(), handler.deadline)
 	defer cancel()
@@ -337,15 +353,18 @@ func (handler *DispatchHandler) dispatch(writer http.ResponseWriter, request *ht
 		code := contracts.ErrorCodeDependency
 		var failure *resolution.Failure
 		if errors.As(err, &failure) {
+			handler.logInvocation(request.Context(), dispatchRequest, "resolution_failed", "code", string(failure.Code), "http_status", failure.StatusCode)
 			writeRawJSON(writer, failure.StatusCode, failure.TraceID, failure.Body)
 			return
 		} else if errors.Is(err, context.DeadlineExceeded) {
 			code = contracts.ErrorCodeTimeout
 		}
+		handler.logInvocation(request.Context(), dispatchRequest, "resolution_failed", "code", string(code))
 		handler.writeCorrelatedError(writer, dispatchRequest, code)
 		return
 	}
 	if err := validateResolvedReleaseProvenance(dispatchRequest, resolved); err != nil {
+		handler.logInvocation(request.Context(), dispatchRequest, "provenance_mismatch", "code", string(contracts.ErrorCodeDependency))
 		handler.writeCorrelatedError(writer, dispatchRequest, contracts.ErrorCodeDependency)
 		return
 	}
@@ -587,6 +606,7 @@ func (handler *DispatchHandler) dispatchNonStreamingWithLedger(ctx context.Conte
 		handler.writeCorrelatedError(writer, request, code)
 		return
 	}
+	handler.logInvocation(ctx, request, "transport_started")
 	result, err := handler.transport.SendNonStreaming(ctx, request, resolved)
 	if err == nil && ctx.Err() != nil {
 		err = ctx.Err()
@@ -634,6 +654,7 @@ func (handler *DispatchHandler) dispatchStreamingWithLedger(ctx context.Context,
 	}, childMode) {
 		return
 	}
+	handler.logInvocation(ctx, request, "transport_started")
 	appendEvent := func(event contracts.InvocationEventV03) error {
 		return handler.ledger.Append(ctx, event)
 	}
@@ -811,6 +832,7 @@ func (handler *DispatchHandler) appendInitialLedgerEventsMode(ctx context.Contex
 		if err := handler.ledger.Append(ctx, event); err == nil {
 			continue
 		} else if event.Sequence > 0 {
+			handler.logInvocation(ctx, request, "initial_ledger_append_failed", "sequence", event.Sequence, "code", string(contracts.ErrorCodeDependency))
 			if code, eventType, status, ok := contextTerminal(ctx); ok {
 				terminal, buildErr := terminalLifecycleEvent(request, event.Sequence, eventType, status, terminalOccurredAt(startedAt, event.Sequence), time.Since(startedAt).Milliseconds(), code)
 				appendCtx, release := terminalLedgerContext(ctx)
@@ -825,6 +847,9 @@ func (handler *DispatchHandler) appendInitialLedgerEventsMode(ctx context.Contex
 				}
 			}
 		}
+		if event.Sequence == 0 {
+			handler.logInvocation(ctx, request, "initial_ledger_append_failed", "sequence", event.Sequence, "code", string(contracts.ErrorCodeDependency))
+		}
 		// In child mode, sequence-0 failure means child acceptance never
 		// occurred; emit a pre-correlation error per FR-008.
 		if childMode && event.Sequence == 0 {
@@ -835,6 +860,25 @@ func (handler *DispatchHandler) appendInitialLedgerEventsMode(ctx context.Contex
 		return false
 	}
 	return true
+}
+
+func (handler *DispatchHandler) logInvocation(ctx context.Context, request contracts.DispatchInvocationRequestV4, stage string, attributes ...any) {
+	fields := []any{
+		"stage", stage,
+		"invocation_id", request.InvocationID,
+		"root_task_id", request.RootTaskID,
+		"trace_id", request.TraceID,
+	}
+	fields = append(fields, attributes...)
+	handler.logger.InfoContext(ctx, "router invocation diagnostic", fields...)
+}
+
+func (handler *DispatchHandler) logPreflight(ctx context.Context, stage string, code contracts.PlatformErrorCode, traceID contracts.TraceID) {
+	fields := []any{"stage", stage, "code", string(code)}
+	if traceID != "" {
+		fields = append(fields, "trace_id", traceID)
+	}
+	handler.logger.InfoContext(ctx, "router invocation diagnostic", fields...)
 }
 
 func contextTerminal(ctx context.Context) (contracts.PlatformErrorCode, string, string, bool) {

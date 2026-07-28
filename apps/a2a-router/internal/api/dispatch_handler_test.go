@@ -7,7 +7,9 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"io"
 	"iter"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,6 +25,8 @@ import (
 	"github.com/Nene7ko/NeKiro/contracts"
 	"github.com/a2aproject/a2a-go/a2asrv"
 )
+
+var dispatchTestLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 type authStub struct {
 	caller auth.Caller
@@ -410,7 +414,7 @@ func TestDispatchChildRejectsResolvedReleaseProvenanceMismatchBeforeLedger(t *te
 	}}
 	transport := &transportStub{result: json.RawMessage(`{"kind":"message"}`)}
 	ledger := &ledgerRecorder{}
-	handler, err := NewDispatchHandlerWithTransportAndLedger(authStub{caller: auth.Caller{ID: "agent-a"}}, resolver, transport, ledger, 4096, time.Second)
+	handler, err := NewDispatchHandlerWithTransportAndLedger(authStub{caller: auth.Caller{ID: "agent-a"}}, resolver, transport, ledger, 4096, time.Second, dispatchTestLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -571,7 +575,7 @@ func TestDispatchStreamingEmitsStrictCorrelatedFramesAndMetadataLedger(t *testin
 		{Kind: "status-update", Payload: json.RawMessage(`{"kind":"status-update","taskId":"task-a","contextId":"ctx-a","status":{"state":"completed"},"final":true}`), TerminalType: contracts.ResultStreamEventCompleted, TerminalStatus: "succeeded"},
 	}}
 	ledger := &ledgerRecorder{}
-	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second)
+	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second, dispatchTestLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -636,7 +640,7 @@ func TestDispatchStreamingUsesStreamingTargetValidation(t *testing.T) {
 	resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: card}}
 	transport := &streamingTransportStub{transportStub: transportStub{targetErr: codedTransportError{code: contracts.ErrorCodeRouteNotFound}}, events: []streammodel.Event{{Kind: "message", Payload: json.RawMessage(`{"kind":"message"}`)}}}
 	ledger := &ledgerRecorder{}
-	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second)
+	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second, dispatchTestLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -672,7 +676,7 @@ func TestDispatchStreamingRuntimeBEndToEnd(t *testing.T) {
 		Limits:         contracts.AgentLimits{TimeoutMS: 1000, MaxInputBytes: "4096", MaxOutputBytes: "4096", Streaming: true},
 	}, Installation: contracts.ResolvedInstallation{InstallationID: "installation-a", WorkspaceID: "workspace-a", AgentID: "agent-a", InstalledVersion: "1.0.0", InstalledReleaseID: "release-a", AgentCardDigest: strings.Repeat("a", 64), Status: "enabled"}}}
 	ledger := &ledgerRecorder{}
-	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second)
+	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second, dispatchTestLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -692,7 +696,7 @@ func TestDispatchStreamingInterruptedEOFIsFailedAndNeverSucceeded(t *testing.T) 
 	resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: dispatchResolvedCard("https://agent.example/a2a")}}
 	transport := &streamingTransportStub{events: []streammodel.Event{{Kind: "message", Payload: json.RawMessage(`{"kind":"message","messageId":"message-a","taskId":"task-a","contextId":"ctx-a","role":"agent","parts":[{"kind":"data","data":{"value":"partial"}}]}`)}}}
 	ledger := &ledgerRecorder{}
-	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second)
+	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second, dispatchTestLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -715,7 +719,7 @@ func TestDispatchStreamingSSEOverflowEmitsBoundedFailure(t *testing.T) {
 	largePayload := json.RawMessage(`{"kind":"message","messageId":"message-a","taskId":"task-a","contextId":"ctx-a","role":"agent","parts":[{"kind":"data","data":{"value":"` + strings.Repeat("x", 700) + `"}}]}`)
 	transport := &streamingTransportStub{events: []streammodel.Event{{Kind: "message", Payload: largePayload}}}
 	ledger := &ledgerRecorder{}
-	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 320, 4096, time.Second)
+	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 320, 4096, time.Second, dispatchTestLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -744,7 +748,7 @@ func TestDispatchStreamingClassifiesTimeoutAndCancellation(t *testing.T) {
 			resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: dispatchResolvedCard("https://agent.example/a2a")}}
 			transport := &streamingTransportStub{err: test.err}
 			ledger := &ledgerRecorder{}
-			handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second)
+			handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second, dispatchTestLogger)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -769,7 +773,7 @@ func TestDispatchNonStreamingUsesResolvedCardDeadline(t *testing.T) {
 	ledger := &ledgerRecorder{}
 	handler, err := NewDispatchHandlerWithTransportAndLedger(
 		authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport,
-		ledger, 4096, time.Second,
+		ledger, 4096, time.Second, dispatchTestLogger,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -797,7 +801,7 @@ func TestDispatchNonStreamingCardDeadlineIncludesResolutionTime(t *testing.T) {
 	ledger := &ledgerRecorder{}
 	handler, err := NewDispatchHandlerWithTransportAndLedger(
 		authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport,
-		ledger, 4096, 500*time.Millisecond,
+		ledger, 4096, 500*time.Millisecond, dispatchTestLogger,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -872,7 +876,7 @@ func TestDispatchStreamingCancellationDuringTerminalCommitUsesBoundedLedgerConte
 	resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: dispatchResolvedCard("https://agent.example/a2a")}}
 	transport := &streamingTransportStub{err: codedTransportError{code: contracts.ErrorCodeCanceled, cause: context.Canceled}}
 	ledger := &cancelDuringTerminalLedgerRecorder{cancel: cancel}
-	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second)
+	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second, dispatchTestLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -895,7 +899,7 @@ func TestDispatchStreamingCancellationDuringChunkCommitRecordsCanceledTerminal(t
 	resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: dispatchResolvedCard("https://agent.example/a2a")}}
 	transport := &streamingTransportStub{events: []streammodel.Event{{Kind: "task", Payload: json.RawMessage(`{"kind":"task","id":"task-a","contextId":"ctx-a","status":{"state":"working"}}`)}}}
 	ledger := &cancelDuringStreamLedgerRecorder{cancel: cancel}
-	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second)
+	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second, dispatchTestLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -918,7 +922,7 @@ func TestDispatchStreamingLedgerFailureAfterAgentChunkDoesNotFabricateTerminalFa
 	resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: dispatchResolvedCard("https://agent.example/a2a")}}
 	transport := &streamingTransportStub{events: []streammodel.Event{{Kind: "message", Payload: json.RawMessage(`{"kind":"message","messageId":"message-a","taskId":"task-a","contextId":"ctx-a","role":"agent","parts":[{"kind":"data","data":{"value":"ok"}}]}`), TerminalType: contracts.ResultStreamEventCompleted, TerminalStatus: "succeeded"}}}
 	ledger := &ledgerRecorder{failSequence: 4, err: errors.New("ledger unavailable")}
-	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second)
+	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second, dispatchTestLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -937,7 +941,7 @@ func TestDispatchStreamingChunkLedgerFailureEmitsDeliveryFailure(t *testing.T) {
 	resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: dispatchResolvedCard("https://agent.example/a2a")}}
 	transport := &streamingTransportStub{events: []streammodel.Event{{Kind: "message", Payload: json.RawMessage(`{"kind":"message","messageId":"message-a","taskId":"task-a","contextId":"ctx-a","role":"agent","parts":[{"kind":"data","data":{"value":"ok"}}]}`)}}}
 	ledger := &ledgerRecorder{failSequence: 3, err: errors.New("ledger unavailable")}
-	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second)
+	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second, dispatchTestLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -956,7 +960,7 @@ func TestDispatchStreamingWriterFailureCommitsNonSuccessLedgerTerminal(t *testin
 	resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: dispatchResolvedCard("https://agent.example/a2a")}}
 	transport := &streamingTransportStub{events: []streammodel.Event{{Kind: "message", Payload: json.RawMessage(`{"kind":"message","messageId":"message-a","taskId":"task-a","contextId":"ctx-a","role":"agent","parts":[{"kind":"data","data":{"value":"ok"}}]}`)}}}
 	ledger := &ledgerRecorder{}
-	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second)
+	handler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, 4096, time.Second, dispatchTestLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1082,9 +1086,109 @@ func TestDispatchRejectsCardInputOverflowBeforeLedgerAcceptance(t *testing.T) {
 	}
 }
 
+func TestDispatchDiagnosticsExposeStageWithoutRawFailureDetails(t *testing.T) {
+	if _, err := NewDispatchHandler(authStub{caller: auth.Caller{ID: "control-plane"}}, &resolverStub{}, 4096, time.Second, nil); err == nil {
+		t.Fatal("nil logger was accepted")
+	}
+	t.Run("resolution", func(t *testing.T) {
+		var output bytes.Buffer
+		logger := slog.New(slog.NewTextHandler(&output, nil))
+		resolver := &resolverStub{err: errors.New("resolution secret")}
+		handler, err := NewDispatchHandler(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, 4096, time.Second, logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mux := http.NewServeMux()
+		handler.RegisterRoutes(mux)
+		response := invokeDispatch(mux, "application/json", "application/json", validDispatchBody(false))
+		if response.Code != http.StatusServiceUnavailable {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		logText := output.String()
+		for _, stage := range []string{"request_accepted", "resolution_failed"} {
+			if !strings.Contains(logText, "stage="+stage) {
+				t.Fatalf("missing %s in log %q", stage, logText)
+			}
+		}
+		if !strings.Contains(logText, "code=DEPENDENCY_ERROR") || strings.Contains(logText, "resolution secret") {
+			t.Fatalf("unsafe or incomplete log %q", logText)
+		}
+	})
+
+	t.Run("initial ledger append", func(t *testing.T) {
+		var output bytes.Buffer
+		logger := slog.New(slog.NewTextHandler(&output, nil))
+		resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: dispatchResolvedCard("https://agent.example/a2a")}}
+		transport := &transportStub{result: json.RawMessage(`{"kind":"message"}`)}
+		ledger := &ledgerRecorder{err: errors.New("ledger secret")}
+		handler, err := NewDispatchHandlerWithTransportAndLedger(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, time.Second, logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mux := http.NewServeMux()
+		handler.RegisterRoutes(mux)
+		response := invokeDispatch(mux, "application/json", "application/json", validDispatchBody(false))
+		if response.Code != http.StatusServiceUnavailable {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		logText := output.String()
+		if !strings.Contains(logText, "stage=initial_ledger_append_failed") || strings.Contains(logText, "ledger secret") {
+			t.Fatalf("unsafe or incomplete log %q", logText)
+		}
+	})
+}
+
+func TestDispatchDiagnosticsLogTerminalInitialLedgerRecovery(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&output, nil))
+	requestContext, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	resolver := &resolverStub{response: contracts.ResolveAgentResponse{Card: dispatchResolvedCard("https://agent.example/a2a")}}
+	transport := &transportStub{result: json.RawMessage(`{"kind":"message"}`)}
+	ledger := &cancelingLedgerRecorder{cancel: cancel}
+	handler, err := NewDispatchHandlerWithTransportAndLedger(authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096, time.Second, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+	request := httptest.NewRequest(http.MethodPost, "/internal/v4/invocations", strings.NewReader(validDispatchBody(false))).WithContext(requestContext)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	logText := output.String()
+	if !strings.Contains(logText, "stage=initial_ledger_append_failed") || !strings.Contains(logText, "sequence=1") {
+		t.Fatalf("sequence 1 recovery was not diagnosed: %q", logText)
+	}
+}
+
+func TestDispatchChildDiagnosticsLogValidationRejection(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&output, nil))
+	handler, err := NewDispatchHandler(authStub{caller: auth.Caller{ID: "service"}}, &resolverStub{}, 4096, time.Second, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatchRequest := contracts.DispatchInvocationRequestV4{
+		InvocationID: "inv-child", RootTaskID: "task-root", ParentInvocationID: "inv-parent", TraceID: "trace-a",
+		Caller: contracts.Caller{Type: "user", ID: "user-a"}, WorkspaceID: "workspace-a", TargetAgentID: "agent-a",
+		AgentCardVersion: "1.0.0", Capability: "capability-a", Input: json.RawMessage(`{}`), Stream: false,
+	}
+	request := httptest.NewRequest(http.MethodPost, "/agent/v1/invocations", strings.NewReader("{}"))
+	response := httptest.NewRecorder()
+	handler.DispatchChild(response, request, dispatchRequest, "application/json")
+	if response.Code != http.StatusBadRequest || !strings.Contains(output.String(), "stage=request_validation_failed") {
+		t.Fatalf("status=%d log=%q body=%s", response.Code, output.String(), response.Body.String())
+	}
+}
+
 func newDispatchTestHandler(t *testing.T, authenticator Authenticator, resolver Resolver, limit int64) http.Handler {
 	t.Helper()
-	handler, err := NewDispatchHandler(authenticator, resolver, limit, time.Second)
+	handler, err := NewDispatchHandler(authenticator, resolver, limit, time.Second, dispatchTestLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1095,7 +1199,7 @@ func newDispatchTestHandler(t *testing.T, authenticator Authenticator, resolver 
 
 func newDispatchTransportTestHandler(t *testing.T, authenticator Authenticator, resolver Resolver, transport NonStreamingTransport, limit int64) http.Handler {
 	t.Helper()
-	handler, err := NewDispatchHandlerWithTransport(authenticator, resolver, transport, limit, time.Second)
+	handler, err := NewDispatchHandlerWithTransport(authenticator, resolver, transport, limit, time.Second, dispatchTestLogger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1106,7 +1210,7 @@ func newDispatchTransportTestHandler(t *testing.T, authenticator Authenticator, 
 
 func newDispatchLedgerTestHandler(t *testing.T, authenticator Authenticator, resolver Resolver, transport NonStreamingTransport, ledger InvocationLedgerAppender, limit int64) http.Handler {
 	t.Helper()
-	handler, err := NewDispatchHandlerWithTransportAndLedger(authenticator, resolver, transport, ledger, limit, time.Second)
+	handler, err := NewDispatchHandlerWithTransportAndLedger(authenticator, resolver, transport, ledger, limit, time.Second, dispatchTestLogger)
 	if err != nil {
 		t.Fatal(err)
 	}

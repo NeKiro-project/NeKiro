@@ -67,7 +67,7 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 	if err := ledgerStore.Check(ctx); err != nil {
 		return fmt.Errorf("router Ledger schema is not ready: %w", err)
 	}
-	handler, err := newHandler(cfg, http.DefaultClient, http.DefaultClient, ledgerStore)
+	handler, err := newHandler(cfg, http.DefaultClient, http.DefaultClient, ledgerStore, logger)
 	if err != nil {
 		return err
 	}
@@ -101,7 +101,7 @@ func migrate(ctx context.Context, direction string) (returnErr error) {
 	return nil
 }
 
-func newHandler(cfg config.Config, doer resolution.HTTPDoer, agentHTTPClient *http.Client, ledgerAppender api.InvocationLedgerAppender) (http.Handler, error) {
+func newHandler(cfg config.Config, doer resolution.HTTPDoer, agentHTTPClient *http.Client, ledgerAppender api.InvocationLedgerAppender, logger *slog.Logger) (http.Handler, error) {
 	authenticator, err := auth.NewStaticAuthenticator(cfg.RouterPrincipals)
 	if err != nil {
 		return nil, err
@@ -130,7 +130,7 @@ func newHandler(cfg config.Config, doer resolution.HTTPDoer, agentHTTPClient *ht
 	if !ok {
 		return nil, errors.New("router nested Ledger reader is required")
 	}
-	dispatch, err = api.NewDispatchHandlerWithTransportAndLedgerAndStreaming(authenticator, resolver, transport, ledgerAppender, cfg.SSEEventLimitBytes, cfg.InternalRequestLimitBytes, cfg.ResolutionDeadline)
+	dispatch, err = api.NewDispatchHandlerWithTransportAndLedgerAndStreaming(authenticator, resolver, transport, ledgerAppender, cfg.SSEEventLimitBytes, cfg.InternalRequestLimitBytes, cfg.ResolutionDeadline, logger)
 	if err != nil {
 		return nil, err
 	}
