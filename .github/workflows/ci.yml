@@ -139,7 +139,7 @@ jobs:
           NEKIRO_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"compose-check","tokenSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]'
           NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"compose-router-check","tokenSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]'
           NEKIRO_ROUTER_SERVICE_PRINCIPALS_JSON: '[{"id":"compose-control-plane","tokenSha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}]'
-          NEKIRO_ROUTER_AGENT_PRINCIPALS_JSON: '[{"workspaceId":"workspace-acceptance","agentId":"runtime-a","tokenSha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}]'
+          NEKIRO_ROUTER_AGENT_PRINCIPALS_JSON: '[{"workspaceId":"workspace-acceptance","agentId":"runtime-a","tokenSha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},{"workspaceId":"workspace-acceptance","agentId":"runtime-b","tokenSha256":"cc7c23956db7e7fbf8d5ee1948b5f056d62599d6fbd4af42c8a73ed9a1dff7e0"}]'
           NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN: compose-router-token
           NEKIRO_CONTROL_PLANE_SERVICE_TOKEN: compose-control-plane-token
           NEKIRO_CORS_ALLOWED_ORIGINS: http://127.0.0.1:3000
@@ -170,6 +170,9 @@ jobs:
           RUNTIME_A_ROUTER_TOKEN: runtime-a-token
           RUNTIME_A_RESPONSE_LIMIT_BYTES: "1048576"
           RUNTIME_A_EVENT_LIMIT_BYTES: "65536"
+          RUNTIME_B_ROUTER_TOKEN: runtime-b-router-check
+          RUNTIME_B_RESPONSE_LIMIT_BYTES: "1048576"
+          RUNTIME_B_EVENT_LIMIT_BYTES: "65536"
           CONTROL_PLANE_PORT: "18080"
           A2A_ROUTER_PORT: "18081"
         run: docker compose --file deploy/compose.yaml config --quiet
@@ -201,6 +204,15 @@ jobs:
         working-directory: agents/runtime-a
         run: go test -race ./...
 
+      - name: Test Runtime B sample
+        run: go test -count=1 ./agents/runtime-b ./agents/runtime-b/cmd/runtime-b
+
+      - name: Vet Runtime B sample
+        run: go vet ./agents/runtime-b ./agents/runtime-b/cmd/runtime-b
+
+      - name: Race test Runtime B sample
+        run: go test -race ./agents/runtime-b ./agents/runtime-b/cmd/runtime-b
+
   backend-acceptance:
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -215,7 +227,7 @@ jobs:
       NEKIRO_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"acceptance-owner","tokenSha256":"465aedffb32a2cb642cbca8fc75b806bcd33f703d70c49dcfb05e9db88df32d2"},{"id":"acceptance-user","tokenSha256":"2af4f9af4fa535905378ccee817aa532244dcf102f3d3ebeaf9a2a92abdeb42d"},{"id":"acceptance-other","tokenSha256":"7f85fe19123d4f88c475cb754dd30f422877ba3b3e2d5eed8ff8c2f9453ebeaf"}]'
       NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"router-internal","tokenSha256":"f9232718425b5ebee721187a79703448bce513ecf0600eb161f9256ddac27c4d"}]'
       NEKIRO_ROUTER_SERVICE_PRINCIPALS_JSON: '[{"id":"control-plane","tokenSha256":"5abfd00de27c6b2f57d45fdc90999134e4e088414ba1f39bf67ee0d1c9cec554"}]'
-      NEKIRO_ROUTER_AGENT_PRINCIPALS_JSON: '[{"workspaceId":"workspace-acceptance","agentId":"runtime-a","tokenSha256":"e304d0370532633d535824a897d5c03445b636e8d1649064aa35a8fb50fef200"}]'
+      NEKIRO_ROUTER_AGENT_PRINCIPALS_JSON: '[{"workspaceId":"workspace-acceptance","agentId":"runtime-a","tokenSha256":"e304d0370532633d535824a897d5c03445b636e8d1649064aa35a8fb50fef200"},{"workspaceId":"workspace-acceptance","agentId":"runtime-b","tokenSha256":"9b990de9bb74efd4e1d26a43a01e132deb60d563d49faf6878dca4af40858a38"}]'
       NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN: router-internal-token
       NEKIRO_CONTROL_PLANE_SERVICE_TOKEN: control-plane-internal-token
       NEKIRO_CORS_ALLOWED_ORIGINS: http://127.0.0.1:3000
@@ -248,6 +260,9 @@ jobs:
       RUNTIME_A_ROUTER_TOKEN: runtime-a-router-token
       RUNTIME_A_RESPONSE_LIMIT_BYTES: "1048576"
       RUNTIME_A_EVENT_LIMIT_BYTES: "65536"
+      RUNTIME_B_ROUTER_TOKEN: runtime-b-router-token
+      RUNTIME_B_RESPONSE_LIMIT_BYTES: "1048576"
+      RUNTIME_B_EVENT_LIMIT_BYTES: "65536"
       NEKIRO_E2E_CONTROL_PLANE_URL: http://127.0.0.1:18080
       NEKIRO_E2E_ROUTER_URL: http://127.0.0.1:18081
       NEKIRO_E2E_ROUTER_TOKEN: router-internal-token
@@ -285,7 +300,7 @@ jobs:
                   NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN NEKIRO_CONTROL_PLANE_SERVICE_TOKEN
                   NEKIRO_ROUTER_AGENT_CREDENTIAL_KEY_ID NEKIRO_ROUTER_AGENT_CREDENTIAL_PRIVATE_KEY_BASE64URL
                   NEKIRO_AGENT_ROUTER_KEY_ID NEKIRO_AGENT_ROUTER_PUBLIC_KEY_BASE64URL
-                  RUNTIME_A_ROUTER_TOKEN NEKIRO_E2E_ROUTER_TOKEN NEKIRO_E2E_OWNER_TOKEN
+                  RUNTIME_A_ROUTER_TOKEN RUNTIME_B_ROUTER_TOKEN NEKIRO_E2E_ROUTER_TOKEN NEKIRO_E2E_OWNER_TOKEN
                   NEKIRO_E2E_USER_TOKEN NEKIRO_E2E_OTHER_TOKEN NEKIRO_E2E_DATABASE_URL
                 );
                 @secrets = grep { defined($_) && length($_) } @ENV{@secret_names};
