@@ -200,7 +200,7 @@ the Gateway-only browser boundary, the secret boundary, and prior review
 records. The review found 0 High, 0 Medium, and 0 Low findings. A second
 independent review of the final stacked diff found and closed the browser
 origin, Workspace loading, preflight, demo isolation, and backend-scope
-findings; the final local frontend suite passed 42/42. Fresh-Compose browser
+findings; the final local frontend suite passed 44/44. Fresh-Compose browser
 and mapped backend verification completed in CI run `30322101411`; seven
 workflow jobs plus the Codecov patch check passed, including `backend-acceptance` and
 `console-browser-acceptance`.
@@ -257,7 +257,7 @@ within a slice.
 - [x] T043 [P] Add focused API/component regression tests for explicit installation authorization, stale-state invalidation, empty-userinfo rejection, and SemVer compatibility; run the complete frontend and fresh-Compose browser acceptance set (FR-008, SC-006, missing).
 
 Phase 7 implementation record: T040-T042 are implemented in the imported
-production Console and T043 is covered by 42/42 frontend tests, typecheck,
+production Console and T043 is covered by 44/44 frontend tests, typecheck,
 production build, and `git diff --check`. Local browser acceptance could not
 start because the required Docker daemon was unavailable; the CI
 `console-browser-acceptance` job remains the fresh-Compose E2E gate and no
@@ -272,7 +272,7 @@ local fallback configuration was used.
 - [x] T049 Launch a fresh independent review agent for the Phase 8 remediation and require 0 High / 0 Medium before closing this convergence work (Constitution VIII, SC-007).
 
 Phase 8 implementation record: T045-T047 are implemented and the API
-regression matrix remains 42/42 with strict `uint64` boundary coverage. Root
+regression matrix remains 44/44 with strict `uint64` boundary coverage. Root
 typecheck, test, build, frozen-lockfile install, and `git diff --check` pass;
 Docker remains unavailable locally, so fresh-Compose browser acceptance stays
 the CI gate.
@@ -288,7 +288,7 @@ the CI gate.
 Phase 9 implementation record: the first independent review reported one High
 finding for the exact `Number.MAX_SAFE_INTEGER` SemVer boundary and one Medium
 finding for stale Binding confirmation state. T050-T052 address both findings;
-the focused frontend matrix remains 42/42, and typecheck, production build,
+the focused frontend matrix remains 44/44, and typecheck, production build,
 frozen-lockfile install, and `git diff --check` pass. Fresh independent review
 by Carver reported PASS with 0 High, 0 Medium, and 0 Low findings. Local browser
 acceptance remains unavailable because Docker is not running; fresh-Compose CI
