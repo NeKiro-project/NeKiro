@@ -483,15 +483,19 @@ export class NekiroApiClient {
     return this.request<unknown>(this.installationPath(workspaceId, installationId)).then((value) => validateInstallation(value, workspaceId));
   }
 
-  updateInstallation(workspaceId: string, installationId: string, status: Exclude<InstallationStatus, 'uninstalled'>): Promise<Installation> {
-    return this.request<unknown>(this.installationPath(workspaceId, installationId), {
+  async updateInstallation(workspaceId: string, installationId: string, status: Exclude<InstallationStatus, 'uninstalled'>): Promise<Installation> {
+    const previous = await this.getInstallation(workspaceId, installationId);
+    const value = await this.request<unknown>(this.installationPath(workspaceId, installationId), {
       method: 'PATCH',
       body: JSON.stringify({status}),
-    }).then((value) => validateInstallation(value, workspaceId));
+    }).then((response) => validateInstallation(response, workspaceId));
+    return validateInstallationLifecycleResponse(value, previous);
   }
 
-  uninstallAgent(workspaceId: string, installationId: string): Promise<Installation> {
-    return this.request<unknown>(this.installationPath(workspaceId, installationId), {method: 'DELETE'}).then((value) => validateInstallation(value, workspaceId));
+  async uninstallAgent(workspaceId: string, installationId: string): Promise<Installation> {
+    const previous = await this.getInstallation(workspaceId, installationId);
+    const value = await this.request<unknown>(this.installationPath(workspaceId, installationId), {method: 'DELETE'}).then((response) => validateInstallation(response, workspaceId));
+    return validateInstallationLifecycleResponse(value, previous);
   }
 
   invoke(workspaceId: string, request: InvocationRequestV4): Promise<InvocationResultV1> {
@@ -1395,6 +1399,21 @@ function validateInstallation(value: unknown, workspaceId: string): Installation
   return result;
 }
 
+function validateInstallationLifecycleResponse(value: Installation, previous: Installation): Installation {
+  const samePermissions = value.acceptedPermissions.length === previous.acceptedPermissions.length
+    && value.acceptedPermissions.every((permission, index) => permission === previous.acceptedPermissions[index]);
+  if (value.installationId !== previous.installationId
+    || value.workspaceId !== previous.workspaceId
+    || value.agentId !== previous.agentId
+    || value.versionConstraint !== previous.versionConstraint
+    || value.installedVersion !== previous.installedVersion
+    || !samePermissions
+    || value.installedReleaseId !== previous.installedReleaseId) {
+    throw new NekiroApiError(200, 'NeKiro Installation lifecycle response changed immutable pin fields.', 'INVALID_RESPONSE');
+  }
+  return value;
+}
+
 function validateInstallationList(value: unknown, workspaceId: string): InstallationList {
   const record = requireRecord(value, 'Installation list');
   assertAllowedKeys(record, ['items', 'nextCursor'], 'Installation list');
@@ -1541,8 +1560,14 @@ function isSemverWildcard(value: string | undefined): boolean {
 }
 
 function satisfiesSemverBranch(version: SemverParts, tokens: SemverRangeToken[]): boolean {
-  const includesPrerelease = tokens.some((token) => token.version.value.prerelease.length > 0);
-  if (version.prerelease.length > 0 && !includesPrerelease) return false;
+  const includesMatchingPrerelease = tokens.some((token) => {
+    const candidate = token.version.value;
+    return candidate.prerelease.length > 0
+      && candidate.major === version.major
+      && candidate.minor === version.minor
+      && candidate.patch === version.patch;
+  });
+  if (version.prerelease.length > 0 && !includesMatchingPrerelease) return false;
   return tokens.every((token) => satisfiesSemverToken(version, token));
 }
 

@@ -237,9 +237,10 @@ test('NekiroApiClient evaluates the active SemVer range forms and prerelease rul
     ['>= 1.2.3 < 2.0.0', '1.2.3-alpha', false],
     ['>= 1.2.3-alpha < 2.0.0', '1.2.3-beta', true],
     ['1.2.x || 2.0.0', '2.0.0', true],
-    ['>=0-0', '0.1.0-alpha', true],
-    ['>=0.0-0', '0.0.1-alpha', true],
+    ['>=0-0', '0.0.0-alpha', true],
+    ['>=0.0-0', '0.0.0-alpha', true],
     ['~1.1-alpha', '1.1.5', true],
+    ['>=1.2.3-alpha < 2.0.0', '1.3.0-alpha', false],
   ] as const) {
     response = {...base, versionConstraint, installedVersion};
     if (expected) {
@@ -297,6 +298,32 @@ test('NekiroApiClient installs an exact trusted version and preserves Release pr
   assert.equal(result.installedReleaseId, 'release-1');
   assert.equal(requests[0]?.url, 'https://api.example.test/v3/workspaces/workspace.alpha/installations');
   assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {agentId: 'agent.echo', versionConstraint: '1.2.3', acceptedPermissions: []});
+});
+
+test('NekiroApiClient rejects Installation lifecycle responses that change immutable pins', async () => {
+  const initial = {
+    installationId: 'installation-1', workspaceId: 'workspace.alpha', agentId: 'agent.echo', versionConstraint: '^1.0.0', installedVersion: '1.2.3', installedReleaseId: 'release-1', acceptedPermissions: [], status: 'enabled', installedAt: '2026-07-26T00:00:00Z', updatedAt: '2026-07-26T00:00:00Z',
+  };
+  const mutations = [
+    {...initial, versionConstraint: '^1.1.0'},
+    {...initial, installedVersion: '1.3.0'},
+    {...initial, acceptedPermissions: ['READ_LOGS']},
+    {...initial, installedReleaseId: 'release-2'},
+  ];
+  for (const operation of ['update', 'uninstall'] as const) {
+    for (const mutated of mutations) {
+      let call = 0;
+      const client = new NekiroApiClient({
+        baseUrl: 'https://api.example.test',
+        token: 'owner-token',
+        fetchImpl: async () => new Response(JSON.stringify(call++ === 0 ? initial : mutated), {status: 200, headers: {'Content-Type': 'application/json'}}),
+      });
+      const request = operation === 'update'
+        ? client.updateInstallation('workspace.alpha', 'installation-1', 'disabled')
+        : client.uninstallAgent('workspace.alpha', 'installation-1');
+      await assert.rejects(() => request, /immutable pin fields/);
+    }
+  }
 });
 
 test('trusted Installation validation rejects missing Release identity or non-enabled state', () => {

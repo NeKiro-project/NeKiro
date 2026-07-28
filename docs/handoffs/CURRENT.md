@@ -22,7 +22,7 @@ workflow and displays the reverse `Runtime B -> Router -> Runtime A` lineage.
 - Slice D CI run `30322101411`: seven workflow jobs plus the Codecov patch
   check passed, including frontend, backend acceptance, runtime samples, Compose configuration, and
   `console-browser-acceptance`.
-- Frontend local checks: `pnpm typecheck`, `pnpm test` (40/40), `pnpm build`,
+- Frontend local checks: `pnpm typecheck`, `pnpm test` (41/41), `pnpm build`,
   and `git diff --check` passed.
 - Browser acceptance asserts Gateway origin, JSON/SSE correlation, reverse
   Trace/Release provenance, exact negative behavior, challenge-proof absence,

@@ -74,7 +74,7 @@ export default function Header({
         </div>
       </div>
 
-      <div className="glass-header-status flex items-center gap-2 xl:gap-3">
+      <div className="glass-header-status pointer-events-none flex items-center gap-2 xl:gap-3">
         {workspaceError && (
           <div className="flex items-center gap-1.5 text-[10px] font-mono-code text-brand-error border border-brand-error/25 bg-brand-error-container/10 rounded px-2 py-1 max-w-[18rem] truncate" title={workspaceError.message}>
             <AlertTriangle size={12} />
