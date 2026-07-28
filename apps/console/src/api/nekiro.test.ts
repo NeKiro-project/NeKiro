@@ -241,6 +241,26 @@ test('NekiroApiClient evaluates the active SemVer range forms and prerelease rul
     ['>=0.0-0', '0.0.0-alpha', true],
     ['~1.1-alpha', '1.1.5', true],
     ['>=1.2.3-alpha < 2.0.0', '1.3.0-alpha', false],
+    ['!=1.x', '1.2.3', false],
+    ['!=1.x', '2.0.0', true],
+    ['!=1.2.x', '1.2.9', false],
+    ['!=1.2.x', '1.3.0', true],
+    ['1.2.3 ||', '1.2.3', false],
+    ['1.2.3,,2.0.0', '1.2.3', false],
+    ['01.2.3', '1.2.3', false],
+    ['999999999999999999999999.1.1', '1.2.3', false],
+    ['9007199254740992.0.0', '9007199254740992.0.0', true],
+    ['>=9007199254740992.0.0 <9007199254740994.0.0', '9007199254740993.0.0', true],
+    ['>=9007199254740992.0.0 <9007199254740994.0.0', '9007199254740994.0.0', false],
+    ['^9007199254740992.0.0', '9007199254740992.1.0', true],
+    ['^9007199254740992.0.0', '9007199254740993.0.0', false],
+    ['9007199254740991.0.0', '9007199254740991.0.0', true],
+    ['^9007199254740991.0.0', '9007199254740991.0.1', true],
+    ['^9007199254740991.0.0', '9007199254740992.0.0', false],
+    ['9007199254740991.x', '9007199254740991.1.0', true],
+    ['9007199254740991.x', '9007199254740992.0.0', false],
+    ['18446744073709551615.0.0', '18446744073709551615.0.0', true],
+    ['18446744073709551616.0.0', '18446744073709551616.0.0', false],
   ] as const) {
     response = {...base, versionConstraint, installedVersion};
     if (expected) {
@@ -608,6 +628,10 @@ test('Trusted Publication enforces operation-specific success status and strict 
   });
   assert.throws(
     () => userInfoClient.createEndpointBinding('provider.main', 'agent.echo', {endpoint: 'https://user:secret@agent.example/a2a', method: 'http_well_known', version: '1.2.3'}),
+    /userinfo|HTTP\(S\) URI/,
+  );
+  assert.throws(
+    () => userInfoClient.createEndpointBinding('provider.main', 'agent.echo', {endpoint: 'https://@agent.example/a2a', method: 'http_well_known', version: '1.2.3'}),
     /userinfo|HTTP\(S\) URI/,
   );
   assert.throws(

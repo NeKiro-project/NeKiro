@@ -85,22 +85,47 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
       version: selectedAgent.version,
     });
     if (!isCurrentRequest(generation, requestGeneration.current)) return;
-    const authoritative = await client.getEndpointBinding(providerId, value.bindingId);
-    if (!isCurrentRequest(generation, requestGeneration.current)) return;
-    assertBindingMatches(authoritative, providerId, selectedAgent, value.bindingId);
-    setBinding(authoritative);
-    setBindingId(authoritative.bindingId);
-    setChallenge(null);
-    setRelease(null);
-    setReleaseId('');
-    setConfirmAction(null);
+    try {
+      const authoritative = await client.getEndpointBinding(providerId, value.bindingId);
+      if (!isCurrentRequest(generation, requestGeneration.current)) return;
+      assertBindingMatches(authoritative, providerId, selectedAgent, value.bindingId);
+      setBinding(authoritative);
+      setBindingId(authoritative.bindingId);
+      setChallenge(null);
+      setRelease(null);
+      setReleaseId('');
+      setConfirmAction(null);
+    } catch (readBackError) {
+      if (isCurrentRequest(generation, requestGeneration.current)) {
+        setBinding(null);
+        setBindingId('');
+        setChallenge(null);
+        setRelease(null);
+        setReleaseId('');
+        setConfirmAction(null);
+      }
+      throw readBackError;
+    }
   });
 
   const readBinding = () => run('read-binding', async (generation) => {
-    const value = await client.getEndpointBinding(providerId, bindingId);
-    if (!isCurrentRequest(generation, requestGeneration.current)) return;
-    assertBindingMatches(value, providerId, selectedAgent, bindingId);
-    setBinding(value);
+    const requestedBindingId = bindingId;
+    try {
+      const value = await client.getEndpointBinding(providerId, requestedBindingId);
+      if (!isCurrentRequest(generation, requestGeneration.current)) return;
+      assertBindingMatches(value, providerId, selectedAgent, requestedBindingId);
+      setBinding(value);
+    } catch (value) {
+      if (isCurrentRequest(generation, requestGeneration.current)) {
+        setBinding(null);
+        setBindingId('');
+        setChallenge(null);
+        setRelease(null);
+        setReleaseId('');
+        setConfirmAction(null);
+      }
+      throw value;
+    }
   });
 
   const issueChallenge = () => run('issue-challenge', async (generation) => {
@@ -118,10 +143,21 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
       if (isCurrentRequest(generation, requestGeneration.current)) setChallenge(null);
     }
     if (!isCurrentRequest(generation, requestGeneration.current)) return;
-    const value = await client.getEndpointBinding(providerId, binding.bindingId);
-    if (!isCurrentRequest(generation, requestGeneration.current)) return;
-    assertBindingMatches(value, providerId, selectedAgent, binding.bindingId);
-    setBinding(value);
+    try {
+      const value = await client.getEndpointBinding(providerId, binding.bindingId);
+      if (!isCurrentRequest(generation, requestGeneration.current)) return;
+      assertBindingMatches(value, providerId, selectedAgent, binding.bindingId);
+      setBinding(value);
+    } catch (readBackError) {
+      if (isCurrentRequest(generation, requestGeneration.current)) {
+        setBinding(null);
+        setBindingId('');
+        setRelease(null);
+        setReleaseId('');
+        setConfirmAction(null);
+      }
+      throw readBackError;
+    }
   });
 
   const createRelease = () => run('create-release', async (generation) => {
@@ -135,28 +171,57 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
     });
     if (!isCurrentRequest(generation, requestGeneration.current)) return;
     assertReleaseMatches(value, providerId, selectedAgent, binding.bindingId);
-    const authoritative = await client.getAgentRelease(value.releaseId);
-    if (!isCurrentRequest(generation, requestGeneration.current)) return;
-    assertReleaseMatches(authoritative, providerId, selectedAgent, binding.bindingId);
-    setRelease(authoritative);
-    setReleaseId(authoritative.releaseId);
+    try {
+      const authoritative = await client.getAgentRelease(value.releaseId);
+      if (!isCurrentRequest(generation, requestGeneration.current)) return;
+      assertReleaseMatches(authoritative, providerId, selectedAgent, binding.bindingId);
+      setRelease(authoritative);
+      setReleaseId(authoritative.releaseId);
+    } catch (readBackError) {
+      if (isCurrentRequest(generation, requestGeneration.current)) {
+        setRelease(null);
+        setReleaseId('');
+        setConfirmAction(null);
+      }
+      throw readBackError;
+    }
   });
 
   const readRelease = () => run('read-release', async (generation) => {
-    const value = await client.getAgentRelease(releaseId);
-    if (!isCurrentRequest(generation, requestGeneration.current)) return;
-    assertReleaseMatches(value, providerId, selectedAgent, binding?.bindingId);
-    setRelease(value);
-    setConfirmAction(null);
+    const requestedReleaseId = releaseId;
+    try {
+      const value = await client.getAgentRelease(requestedReleaseId);
+      if (!isCurrentRequest(generation, requestGeneration.current)) return;
+      assertReleaseMatches(value, providerId, selectedAgent, binding?.bindingId);
+      setRelease(value);
+      setConfirmAction(null);
+    } catch (value) {
+      if (isCurrentRequest(generation, requestGeneration.current)) {
+        setRelease(null);
+        setReleaseId('');
+        setConfirmAction(null);
+      }
+      throw value;
+    }
   });
 
   const refreshRelease = () => run('refresh-release', async (generation) => {
     if (!release) throw new Error('Create or read a Release first.');
-    const value = await client.getAgentRelease(release.releaseId);
-    if (!isCurrentRequest(generation, requestGeneration.current)) return;
-    assertReleaseMatches(value, providerId, selectedAgent, binding?.bindingId);
-    setRelease(value);
-    setConfirmAction(null);
+    const requestedReleaseId = release.releaseId;
+    try {
+      const value = await client.getAgentRelease(requestedReleaseId);
+      if (!isCurrentRequest(generation, requestGeneration.current)) return;
+      assertReleaseMatches(value, providerId, selectedAgent, binding?.bindingId);
+      setRelease(value);
+      setConfirmAction(null);
+    } catch (value) {
+      if (isCurrentRequest(generation, requestGeneration.current)) {
+        setRelease(null);
+        setReleaseId('');
+        setConfirmAction(null);
+      }
+      throw value;
+    }
   });
 
   const releaseAction = (action: 'verify' | 'publish' | ReleaseAction) => run(action + '-release', async (generation) => {
@@ -169,12 +234,21 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
           ? await client.suspendAgentRelease(release.releaseId)
           : await client.revokeAgentRelease(release.releaseId);
      if (!isCurrentRequest(generation, requestGeneration.current)) return;
-     const authoritative = await client.getAgentRelease(value.releaseId);
-     if (!isCurrentRequest(generation, requestGeneration.current)) return;
-    assertReleaseMatches(authoritative, providerId, selectedAgent, binding?.bindingId ?? authoritative.endpointBindingId);
-    setRelease(authoritative);
-    setReleaseId(authoritative.releaseId);
-    setConfirmAction(null);
+      try {
+        const authoritative = await client.getAgentRelease(value.releaseId);
+        if (!isCurrentRequest(generation, requestGeneration.current)) return;
+        assertReleaseMatches(authoritative, providerId, selectedAgent, binding?.bindingId ?? authoritative.endpointBindingId);
+        setRelease(authoritative);
+        setReleaseId(authoritative.releaseId);
+        setConfirmAction(null);
+      } catch (readBackError) {
+        if (isCurrentRequest(generation, requestGeneration.current)) {
+          setRelease(null);
+          setReleaseId('');
+          setConfirmAction(null);
+        }
+        throw readBackError;
+      }
   });
 
   const canIssueChallenge = binding?.verificationStatus === 'pending';

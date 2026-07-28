@@ -133,6 +133,7 @@ export default function App() {
       setInstallations(response.items);
     } catch (error) {
       if (!isCurrentRequest(generation, installationRequestGeneration.current)) return;
+      setInstallations([]);
       setInstallationError(toPlatformErrorView(error, 'Unable to load Workspace Installations.'));
     } finally {
       if (isCurrentRequest(generation, installationRequestGeneration.current)) setInstallationLoading(false);
@@ -224,17 +225,22 @@ export default function App() {
   const handleUpdateInstallation = async (installation: Installation, status: Exclude<InstallationStatus, 'uninstalled'>) => {
     const operationWorkspaceId = workspace?.workspaceId;
     const operationGeneration = workspaceRequestGeneration.current;
+    const operationInstallationGeneration = installationRequestGeneration.current;
     if (!operationWorkspaceId) {
       return;
     }
     setInstallationError(null);
     try {
       await ownerClient.updateInstallation(operationWorkspaceId, installation.installationId, status);
-      if (isCurrentRequest(operationGeneration, workspaceRequestGeneration.current) && activeWorkspaceRef.current?.workspaceId === operationWorkspaceId) {
+      if (isCurrentRequest(operationGeneration, workspaceRequestGeneration.current)
+        && isCurrentRequest(operationInstallationGeneration, installationRequestGeneration.current)
+        && activeWorkspaceRef.current?.workspaceId === operationWorkspaceId) {
         await loadInstallations(operationWorkspaceId);
       }
     } catch (error) {
-      if (isCurrentRequest(operationGeneration, workspaceRequestGeneration.current)) {
+      if (isCurrentRequest(operationGeneration, workspaceRequestGeneration.current)
+        && isCurrentRequest(operationInstallationGeneration, installationRequestGeneration.current)) {
+        setInstallations([]);
         setInstallationError(toPlatformErrorView(error, 'Unable to update Installation.'));
       }
     }
@@ -243,18 +249,23 @@ export default function App() {
   const handleUninstall = async (installation: Installation) => {
     const operationWorkspaceId = workspace?.workspaceId;
     const operationGeneration = workspaceRequestGeneration.current;
+    const operationInstallationGeneration = installationRequestGeneration.current;
     if (!operationWorkspaceId) {
       return false;
     }
     setInstallationError(null);
     try {
       await ownerClient.uninstallAgent(operationWorkspaceId, installation.installationId);
-      if (isCurrentRequest(operationGeneration, workspaceRequestGeneration.current) && activeWorkspaceRef.current?.workspaceId === operationWorkspaceId) {
+      if (isCurrentRequest(operationGeneration, workspaceRequestGeneration.current)
+        && isCurrentRequest(operationInstallationGeneration, installationRequestGeneration.current)
+        && activeWorkspaceRef.current?.workspaceId === operationWorkspaceId) {
         await loadInstallations(operationWorkspaceId);
       }
       return true;
     } catch (error) {
-      if (isCurrentRequest(operationGeneration, workspaceRequestGeneration.current)) {
+      if (isCurrentRequest(operationGeneration, workspaceRequestGeneration.current)
+        && isCurrentRequest(operationInstallationGeneration, installationRequestGeneration.current)) {
+        setInstallations([]);
         setInstallationError(toPlatformErrorView(error, 'Unable to uninstall Agent.'));
       }
       return false;

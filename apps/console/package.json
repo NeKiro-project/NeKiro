@@ -17,14 +17,16 @@
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "motion": "^12.23.24"
+    "semver": "7.8.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "@types/semver": "7.7.0",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
-    "@playwright/test": "^1.52.0",
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",

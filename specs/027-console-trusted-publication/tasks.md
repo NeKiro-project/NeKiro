@@ -248,3 +248,48 @@ within a slice.
 4. Complete the reverse backend acceptance and stop for independent review.
 5. Complete CI/browser acceptance and stop for independent review.
 6. Run convergence and publish delivery records only after all slices pass.
+
+## Phase 7: Convergence - strict authorization and response parity
+
+- [x] T040 [US3] Remove implicit first-Agent and all-permission selection from `apps/console/src/components/InstallationsTab.tsx`; require an explicit published Agent selection and explicit accepted-permission choices before Release preflight/install, preserving the existing Gateway Release handoff (FR-007, US3/AC1, partial).
+- [x] T041 [US3/US5] Invalidate stale Installation/Release UI state after failed authoritative reads or lifecycle read-backs, and reject empty URI userinfo markers in Agent Card endpoint validation in `apps/console/src/App.tsx`, `apps/console/src/components/TrustedPublicationTab.tsx`, and `apps/console/src/api/nekiro.ts` (FR-008, Edge Cases, partial).
+- [x] T042 [US3/US5] Align `apps/console/src/api/nekiro.ts` SemVer range validation with the active `semver-range` contract for malformed separators, partial prerelease ranges, wildcard `!=`, leading-zero rejection, and large numeric components; prefer a maintained compatible parser or document and test the exact compatibility subset (FR-008, FR-015, partial).
+- [x] T043 [P] Add focused API/component regression tests for explicit installation authorization, stale-state invalidation, empty-userinfo rejection, and SemVer compatibility; run the complete frontend and fresh-Compose browser acceptance set (FR-008, SC-006, missing).
+
+Phase 7 implementation record: T040-T042 are implemented in the imported
+production Console and T043 is covered by 42/42 frontend tests, typecheck,
+production build, and `git diff --check`. Local browser acceptance could not
+start because the required Docker daemon was unavailable; the CI
+`console-browser-acceptance` job remains the fresh-Compose E2E gate and no
+local fallback configuration was used.
+
+## Phase 8: Review remediation
+
+- [x] T045 [US3] Preserve active backend `uint64` SemVer component compatibility in the Console without unsafe JavaScript numeric coercion; add exact large-component boundary tests and retain rejection above the backend limit (review H1, FR-008).
+- [x] T046 [US3] Guard Installation lifecycle success/failure state updates with both Workspace and Installation request generations so an older mutation cannot clear or overwrite a newer authoritative read (review M1, FR-008).
+- [x] T047 [US1/US3] Clear Binding and Release handoff IDs together with their invalidated server objects after failed authoritative reads/read-backs so stale Read and lifecycle controls cannot remain enabled (review M2-M4, FR-008, Edge Cases).
+- [x] T048 [P] Add regression coverage for large SemVer components, lifecycle generation races, and stale handoff invalidation; rerun frontend, build, diff, and CI browser evidence (review gate, FR-014, SC-006).
+- [x] T049 Launch a fresh independent review agent for the Phase 8 remediation and require 0 High / 0 Medium before closing this convergence work (Constitution VIII, SC-007).
+
+Phase 8 implementation record: T045-T047 are implemented and the API
+regression matrix remains 42/42 with strict `uint64` boundary coverage. Root
+typecheck, test, build, frozen-lockfile install, and `git diff --check` pass;
+Docker remains unavailable locally, so fresh-Compose browser acceptance stays
+the CI gate.
+- [x] T044 Launch an independent review agent for the Phase 7 diff against Spec 027, active contracts, AGENTS.md, and the parent/child Issue scopes; do not close the convergence phase until it reports 0 High / 0 Medium findings (Constitution, review gate, missing).
+
+## Phase 9: Convergence
+
+- [x] T050 [US3] Preserve valid active-backend `uint64` SemVer components at exactly `Number.MAX_SAFE_INTEGER`, including implicit successor ranges such as caret and wildcard forms, without unsafe JavaScript numeric coercion (FR-008, review H1, partial).
+- [x] T051 [US1/US3] Clear Binding confirmation state together with invalidated Binding/Release state after a failed authoritative Binding read so stale suspend/revoke controls cannot remain actionable (FR-008, review M1, partial).
+- [x] T052 [P] Add regression coverage for the exact `Number.MAX_SAFE_INTEGER` SemVer boundary and failed Binding read confirmation invalidation; rerun the focused frontend suite, typecheck, build, and diff checks (FR-014, SC-006).
+- [x] T053 Launch a fresh independent review agent for the Phase 9 remediation and require 0 High / 0 Medium before closing this convergence work (Constitution VIII, SC-007).
+
+Phase 9 implementation record: the first independent review reported one High
+finding for the exact `Number.MAX_SAFE_INTEGER` SemVer boundary and one Medium
+finding for stale Binding confirmation state. T050-T052 address both findings;
+the focused frontend matrix remains 42/42, and typecheck, production build,
+frozen-lockfile install, and `git diff --check` pass. Fresh independent review
+by Carver reported PASS with 0 High, 0 Medium, and 0 Low findings. Local browser
+acceptance remains unavailable because Docker is not running; fresh-Compose CI
+is the final browser gate.

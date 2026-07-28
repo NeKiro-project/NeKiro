@@ -52,12 +52,13 @@ export default function InstallationsTab({
   };
 
   useEffect(() => {
-    if (!selectedAgentKey && publishedAgents[0]) {
-      const next = publishedAgents[0];
+    if (selectedAgentKey && !publishedAgents.some((agent) => agentKey(agent) === selectedAgentKey)) {
       invalidatePreflight();
-      setSelectedAgentKey(agentKey(next));
-      setVersionConstraint(next.version);
-      setAcceptedPermissions(next.permissions.map((permission) => permission.id).sort());
+      setSelectedAgentKey('');
+      setVersionConstraint('');
+      setAcceptedPermissions([]);
+      setReleaseId('');
+      setLocalError(null);
     }
   }, [publishedAgents, selectedAgentKey]);
 
@@ -81,7 +82,7 @@ export default function InstallationsTab({
     invalidatePreflight();
     setSelectedAgentKey(selectedKey);
     setVersionConstraint(agent?.version ?? '');
-    setAcceptedPermissions(agent?.permissions.map((permission) => permission.id).sort() ?? []);
+    setAcceptedPermissions([]);
     setReleaseId('');
     setPreflightRelease(null);
     setLocalError(null);
@@ -168,7 +169,7 @@ export default function InstallationsTab({
           <div className="flex flex-col gap-1 text-xs text-brand-on-surface-variant mb-3">
             <label htmlFor="installation-agent">Published Agent</label>
             <select id="installation-agent" value={selectedAgentKey} onChange={(event) => handleSelectAgent(event.target.value)} disabled={!workspace || publishedAgents.length === 0 || busyLifecycle} className="bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none disabled:opacity-50">
-              {publishedAgents.length === 0 && <option value="">No published agents returned</option>}
+              <option value="">Select a published Agent</option>
               {publishedAgents.map((agent) => <option key={agentKey(agent)} value={agentKey(agent)}>{agent.name} ({agent.version})</option>)}
             </select>
           </div>

@@ -129,7 +129,7 @@ git diff --check
 docker compose --file deploy/compose.yaml config --quiet
 ```
 
-The frontend suite passed 41/41 tests. The fresh Compose/browser workflow passed
+The frontend suite passed 42/42 tests. The fresh Compose/browser workflow passed
 in root CI run `30322101411`; seven workflow jobs plus the Codecov patch check
 passed, including
 `backend-acceptance` and `console-browser-acceptance`. The standalone browser
@@ -148,3 +148,13 @@ Delivery is stacked: PR #63 provides the backend reverse-lineage base and PR
 #64 contains only the Console/CI/browser integration delta. The historical
 Slice A T005 ordering deviation remains recorded in `tasks.md`; no runtime
 fallback or compatibility path is introduced to address it.
+
+Phase 9 convergence preserves valid backend `uint64` SemVer components at and
+above `Number.MAX_SAFE_INTEGER` by ranking numeric components with `BigInt`
+before delegating comparison to `semver`. This keeps caret and wildcard
+ranges' implicit successor bounds meaningful without JavaScript precision loss.
+Failed authoritative Binding reads clear the Binding, Release, handoff IDs,
+and destructive confirmation state together, so stale lifecycle controls are
+not left actionable. Carver's final independent review reported 0 High, 0
+Medium, and 0 Low findings. Local Docker remains unavailable; fresh-Compose
+browser acceptance is the CI gate.

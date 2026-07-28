@@ -52,6 +52,28 @@ test('Installations surface keeps same-Agent versions distinct', () => {
   assert.match(markup, /agent\.echo@1\.1\.0/);
 });
 
+test('Installations surface requires explicit Agent and permission authorization', () => {
+  const markup = renderToStaticMarkup(
+    <InstallationsTab
+      workspace={workspace}
+      agents={[{...agent('agent.secure', '1.0.0'), permissions: [{id: 'documents.read', description: 'Read documents.'}]}]}
+      installations={[]}
+      loading={false}
+      error={null}
+      searchQuery=""
+      client={client}
+      onInstallAgent={async (_agent: Agent, _release: AgentRelease, _permissions: string[]) => {}}
+      onUpdateInstallation={async (_installation: Installation, _status: 'enabled' | 'disabled') => {}}
+      onUninstall={async (_installation: Installation) => true}
+      onRefresh={() => {}}
+    />,
+  );
+
+  assert.match(markup, /Select a published Agent/);
+  assert.doesNotMatch(markup, /documents\.read/);
+  assert.doesNotMatch(markup, /checked/);
+});
+
 test('Invocation surface excludes enabled legacy Installations without Release identity', () => {
   const markup = renderToStaticMarkup(<InvocationsTab workspace={workspace} installations={[
     installation('legacy.echo', 'enabled'),

@@ -66,6 +66,33 @@ Gateway/Workspace configuration is absent.
 | What is the trace header rule? | Error-body `traceId` is authoritative; an optional `x-nek-trace-id` header must match when present | The active OpenAPI declares the header but not its requiredness or equality semantics; accepting absence preserves compatibility while rejecting disagreement prevents ambiguous correlation |
 | Where does Slice A write? | Standalone `NeKiro-Console` | Issue #2 is filed in that repository; the reviewed source is imported into `apps/console` only in Slice D |
 
+### Phase 7 SemVer compatibility
+
+Installation response validation now uses `semver@7.8.5` with strict numeric
+parsing. The adapter preserves the active Go constraint forms `=>`, `=<`,
+`~>`, partial prerelease versions such as `>=0-0`, and wildcard `!=` by
+translating only those syntax forms before comparison. It also preserves the
+backend's 512-byte range and 32-OR-branch limits, rejects empty OR branches
+and repeated comma separators, and keeps npm's prerelease tuple rule so a
+prerelease comparator does not open unrelated prerelease tuples.
+
+The Go `Masterminds/semver` parser accepts leading-zero range components while
+the browser parser deliberately rejects them as non-canonical input, matching
+the strict SemVer policy already used for Agent Card versions. The exact
+boundary is covered by the API regression matrix rather than hidden behind a
+coercion or fallback.
+
+### Phase 9 boundary remediation
+
+The Console keeps active backend `uint64` SemVer compatibility without
+converting components to JavaScript `number`. Components at or above
+`Number.MAX_SAFE_INTEGER` are ranked with `BigInt` before the maintained npm
+parser evaluates the normalized range; this preserves implicit successors in
+caret and wildcard ranges. Failed authoritative Binding reads clear the
+Binding, Release, handoff IDs, and destructive confirmation state as one
+transient UI invalidation. The remediation added no fallback, retry, alternate
+endpoint, or secret handling path.
+
 ## Rejected Alternatives
 
 - **Keep the standalone Console as a CI submodule**: rejected because root

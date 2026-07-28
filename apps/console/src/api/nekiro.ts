@@ -1,3 +1,5 @@
+import {satisfies as semverSatisfies, valid as semverValid, validRange as semverValidRange} from 'semver';
+
 import type {Agent, Installation, InstallationStatus, PlatformErrorView, Workspace} from '../types';
 
 export type PublicationStatus = 'draft' | 'published' | 'disabled';
@@ -1043,7 +1045,7 @@ function requireUri(value: unknown, field: string): string {
   if (value !== value.trim() || /\s/.test(value)) throw new Error(field + ' must not contain whitespace');
   try {
     const parsed = new URL(value);
-    if (parsed.username || parsed.password) throw new Error('URI userinfo is not allowed');
+    if (parsed.username || parsed.password || hasUriUserinfo(value)) throw new Error('URI userinfo is not allowed');
   } catch {
     throw new Error(field + ' must be a valid URI without userinfo');
   }
@@ -1196,7 +1198,7 @@ export function buildAgentCard(input: AgentCardInput): AgentCardV02 {
   if (!['http:', 'https:'].includes(endpointUrl.protocol)) {
     throw new Error('endpoint must use http or https');
   }
-  if (endpointUrl.username || endpointUrl.password) {
+  if (endpointUrl.username || endpointUrl.password || hasUriUserinfo(endpoint)) {
     throw new Error('endpoint must not contain userinfo credentials');
   }
 
@@ -1478,190 +1480,204 @@ function isIpHostname(hostname: string): boolean {
   return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname) || hostname.includes(':');
 }
 
-interface SemverParts {
-  major: number;
-  minor: number;
-  patch: number;
-  prerelease: string[];
-}
-
-interface SemverRangeVersion {
-  value: SemverParts;
-  majorWildcard: boolean;
-  minorWildcard: boolean;
-  patchWildcard: boolean;
-}
-
-interface SemverRangeToken {
-  operator: string;
-  version: SemverRangeVersion;
+function hasUriUserinfo(value: string): boolean {
+  const authority = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/([^/?#]*)/.exec(value)?.[1];
+  return authority?.includes('@') ?? false;
 }
 
 function satisfiesSemverRange(version: string, range: string): boolean {
-  const parsedVersion = parseSemver(version);
-  if (!parsedVersion) return false;
-  const branches = range.split('||').map((branch) => parseSemverBranch(branch));
-  if (branches.some((branch) => branch === undefined)) return false;
-  return branches.some((branch) => branch !== undefined && satisfiesSemverBranch(parsedVersion, branch));
+  // Masterminds/semver accepts backend aliases and partial prerelease tokens;
+  // keep those syntax adapters narrow and delegate comparison semantics to the
+  // maintained npm parser, which rejects non-canonical numeric components.
+  const normalizedNumbers = normalizeLargeSemverNumbers(version, range);
+  if (!normalizedNumbers || semverValid(normalizedNumbers.version) === null) return false;
+  version = normalizedNumbers.version;
+  range = normalizedNumbers.range;
+  if (range.length > 512) return false;
+  const branches = range.split('||');
+  if (branches.length > 32) return false;
+  const parsedBranches = branches.map((branch) => parseSemverBranch(branch));
+  if (parsedBranches.some((branch) => branch === undefined)) return false;
+  return parsedBranches.some((branch) => branch !== undefined && satisfiesSemverBranch(version, branch));
 }
 
-function parseSemverBranch(branch: string): SemverRangeToken[] | undefined {
-  const rewritten = branch.trim().replace(/(\S+)\s+-\s+(\S+)/g, '>=$1 <=$2');
-  const rawTokens = rewritten.split(/[\s,]+/).filter(Boolean);
-  if (rawTokens.length === 0) return undefined;
-  const tokens: Array<SemverRangeToken | undefined> = [];
-  for (let index = 0; index < rawTokens.length; index += 1) {
-    const rawToken = rawTokens[index];
-    if (isSemverRangeOperator(rawToken)) {
-      const nextToken = rawTokens[index + 1];
-      if (nextToken === undefined) return undefined;
-      tokens.push(parseSemverRangeToken(rawToken + nextToken));
-      index += 1;
-    } else {
-      tokens.push(parseSemverRangeToken(rawToken));
+const MAX_UINT64 = 18446744073709551615n;
+const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+
+interface SemverTokenParts {
+  prefix: string;
+  major: string;
+  minor?: string;
+  patch?: string;
+  prerelease?: string;
+  build?: string;
+}
+
+interface SemverNumericMaps {
+  core: [Map<string, string>, Map<string, string>, Map<string, string>];
+  prerelease: Map<number, Map<string, string>>;
+}
+
+function normalizeLargeSemverNumbers(version: string, range: string): {version: string; range: string} | undefined {
+  const normalizedRange = range.replace(/=>/g, '>=').replace(/=</g, '<=').replace(/~>/g, '~');
+  const maps: SemverNumericMaps = {core: [new Map(), new Map(), new Map()], prerelease: new Map()};
+  if (!collectSemverTokenNumbers(version, maps) || !collectSemverTokenNumbers(normalizedRange, maps)) return undefined;
+  maps.core.forEach((map) => map.set('0', '0'));
+  const needsCoreMapping = maps.core.map((map) => finalizeSemverNumberMap(map)).some(Boolean);
+  const needsPrereleaseMapping = [...maps.prerelease.values()].map((map) => finalizeSemverNumberMap(map)).some(Boolean);
+  const needsMapping = needsCoreMapping || needsPrereleaseMapping;
+  if (!needsMapping) return {version, range};
+  return {
+    version: replaceLargeSemverTokenNumbers(version, maps),
+    range: replaceLargeSemverTokenNumbers(normalizePartialPrerelease(normalizedRange), maps),
+  };
+}
+
+function collectSemverTokenNumbers(value: string, maps: SemverNumericMaps): boolean {
+  const tokenPattern = /(^|[\s,|])((?:>=|<=|!=|=>|=<|>|<|=|~>|~|\^)?)(v?(?:\d+|[xX*])(?:\.(?:\d+|[xX*]))?(?:\.(?:\d+|[xX*]))?(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)(?=$|[\s,|])/g;
+  let match: RegExpExecArray | null;
+  while ((match = tokenPattern.exec(value)) !== null) {
+    const token = parseSemverTokenParts(match[3]);
+    if (!token) continue;
+    for (const [index, component] of [token.major, token.minor, token.patch].entries()) {
+      if (component === undefined || isSemverWildcard(component)) continue;
+      if (!recordSemverNumber(component, maps.core[index])) return false;
+    }
+    if (token.prerelease) {
+      for (const [index, identifier] of token.prerelease.split('.').entries()) {
+        if (/^0\d/.test(identifier)) return false;
+        if (/^\d+$/.test(identifier) && !recordSemverNumber(identifier, getPrereleaseMap(maps, index))) return false;
+      }
     }
   }
-  return tokens.some((token) => token === undefined) ? undefined : tokens as SemverRangeToken[];
+  return true;
 }
 
-function isSemverRangeOperator(value: string): boolean {
-  return ['>=', '<=', '!=', '=>', '=<', '>', '<', '=', '~>', '~', '^'].includes(value);
+function recordSemverNumber(value: string, map: Map<string, string>): boolean {
+  if (/^0\d/.test(value)) return false;
+  try {
+    const numeric = BigInt(value);
+    if (numeric > MAX_UINT64) return false;
+  } catch {
+    return false;
+  }
+  map.set(value, value);
+  return true;
 }
 
-function parseSemverRangeToken(token: string): SemverRangeToken | undefined {
-  const match = /^(>=|<=|!=|=>|=<|>|<|=|~>|~|\^)?(.+)$/.exec(token);
+function finalizeSemverNumberMap(map: Map<string, string>): boolean {
+  const values = [...map.keys()];
+  const needsMapping = values.some((value) => BigInt(value) >= MAX_SAFE_INTEGER_BIGINT);
+  if (!needsMapping) return false;
+  values.sort((left, right) => (BigInt(left) < BigInt(right) ? -1 : BigInt(left) > BigInt(right) ? 1 : 0));
+  values.forEach((value, index) => map.set(value, String(index)));
+  return true;
+}
+
+function replaceLargeSemverTokenNumbers(value: string, maps: SemverNumericMaps): string {
+  const tokenPattern = /(^|[\s,|])((?:>=|<=|!=|=>|=<|>|<|=|~>|~|\^)?)(v?(?:\d+|[xX*])(?:\.(?:\d+|[xX*]))?(?:\.(?:\d+|[xX*]))?(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)(?=$|[\s,|])/g;
+  return value.replace(tokenPattern, (_match, prefix: string, operator: string, tokenValue: string) => prefix + operator + renderSemverToken(tokenValue, maps));
+}
+
+function renderSemverToken(value: string, maps: SemverNumericMaps): string {
+  const token = parseSemverTokenParts(value);
+  if (!token) return value;
+  const core = [token.major, token.minor, token.patch].map((component, index) => component === undefined || isSemverWildcard(component) ? component : maps.core[index].get(component) ?? component);
+  const prerelease = token.prerelease?.split('.').map((identifier, index) => /^\d+$/.test(identifier) ? getPrereleaseMap(maps, index).get(identifier) ?? identifier : identifier).join('.');
+  return token.prefix + core[0] + (core[1] === undefined ? '' : '.' + core[1]) + (core[2] === undefined ? '' : '.' + core[2]) + (prerelease === undefined ? '' : '-' + prerelease) + (token.build === undefined ? '' : '+' + token.build);
+}
+
+function parseSemverTokenParts(value: string): SemverTokenParts | undefined {
+  const match = /^(v?)(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(value);
   if (!match) return undefined;
-  const version = parseSemverRangeVersion(match[2]);
-  if (!version) return undefined;
-  return {operator: match[1] ?? '', version};
+  return {prefix: match[1], major: match[2], minor: match[3], patch: match[4], prerelease: match[5], build: match[6]};
 }
 
-function parseSemverRangeVersion(value: string): SemverRangeVersion | undefined {
-  const match = /^v?(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(value);
-  if (!match) return undefined;
+function getPrereleaseMap(maps: SemverNumericMaps, index: number): Map<string, string> {
+  const existing = maps.prerelease.get(index);
+  if (existing) return existing;
+  const created = new Map<string, string>();
+  maps.prerelease.set(index, created);
+  return created;
+}
+
+interface SemverRangeBranch {
+  baseRange: string;
+  exclusions: string[];
+}
+
+function satisfiesSemverBranch(version: string, branch: SemverRangeBranch): boolean {
+  if (!semverSatisfies(version, branch.baseRange)) return false;
+  return branch.exclusions.every((exclusion) => !semverSatisfies(version, exclusion));
+}
+
+function parseSemverBranch(branch: string): SemverRangeBranch | undefined {
+  const normalized = normalizeSemverRangeSyntax(branch);
+  if (!normalized || normalized.split(',').some((part) => part.trim() === '')) return undefined;
+  const rawTokens = normalized.split(/[\s,]+/).filter(Boolean);
+  if (rawTokens.length === 0) return undefined;
+  const baseTokens: string[] = [];
+  const exclusions: string[] = [];
+  for (let index = 0; index < rawTokens.length; index += 1) {
+    let token = rawTokens[index];
+    if (token === '!=') {
+      token = rawTokens[++index] ?? '';
+      if (!token) return undefined;
+      const exclusion = semverExclusionRange(token);
+      if (!exclusion) return undefined;
+      exclusions.push(exclusion.range);
+      continue;
+    }
+    if (token.startsWith('!=')) {
+      const exclusion = semverExclusionRange(token.slice(2));
+      if (!exclusion) return undefined;
+      exclusions.push(exclusion.range);
+      continue;
+    }
+    baseTokens.push(token);
+  }
+  const baseRange = semverValidRange(normalizePartialPrerelease(baseTokens.join(' ') || '*'), {loose: false});
+  if (baseRange === null) return undefined;
+  return {baseRange, exclusions};
+}
+
+function normalizeSemverRangeSyntax(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  return trimmed.replace(/=>/g, '>=').replace(/=</g, '<=').replace(/~>/g, '~');
+}
+
+interface SemverExclusion {
+  range: string;
+}
+
+function semverExclusionRange(value: string): SemverExclusion | undefined {
+  const normalized = normalizePartialPrerelease(value);
+  const match = /^v?(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(normalized);
+  if (!match || semverValidRange(normalized, {loose: false}) === null) return undefined;
   const majorWildcard = isSemverWildcard(match[1]);
   const minorWildcard = match[2] === undefined || isSemverWildcard(match[2]);
   const patchWildcard = match[3] === undefined || isSemverWildcard(match[3]);
-  return {
-    value: {
-      major: majorWildcard ? 0 : Number(match[1]),
-      minor: minorWildcard ? 0 : Number(match[2]),
-      patch: patchWildcard ? 0 : Number(match[3]),
-      prerelease: match[4]?.split('.') ?? [],
-    },
-    majorWildcard,
-    minorWildcard,
-    patchWildcard,
-  };
+  if (majorWildcard) return {range: '*'};
+  const major = Number(match[1]);
+  const minor = minorWildcard ? 0 : Number(match[2]);
+  const patch = patchWildcard ? 0 : Number(match[3]);
+  const range = minorWildcard
+      ? `>=${major}.0.0 <${major + 1}.0.0`
+      : patchWildcard
+        ? `>=${major}.${minor}.0 <${major}.${minor + 1}.0`
+      : normalized;
+  return {range};
+}
+
+function normalizePartialPrerelease(value: string): string {
+  return value.replace(/(^|[\s,])((?:>=|<=|!=|=>|=<|>|<|=|~>|~|\^)?)(v?)(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)(?=$|[\s,])/g, (_match, prefix: string, operator: string, versionPrefix: string, major: string, minor: string | undefined, patch: string | undefined, prerelease: string) => {
+    return prefix + operator + versionPrefix + major + '.' + (minor ?? '0') + '.' + (patch ?? '0') + prerelease;
+  });
 }
 
 function isSemverWildcard(value: string | undefined): boolean {
   return value === undefined || value === 'x' || value === 'X' || value === '*';
-}
-
-function satisfiesSemverBranch(version: SemverParts, tokens: SemverRangeToken[]): boolean {
-  const includesMatchingPrerelease = tokens.some((token) => {
-    const candidate = token.version.value;
-    return candidate.prerelease.length > 0
-      && candidate.major === version.major
-      && candidate.minor === version.minor
-      && candidate.patch === version.patch;
-  });
-  if (version.prerelease.length > 0 && !includesMatchingPrerelease) return false;
-  return tokens.every((token) => satisfiesSemverToken(version, token));
-}
-
-function satisfiesSemverToken(version: SemverParts, token: SemverRangeToken): boolean {
-  const base = token.version.value;
-  const comparison = compareSemver(version, base);
-  switch (token.operator) {
-    case '':
-    case '=':
-      return token.version.majorWildcard
-        || (token.version.minorWildcard
-          ? version.major === base.major
-          : token.version.patchWildcard
-            ? version.major === base.major && version.minor === base.minor
-            : comparison === 0);
-    case '!=':
-      return token.version.majorWildcard
-        ? false
-        : token.version.minorWildcard
-          ? version.major !== base.major
-          : token.version.patchWildcard
-            ? version.major !== base.major || version.minor !== base.minor
-            : comparison !== 0;
-    case '>=':
-    case '=>':
-      return comparison >= 0;
-    case '<':
-      return comparison < 0;
-    case '>':
-      if (token.version.majorWildcard) return false;
-      if (token.version.minorWildcard) return version.major > base.major;
-      if (token.version.patchWildcard) return version.major > base.major || (version.major === base.major && version.minor > base.minor);
-      return comparison > 0;
-    case '<=':
-    case '=<':
-      if (token.version.majorWildcard) return true;
-      if (token.version.minorWildcard) return version.major < base.major + 1;
-      if (token.version.patchWildcard) return version.major < base.major || (version.major === base.major && version.minor < base.minor + 1);
-      return comparison <= 0;
-    case '~':
-    case '~>':
-      if (token.version.majorWildcard || (base.major === 0 && base.minor === 0 && base.patch === 0 && !token.version.patchWildcard)) return true;
-      return comparison >= 0 && compareSemver(version, tildeUpper(token.version)) < 0;
-    case '^':
-      if (token.version.majorWildcard) return true;
-      return comparison >= 0 && compareSemver(version, caretUpper(token.version)) < 0;
-    default:
-      return false;
-  }
-}
-
-function tildeUpper(version: SemverRangeVersion): SemverParts {
-  return version.minorWildcard
-    ? {major: version.value.major + 1, minor: 0, patch: 0, prerelease: []}
-    : {major: version.value.major, minor: version.value.minor + 1, patch: 0, prerelease: []};
-}
-
-function caretUpper(version: SemverRangeVersion): SemverParts {
-  if (version.value.major > 0 || version.minorWildcard) {
-    return {major: version.value.major + 1, minor: 0, patch: 0, prerelease: []};
-  }
-  if (version.value.minor > 0 || version.patchWildcard) {
-    return {major: 0, minor: version.value.minor + 1, patch: 0, prerelease: []};
-  }
-  return {major: 0, minor: 0, patch: version.value.patch + 1, prerelease: []};
-}
-
-function parseSemver(value: string): SemverParts | undefined {
-  if (!isSemver(value)) return undefined;
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(value);
-  if (!match) return undefined;
-  return {major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]), prerelease: match[4]?.split('.') ?? []};
-}
-
-function compareSemver(left: SemverParts, right: SemverParts): number {
-  for (const field of ['major', 'minor', 'patch'] as const) {
-    if (left[field] !== right[field]) return left[field] > right[field] ? 1 : -1;
-  }
-  if (left.prerelease.length === 0 && right.prerelease.length === 0) return 0;
-  if (left.prerelease.length === 0) return 1;
-  if (right.prerelease.length === 0) return -1;
-  for (let index = 0; index < Math.max(left.prerelease.length, right.prerelease.length); index += 1) {
-    const leftPart = left.prerelease[index];
-    const rightPart = right.prerelease[index];
-    if (leftPart === undefined) return -1;
-    if (rightPart === undefined) return 1;
-    if (leftPart === rightPart) continue;
-    const leftNumber = /^\d+$/.test(leftPart);
-    const rightNumber = /^\d+$/.test(rightPart);
-    if (leftNumber && rightNumber) return Number(leftPart) > Number(rightPart) ? 1 : -1;
-    if (leftNumber !== rightNumber) return leftNumber ? -1 : 1;
-    return leftPart > rightPart ? 1 : -1;
-  }
-  return 0;
 }
 
 function readStringArray(value: unknown, field: string): string[] {
