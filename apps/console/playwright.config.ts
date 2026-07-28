@@ -1,8 +1,9 @@
 import {defineConfig} from '@playwright/test';
 
 const baseURL = process.env.NEKIRO_E2E_BASE_URL;
-if (!baseURL || baseURL !== baseURL.trim() || !/^https?:\/\/[^/]+(?::\d+)?$/.test(baseURL)) {
-  throw new Error('NEKIRO_E2E_BASE_URL must be an explicit browser server origin');
+const previewOrigin = 'http://127.0.0.1:4173';
+if (!baseURL || baseURL !== previewOrigin) {
+  throw new Error(`NEKIRO_E2E_BASE_URL must equal the production preview origin ${previewOrigin}`);
 }
 
 if (!process.env.NEKIRO_E2E_COMPOSE_FILE || !process.env.NEKIRO_E2E_COMPOSE_PROJECT) {

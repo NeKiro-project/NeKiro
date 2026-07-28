@@ -64,7 +64,8 @@ Gateway-only trusted workflow: Register -> Verify -> Publish -> Discover ->
 Install -> Invoke -> Record. It preserves the four isolated comparison demo
 routes, keeps provider and Workspace-owner credentials separate and transient,
 and displays Gateway-provided Invocation/Trace lineage. Root CI run
-`30322101411` passed all eight checks, including the fresh Compose backend
+`30322101411` passed seven workflow jobs plus the Codecov patch check (eight
+reported checks), including the fresh Compose backend
 acceptance and production `console-browser-acceptance`. The reverse backend
 slice is tracked by [PR #63](https://github.com/NeKiro-project/NeKiro/pull/63)
 and the stacked Console/CI integration by

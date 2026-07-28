@@ -535,13 +535,13 @@ export class NekiroApiClient {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let dataLines: string[] = [];
     let expectedSequence = 0;
     let expectedChunkIndex = 0;
     let terminal = false;
     const events: InvocationResultStreamEventV2[] = [];
-    const consume = (line: string) => {
-      if (!line.startsWith('data: ')) throw new NekiroApiError(response.status, 'NeKiro stream contains an invalid data line.', 'INVALID_RESPONSE');
-      const event = validateResultStreamEvent(parseJsonValue(line.slice(6), 'stream event'));
+    const consume = (data: string) => {
+      const event = validateResultStreamEvent(parseJsonValue(data, 'stream event'));
       if (terminal) throw new NekiroApiError(response.status, 'NeKiro stream emitted an event after terminal state.', 'INVALID_RESPONSE');
       if (event.sequence !== expectedSequence) throw new NekiroApiError(response.status, 'NeKiro stream sequence is not contiguous.', 'INVALID_RESPONSE');
       if ((expectedSequence === 0 && event.type !== 'accepted') || (expectedSequence > 0 && event.type === 'accepted')) throw new NekiroApiError(response.status, 'NeKiro stream accepted event must be first.', 'INVALID_RESPONSE');
@@ -560,6 +560,29 @@ export class NekiroApiClient {
       events.push(event);
       onEvent?.(event);
     };
+    const dispatchEvent = () => {
+      if (dataLines.length === 0) return;
+      const data = dataLines.join('\n');
+      dataLines = [];
+      consume(data);
+    };
+    const consumeLine = (line: string) => {
+      if (line === '') {
+        dispatchEvent();
+        return;
+      }
+      if (line.startsWith(':')) return;
+      const separator = line.indexOf(':');
+      if (separator < 0) throw new NekiroApiError(response.status, 'NeKiro stream contains an invalid field.', 'INVALID_RESPONSE');
+      const field = line.slice(0, separator);
+      let value = line.slice(separator + 1);
+      if (value.startsWith(' ')) value = value.slice(1);
+      if (field === 'data') {
+        dataLines.push(value);
+      } else if (field !== 'event' && field !== 'id' && field !== 'retry') {
+        throw new NekiroApiError(response.status, 'NeKiro stream contains an invalid field.', 'INVALID_RESPONSE');
+      }
+    };
     for (;;) {
       const result = await reader.read();
       buffer += decoder.decode(result.value ?? new Uint8Array(), {stream: !result.done});
@@ -567,12 +590,13 @@ export class NekiroApiClient {
       while (newline >= 0) {
         const line = buffer.slice(0, newline).replace(/\r$/, '');
         buffer = buffer.slice(newline + 1);
-        if (line !== '') consume(line);
+        consumeLine(line);
         newline = buffer.indexOf('\n');
       }
       if (result.done) break;
     }
-    if (buffer.trim() !== '') consume(buffer.trim());
+    if (buffer !== '') consumeLine(buffer.replace(/\r$/, ''));
+    dispatchEvent();
     if (!terminal) throw new NekiroApiError(response.status, 'NeKiro stream ended before a terminal event.', 'INVALID_RESPONSE');
     return events;
   }

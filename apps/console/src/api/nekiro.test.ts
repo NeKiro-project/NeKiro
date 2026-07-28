@@ -353,6 +353,17 @@ test('NekiroApiClient rejects SSE gaps, correlation changes, and mismatched term
   await assert.rejects(() => failedClient.invokeStream('workspace.alpha', {agentId: 'runtime.echo', capability: 'runtime.echo', input: {}}), /failed stream event error code/);
 });
 
+test('NekiroApiClient accepts standard SSE comments, fields, and multiline data framing', async () => {
+  const accepted = {schemaVersion: '2', sequence: 0, type: 'accepted', status: 'pending', invocationId: 'inv-1', rootTaskId: 'task-1', traceId: 'trace-1'};
+  const completed = {schemaVersion: '2', sequence: 1, type: 'completed', status: 'succeeded', invocationId: 'inv-1', rootTaskId: 'task-1', traceId: 'trace-1'};
+  const completedJSON = JSON.stringify(completed);
+  const splitAt = completedJSON.indexOf(',"rootTaskId"');
+  const body = `: keep-alive\nretry: 1000\nevent: result\ndata: ${JSON.stringify(accepted)}\n\ndata: ${completedJSON.slice(0, splitAt)}\ndata: ${completedJSON.slice(splitAt)}\n\n`;
+  const client = new NekiroApiClient({baseUrl: 'https://api.example.test', token: 'test-token', fetchImpl: async () => new Response(body, {status: 200, headers: {'Content-Type': 'text/event-stream'}})});
+  const events = await client.invokeStream('workspace.alpha', {agentId: 'runtime.echo', capability: 'runtime.echo', input: {}});
+  assert.deepEqual(events.map((event) => event.type), ['accepted', 'completed']);
+});
+
 test('NekiroApiClient rejects omitted Installation limits instead of inventing one', () => {
   const client = new NekiroApiClient({baseUrl: 'https://api.example.test', token: 'test-token'});
   assert.throws(() => client.listInstallations('workspace.alpha', undefined as never), /limit must be an integer/);

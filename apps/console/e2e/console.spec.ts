@@ -141,7 +141,22 @@ test('production Console completes trusted publication, invocation, trace, and i
 
   await page.getByRole('button', {name: 'Ledger', exact: true}).click();
   await page.getByLabel('Trace ID', {exact: true}).fill(result.traceId);
+  const traceResponsePromise = page.waitForResponse((response) => response.url().includes('/v4/workspaces/' + workspaceId + '/traces/' + result.traceId) && response.request().method() === 'GET');
   await page.getByRole('button', {name: 'Read', exact: true}).last().click();
+  const traceResponse = await traceResponsePromise;
+  expect(traceResponse.status()).toBe(200);
+  const tracePayload = await traceResponse.json() as {
+    traceId: string;
+    invocations: Array<{invocationId: string; parentInvocationId?: string; rootTaskId: string; traceId: string; targetAgentId: string}>;
+  };
+  const rootInvocation = tracePayload.invocations.find((invocation) => invocation.invocationId === result.invocationId);
+  const childInvocation = tracePayload.invocations.find((invocation) => invocation.targetAgentId === runtimeA.id && invocation.invocationId !== result.invocationId);
+  expect(tracePayload.traceId).toBe(result.traceId);
+  expect(rootInvocation).toBeDefined();
+  expect(childInvocation).toBeDefined();
+  expect(childInvocation?.parentInvocationId).toBe(rootInvocation?.invocationId);
+  expect(childInvocation?.rootTaskId).toBe(rootInvocation?.rootTaskId);
+  expect(childInvocation?.traceId).toBe(rootInvocation?.traceId);
   await expect(page.getByText(new RegExp(`${escapeRegExp(result.traceId)}`)).last()).toBeVisible();
   const ledgerText = await page.locator('main').innerText();
   expect(ledgerText).toContain(runtimeA.id);
@@ -155,7 +170,10 @@ test('production Console completes trusted publication, invocation, trace, and i
   const gatewayOrigin = new URL(apiBaseURL).origin;
   expect(apiRequests.length).toBeGreaterThan(0);
   expect(apiRequests.every((url) => new URL(url).origin === gatewayOrigin)).toBe(true);
-  expect(apiRequests.some((url) => /\/internal\/|\/agent\//.test(new URL(url).pathname))).toBe(false);
+  expect(requestUrls.some((url) => {
+    const parsed = new URL(url);
+    return /\/internal\/|\/agent\//.test(parsed.pathname) || parsed.hostname === 'runtime-a' || parsed.hostname === 'runtime-b';
+  })).toBe(false);
 
   apiRequests.length = 0;
   for (const {hash, marker} of [

@@ -201,8 +201,8 @@ records. The review found 0 High, 0 Medium, and 0 Low findings. A second
 independent review of the final stacked diff found and closed the browser
 origin, Workspace loading, preflight, demo isolation, and backend-scope
 findings; the final local frontend suite passed 37/37. Fresh-Compose browser
-and mapped backend verification completed in CI run `30322101411`; all eight
-checks passed, including `backend-acceptance` and
+and mapped backend verification completed in CI run `30322101411`; seven
+workflow jobs plus the Codecov patch check passed, including `backend-acceptance` and
 `console-browser-acceptance`.
 
 ## Phase 6: Convergence and delivery records

@@ -32,8 +32,8 @@ and is already represented by T005; it is not a new runtime or contract gap.
 
 ## Evidence
 
-- Root Slice D CI run `30322101411` passed all eight checks, including
-  `backend-acceptance` and `console-browser-acceptance`.
+- Root Slice D CI run `30322101411` passed seven workflow jobs plus the Codecov
+  patch check, including `backend-acceptance` and `console-browser-acceptance`.
 - Standalone Console browser CI runs `30254947242` and `30254944783` passed.
 - Root frontend checks passed: `pnpm typecheck`, `pnpm test` (37/37), `pnpm
   build`, `git diff --check`, and Compose configuration validation.

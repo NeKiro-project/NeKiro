@@ -26,6 +26,8 @@ export default function App() {
   const [catalogReady, setCatalogReady] = useState(false);
   const [providerCatalogError, setProviderCatalogError] = useState<PlatformErrorView | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const activeWorkspaceRef = useRef<Workspace | null>(null);
+  activeWorkspaceRef.current = workspace;
   const [workspaceDraft, setWorkspaceDraft] = useState(import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID ?? '');
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<PlatformErrorView | null>(null);
@@ -151,17 +153,25 @@ export default function App() {
   }, [loadInstallations, loadWorkspace]);
 
   const handleCreateWorkspace = async () => {
+    const generation = nextRequestGeneration(workspaceRequestGeneration.current);
+    workspaceRequestGeneration.current = generation;
+    installationRequestGeneration.current = nextRequestGeneration(installationRequestGeneration.current);
+    setInstallations([]);
+    setInstallationLoading(false);
     setWorkspaceLoading(true);
     setWorkspaceError(null);
     try {
       const value = await ownerClient.createWorkspace(workspaceDraft);
+      if (!isCurrentRequest(generation, workspaceRequestGeneration.current)) return;
       setWorkspace(value);
       setWorkspaceDraft(value.workspaceId);
       await loadInstallations(value.workspaceId);
     } catch (error) {
-      setWorkspaceError(toPlatformErrorView(error, 'Unable to create Workspace.'));
+      if (isCurrentRequest(generation, workspaceRequestGeneration.current)) {
+        setWorkspaceError(toPlatformErrorView(error, 'Unable to create Workspace.'));
+      }
     } finally {
-      setWorkspaceLoading(false);
+      if (isCurrentRequest(generation, workspaceRequestGeneration.current)) setWorkspaceLoading(false);
     }
   };
 
@@ -193,39 +203,57 @@ export default function App() {
     if (!matchesPublishedRelease(release, agent)) {
       throw new NekiroApiError(0, 'The selected Release is not a published match for the selected Agent Card.', 'INVALID_RESPONSE');
     }
-    const installation = await ownerClient.installAgent(workspace.workspaceId, {
+    const operationWorkspaceId = workspace.workspaceId;
+    const installation = await ownerClient.installAgent(operationWorkspaceId, {
       agentId: agent.id,
       versionConstraint: release.agentCardVersion,
       acceptedPermissions,
     });
-    validateTrustedInstallation(installation, release, agent.id);
-    await loadInstallations(workspace.workspaceId);
+    try {
+      validateTrustedInstallation(installation, release, agent.id);
+    } finally {
+      if (activeWorkspaceRef.current?.workspaceId === operationWorkspaceId) {
+        await loadInstallations(operationWorkspaceId);
+      }
+    }
   };
 
   const handleUpdateInstallation = async (installation: Installation, status: Exclude<InstallationStatus, 'uninstalled'>) => {
-    if (!workspace) {
+    const operationWorkspaceId = workspace?.workspaceId;
+    const operationGeneration = workspaceRequestGeneration.current;
+    if (!operationWorkspaceId) {
       return;
     }
     setInstallationError(null);
     try {
-      await ownerClient.updateInstallation(workspace.workspaceId, installation.installationId, status);
-      await loadInstallations(workspace.workspaceId);
+      await ownerClient.updateInstallation(operationWorkspaceId, installation.installationId, status);
+      if (isCurrentRequest(operationGeneration, workspaceRequestGeneration.current) && activeWorkspaceRef.current?.workspaceId === operationWorkspaceId) {
+        await loadInstallations(operationWorkspaceId);
+      }
     } catch (error) {
-      setInstallationError(toPlatformErrorView(error, 'Unable to update Installation.'));
+      if (isCurrentRequest(operationGeneration, workspaceRequestGeneration.current)) {
+        setInstallationError(toPlatformErrorView(error, 'Unable to update Installation.'));
+      }
     }
   };
 
   const handleUninstall = async (installation: Installation) => {
-    if (!workspace) {
+    const operationWorkspaceId = workspace?.workspaceId;
+    const operationGeneration = workspaceRequestGeneration.current;
+    if (!operationWorkspaceId) {
       return false;
     }
     setInstallationError(null);
     try {
-      await ownerClient.uninstallAgent(workspace.workspaceId, installation.installationId);
-      await loadInstallations(workspace.workspaceId);
+      await ownerClient.uninstallAgent(operationWorkspaceId, installation.installationId);
+      if (isCurrentRequest(operationGeneration, workspaceRequestGeneration.current) && activeWorkspaceRef.current?.workspaceId === operationWorkspaceId) {
+        await loadInstallations(operationWorkspaceId);
+      }
       return true;
     } catch (error) {
-      setInstallationError(toPlatformErrorView(error, 'Unable to uninstall Agent.'));
+      if (isCurrentRequest(operationGeneration, workspaceRequestGeneration.current)) {
+        setInstallationError(toPlatformErrorView(error, 'Unable to uninstall Agent.'));
+      }
       return false;
     }
   };

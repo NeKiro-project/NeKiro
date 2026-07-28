@@ -19,8 +19,8 @@ workflow and displays the reverse `Runtime B -> Router -> Runtime A` lineage.
 
 ## Verification
 
-- Slice D CI run `30322101411`: all eight checks passed, including frontend,
-  backend acceptance, runtime samples, Compose configuration, and
+- Slice D CI run `30322101411`: seven workflow jobs plus the Codecov patch
+  check passed, including frontend, backend acceptance, runtime samples, Compose configuration, and
   `console-browser-acceptance`.
 - Frontend local checks: `pnpm typecheck`, `pnpm test` (37/37), `pnpm build`,
   and `git diff --check` passed.
