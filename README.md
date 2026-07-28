@@ -64,13 +64,15 @@ Gateway-only trusted workflow: Register -> Verify -> Publish -> Discover ->
 Install -> Invoke -> Record. It preserves the four isolated comparison demo
 routes, keeps provider and Workspace-owner credentials separate and transient,
 and displays Gateway-provided Invocation/Trace lineage. Root CI run
-`30319275997` passed all seven checks, including the fresh Compose backend
-acceptance and production `console-browser-acceptance`. The standalone Console
-source and its independently reviewed UI/browser PRs remain in
-[NeKiro-Console](https://github.com/NeKiro-project/NeKiro-Console); root
-integration is tracked by [PR #62](https://github.com/NeKiro-project/NeKiro/pull/62).
-Independent root PR separation for the backend reverse fixture and frontend
-integration remains a delivery-closure item, not a runtime behavior gap.
+`30322101411` passed all eight checks, including the fresh Compose backend
+acceptance and production `console-browser-acceptance`. The reverse backend
+slice is tracked by [PR #63](https://github.com/NeKiro-project/NeKiro/pull/63)
+and the stacked Console/CI integration by
+[PR #64](https://github.com/NeKiro-project/NeKiro/pull/64). The standalone
+Console source and its independently reviewed UI/browser PRs remain in
+[NeKiro-Console](https://github.com/NeKiro-project/NeKiro-Console). The
+historical Slice A T005 ordering deviation remains a process record, not a
+runtime behavior gap.
 
 The Go Workspace Client SDK under `sdks/client-sdk` is the application-facing
 entry point for invoking an installed Agent through Gateway. One immutable

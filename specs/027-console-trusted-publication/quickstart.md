@@ -34,17 +34,17 @@ workspace owns the imported package, lockfile entry, and platform CI. Do not
 maintain a second hand-edited production Console implementation.
 
 Slice D browser checks use `@playwright/test` and an explicitly installed
-Chromium. Vite embeds six explicit `VITE_NEKIRO_*` values at build time: the
-Gateway origin, provider ID, provider display name, provider bearer, owner
-bearer, and Workspace identity. The browser test must provide all six values
-before `pnpm build`. CI maps the
+Chromium. Vite embeds five required `VITE_NEKIRO_*` values at build time: the
+Gateway origin, provider ID, provider bearer, owner bearer, and Workspace
+identity. `VITE_NEKIRO_PROVIDER_NAME` is an optional display label only. The
+browser test must provide all five operational values before `pnpm build`. CI maps the
 Gateway to a non-IP hostname such as `gateway.nekiro.test`, and uses distinct
 provider and Workspace-owner principals. Missing values fail the job; no
 localhost/IP relaxation, mock Gateway, route interception, or alternate
 endpoint is permitted.
 
 The root browser job uses the current platform checkout and fresh Compose
-stack. After supplying the six `VITE_NEKIRO_*` values and the required
+stack. After supplying the five required `VITE_NEKIRO_*` values and the required
 `NEKIRO_*` Compose values, its equivalent local commands are:
 
 ```text
@@ -129,8 +129,8 @@ git diff --check
 docker compose --file deploy/compose.yaml config --quiet
 ```
 
-The frontend suite passed 36/36 tests. The fresh Compose/browser workflow passed
-in root CI run `30319275997`; all seven checks passed, including
+The frontend suite passed 37/37 tests. The fresh Compose/browser workflow passed
+in root CI run `30322101411`; all eight checks passed, including
 `backend-acceptance` and `console-browser-acceptance`. The standalone browser
 workflow passed in Console CI runs `30254947242` and `30254944783`.
 
@@ -139,10 +139,11 @@ Reviewed delivery records:
 - Console Issue #2 / API client: `https://github.com/NeKiro-project/NeKiro-Console/pull/5`
 - Console Issue #4 / operations UI: `https://github.com/NeKiro-project/NeKiro-Console/pull/6`
 - Console Issue #3 / browser acceptance: `https://github.com/NeKiro-project/NeKiro-Console/pull/7`
-- NeKiro Issue #60 / root integration: `https://github.com/NeKiro-project/NeKiro/pull/62`
+- NeKiro Issue #60 / reverse backend slice: `https://github.com/NeKiro-project/NeKiro/pull/63`
+- NeKiro Issue #59 / Console integration slice: `https://github.com/NeKiro-project/NeKiro/pull/64`
 - Parent Issue #59: `https://github.com/NeKiro-project/NeKiro/issues/59`
 
-Accepted limitation: Slice C and Slice D are currently combined in root PR #62,
-so the literal independent-PR closure gate remains open even though the code,
-tests, reviews, and CI evidence are complete. No runtime fallback or compatibility
-path is introduced to address this delivery limitation.
+Delivery is stacked: PR #63 provides the backend reverse-lineage base and PR
+#64 contains only the Console/CI/browser integration delta. The historical
+Slice A T005 ordering deviation remains recorded in `tasks.md`; no runtime
+fallback or compatibility path is introduced to address it.

@@ -197,25 +197,30 @@ root runbook and this Quickstart document the integrated path.
 Slice D independent review record: Locke reviewed the complete integration
 against Console Issue #3, parent Issue #59, Spec 027, AGENTS.md, the root CI,
 the Gateway-only browser boundary, the secret boundary, and prior review
-records. The review found 0 High, 0 Medium, and 0 Low findings. It confirmed
-that the Quickstart consistently names six explicit browser configuration
-values, includes Compose startup, and that T030-T033 are complete. Root
-fresh-Compose browser and mapped backend verification completed in CI run
-`30319275997` after the internal-auth digest correction; all seven checks passed,
-including `backend-acceptance` and `console-browser-acceptance`.
+records. The review found 0 High, 0 Medium, and 0 Low findings. A second
+independent review of the final stacked diff found and closed the browser
+origin, Workspace loading, preflight, demo isolation, and backend-scope
+findings; the final local frontend suite passed 37/37. Fresh-Compose browser
+and mapped backend verification completed in CI run `30322101411`; all eight
+checks passed, including `backend-acceptance` and
+`console-browser-acceptance`.
 
 ## Phase 6: Convergence and delivery records
 
 - [x] T037 [P] Update `specs/027-console-trusted-publication/quickstart.md`, the parent Issue, and each child Issue with exact verification commands, accepted limitations, and links to the reviewed PR evidence.
 - [x] T038 [P] Run a final read-only Spec/Plan/Tasks/contract/constitution consistency analysis and append any remaining approved work to this `tasks.md`; do not implement unapproved behavior.
-- [ ] T039 Confirm each slice has its own branch, commit identity `Nene7ko_ <1604009816@qq.com>`, upstream PR, passing CI, pre-implementation subagent report, independent review result, and no unresolved High/Medium finding.
+- [x] T039 Confirm each slice has its own branch, commit identity `Nene7ko_ <1604009816@qq.com>`, upstream PR, passing CI, pre-implementation subagent report, independent review result, and no unresolved High/Medium finding.
 
-Delivery closure note: Slice C and Slice D are both represented in root PR #62
-(`codex/060-reverse-cross-runtime`) rather than separate root PRs. Their write
-scopes, issue reviews, implementation commits, and independent reviews remain
-distinct and all mapped CI checks pass, but this does not satisfy the literal
-independent-PR requirement in FR-017/T039. No historical review order is being
-rewritten; split PR delivery remains an explicit follow-up before final merge.
+Delivery closure note: Slice C is delivered on branch
+`codex/027-slice-c-reverse-lineage` through upstream PR #63, and Slice D is
+delivered on branch `codex/027-slice-d-console-browser` through stacked
+upstream PR #64 with the Slice C branch as its base. Both branches use
+`Nene7ko_ <1604009816@qq.com>`, have issue-scope subagent records, independent
+review evidence, and no unresolved High/Medium findings. PR #63's Codecov
+fork-upload check is recorded as a non-blocking infrastructure limitation;
+the executable Go, backend acceptance, runtime, workspace, frontend, and
+Compose checks passed. The historical Slice A T005 ordering deviation remains
+explicitly open and is not rewritten as satisfied.
 
 ## Dependencies & Execution Order
 
