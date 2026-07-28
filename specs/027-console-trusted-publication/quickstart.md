@@ -27,6 +27,38 @@ pnpm build
 
 The commands must discover `apps/console` and execute its non-empty scripts.
 
+The reviewed production source is imported from the standalone
+`NeKiro-project/NeKiro-Console` repository into `apps/console`; the standalone
+repository remains the upstream source for Console Issues #2/#4/#3. The root
+workspace owns the imported package, lockfile entry, and platform CI. Do not
+maintain a second hand-edited production Console implementation.
+
+Slice D browser checks use `@playwright/test` and an explicitly installed
+Chromium. Vite embeds five required `VITE_NEKIRO_*` values at build time: the
+Gateway origin, provider ID, provider bearer, owner bearer, and Workspace
+identity. `VITE_NEKIRO_PROVIDER_NAME` is an optional display label only. The
+browser test must provide all five operational values before `pnpm build`. CI maps the
+Gateway to a non-IP hostname such as `gateway.nekiro.test`, and uses distinct
+provider and Workspace-owner principals. Missing values fail the job; no
+localhost/IP relaxation, mock Gateway, route interception, or alternate
+endpoint is permitted.
+
+The root browser job uses the current platform checkout and fresh Compose
+stack. After supplying the five required `VITE_NEKIRO_*` values and the required
+`NEKIRO_*` Compose values, its equivalent local commands are:
+
+```text
+docker compose --project-name nekiro-root-console-browser --file deploy/compose.yaml up --build --detach --wait --wait-timeout 120
+pnpm --dir apps/console exec playwright install --with-deps chromium
+pnpm --dir apps/console run build
+pnpm --dir apps/console run test:e2e
+docker compose --project-name nekiro-root-console-browser --file deploy/compose.yaml down --volumes --remove-orphans
+```
+
+Always tear down the acceptance Compose project with `--volumes
+--remove-orphans`. The browser route uses only the Gateway hostname and never
+calls an Agent or Router-internal endpoint directly.
+
 From the standalone Console repository, the same focused commands remain:
 
 ```text
@@ -84,3 +116,45 @@ The acceptance must include the reverse B -> Router -> A lineage and must
 report exact Release IDs, parent/child Invocation IDs, and Trace IDs on failure.
 Runtime A and Runtime B must each receive separate explicit Router Agent
 tokens and response/event limits; missing values must fail Compose interpolation.
+
+## Verification evidence
+
+The current root checkout was verified with:
+
+```text
+pnpm typecheck
+pnpm test
+pnpm build
+git diff --check
+docker compose --file deploy/compose.yaml config --quiet
+```
+
+The frontend suite passed 44/44 tests. The fresh Compose/browser workflow passed
+in root CI run `30322101411`; seven workflow jobs plus the Codecov patch check
+passed, including
+`backend-acceptance` and `console-browser-acceptance`. The standalone browser
+workflow passed in Console CI runs `30254947242` and `30254944783`.
+
+Reviewed delivery records:
+
+- Console Issue #2 / API client: `https://github.com/NeKiro-project/NeKiro-Console/pull/5`
+- Console Issue #4 / operations UI: `https://github.com/NeKiro-project/NeKiro-Console/pull/6`
+- Console Issue #3 / browser acceptance: `https://github.com/NeKiro-project/NeKiro-Console/pull/7`
+- NeKiro Issue #60 / reverse backend slice: `https://github.com/NeKiro-project/NeKiro/pull/63`
+- NeKiro Issue #59 / Console integration slice: `https://github.com/NeKiro-project/NeKiro/pull/64`
+- Parent Issue #59: `https://github.com/NeKiro-project/NeKiro/issues/59`
+
+Delivery is stacked: PR #63 provides the backend reverse-lineage base and PR
+#64 contains only the Console/CI/browser integration delta. The historical
+Slice A T005 ordering deviation remains recorded in `tasks.md`; no runtime
+fallback or compatibility path is introduced to address it.
+
+Phase 9 convergence preserves valid backend `uint64` SemVer components at and
+above `Number.MAX_SAFE_INTEGER` by ranking numeric components with `BigInt`
+before delegating comparison to `semver`. This keeps caret and wildcard
+ranges' implicit successor bounds meaningful without JavaScript precision loss.
+Failed authoritative Binding reads clear the Binding, Release, handoff IDs,
+and destructive confirmation state together, so stale lifecycle controls are
+not left actionable. Carver's final independent review reported 0 High, 0
+Medium, and 0 Low findings. Local Docker remains unavailable; fresh-Compose
+browser acceptance is the CI gate.

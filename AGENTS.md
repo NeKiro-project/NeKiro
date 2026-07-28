@@ -3,8 +3,22 @@
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/026-trusted-publication-acceptance/plan.md
+at specs/027-console-trusted-publication/plan.md
 <!-- SPECKIT END -->
+
+## Current delivery status
+
+Spec 027 has implemented the production Console, trusted publication operations,
+the reverse Runtime B -> Router -> Runtime A acceptance, and real frontend CI.
+The reviewed Console is imported under `apps/console`; root CI run
+`30322101411` passed seven workflow jobs plus the Codecov patch check (eight
+reported checks). Slice C is delivered through upstream PR
+#63 and Slice D is delivered through stacked upstream PR #64, satisfying the
+independent-PR scope gate. The historical Slice A T005 ordering deviation
+remains explicitly recorded in `specs/027-console-trusted-publication/tasks.md`
+and is not retroactively claimed as satisfied. The older Spec 026-only status
+paragraph below is retained as historical context and is superseded by this
+current delivery record.
 
 本文件是整个仓库的长期项目宪章，适用于所有目录、模块和参与者。它记录稳定的产品目标、领域语言、架构边界和交付标准，不替代具体需求、API 文档或 ADR。
 
