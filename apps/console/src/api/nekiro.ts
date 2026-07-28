@@ -831,6 +831,24 @@ function validateEndpointBinding(value: unknown, expected: {providerId?: string;
   if ('verificationEvidenceDigest' in record) result.verificationEvidenceDigest = requireDigest(record.verificationEvidenceDigest, 'verificationEvidenceDigest');
   if ('verifiedAt' in record) result.verifiedAt = requireDateValue(record.verifiedAt, 'verifiedAt');
   if ('revokedAt' in record) result.revokedAt = requireDateValue(record.revokedAt, 'revokedAt');
+  switch (result.verificationStatus) {
+    case 'pending':
+      rejectPresent(record, ['verificationFailureCode', 'verificationEvidenceDigest', 'verifiedAt', 'revokedAt'], 'pending Endpoint Binding');
+      break;
+    case 'verified':
+      result.verificationEvidenceDigest = requireDigest(record.verificationEvidenceDigest, 'verificationEvidenceDigest');
+      result.verifiedAt = requireDateValue(record.verifiedAt, 'verifiedAt');
+      rejectPresent(record, ['verificationFailureCode', 'revokedAt'], 'verified Endpoint Binding');
+      break;
+    case 'failed':
+      result.verificationFailureCode = requireBoundedText(record.verificationFailureCode, 'verificationFailureCode', 1, 64);
+      rejectPresent(record, ['verificationEvidenceDigest', 'verifiedAt', 'revokedAt'], 'failed Endpoint Binding');
+      break;
+    case 'revoked':
+      result.revokedAt = requireDateValue(record.revokedAt, 'revokedAt');
+      rejectPresent(record, ['verificationFailureCode', 'verificationEvidenceDigest', 'verifiedAt'], 'revoked Endpoint Binding');
+      break;
+  }
   if (expected.providerId !== undefined && result.providerId !== expected.providerId) throw new Error('Endpoint Binding provider does not match the request');
   if (expected.agentId !== undefined && result.agentId !== expected.agentId) throw new Error('Endpoint Binding Agent does not match the request');
   if (expected.version !== undefined && result.agentCardVersion !== expected.version) throw new Error('Endpoint Binding version does not match the request');
@@ -874,6 +892,34 @@ function validateAgentRelease(value: unknown, expected: {providerId?: string; ag
   if ('publishedAt' in record) result.publishedAt = requireDateValue(record.publishedAt, 'publishedAt');
   if ('suspendedAt' in record) result.suspendedAt = requireDateValue(record.suspendedAt, 'suspendedAt');
   if ('revokedAt' in record) result.revokedAt = requireDateValue(record.revokedAt, 'revokedAt');
+  switch (result.state) {
+    case 'draft':
+    case 'pending_verification':
+      rejectPresent(record, ['verificationEvidenceDigest', 'verifiedAt', 'publishedAt', 'suspendedAt', 'revokedAt'], result.state + ' Agent Release');
+      break;
+    case 'verified':
+      result.verificationEvidenceDigest = requireDigest(record.verificationEvidenceDigest, 'verificationEvidenceDigest');
+      result.verifiedAt = requireDateValue(record.verifiedAt, 'verifiedAt');
+      rejectPresent(record, ['publishedAt', 'suspendedAt', 'revokedAt'], 'verified Agent Release');
+      break;
+    case 'published':
+      result.verificationEvidenceDigest = requireDigest(record.verificationEvidenceDigest, 'verificationEvidenceDigest');
+      result.verifiedAt = requireDateValue(record.verifiedAt, 'verifiedAt');
+      result.publishedAt = requireDateValue(record.publishedAt, 'publishedAt');
+      rejectPresent(record, ['suspendedAt', 'revokedAt'], 'published Agent Release');
+      break;
+    case 'suspended':
+      result.verificationEvidenceDigest = requireDigest(record.verificationEvidenceDigest, 'verificationEvidenceDigest');
+      result.verifiedAt = requireDateValue(record.verifiedAt, 'verifiedAt');
+      result.suspendedAt = requireDateValue(record.suspendedAt, 'suspendedAt');
+      rejectPresent(record, ['revokedAt'], 'suspended Agent Release');
+      break;
+    case 'revoked':
+      result.verificationEvidenceDigest = requireDigest(record.verificationEvidenceDigest, 'verificationEvidenceDigest');
+      result.verifiedAt = requireDateValue(record.verifiedAt, 'verifiedAt');
+      result.revokedAt = requireDateValue(record.revokedAt, 'revokedAt');
+      break;
+  }
   if (expected.providerId !== undefined && result.providerId !== expected.providerId) throw new Error('Agent Release provider does not match the request');
   if (expected.agentId !== undefined && result.agentId !== expected.agentId) throw new Error('Agent Release Agent does not match the request');
   if (expected.version !== undefined && result.agentCardVersion !== expected.version) throw new Error('Agent Release version does not match the request');
@@ -891,6 +937,12 @@ function isTrustedPublicationError(value: unknown): value is TrustedPublicationE
     && value.message.length > 0
     && typeof value.traceId === 'string'
     && /^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,127})$/.test(value.traceId);
+}
+
+function rejectPresent(record: Record<string, unknown>, fields: string[], state: string): void {
+  for (const field of fields) {
+    if (field in record) throw new Error(`${field} must be absent for ${state}`);
+  }
 }
 
 function validateInvocationResult(value: unknown): InvocationResultV1 {
