@@ -240,6 +240,53 @@ pnpm build
 
 The frozen install fails when `pnpm-lock.yaml` and workspace manifests disagree.
 
+## Run the integrated Console
+
+The production Console is owned upstream by the standalone
+`NeKiro-project/NeKiro-Console` repository and imported into `apps/console` for
+root workspace CI. Do not edit a second production copy or add direct Agent,
+Router-internal, database, retry, or alternate-endpoint calls to the browser.
+
+The root frontend checks must execute the imported package:
+
+```powershell
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
+For the real browser acceptance, configure the six build-time values below
+plus the explicit Compose variables from the `backend-acceptance` CI job:
+
+```powershell
+$env:VITE_NEKIRO_API_BASE_URL = 'http://gateway.nekiro.test:18080'
+$env:VITE_NEKIRO_PROVIDER_ID = 'provider-id'
+$env:VITE_NEKIRO_PROVIDER_NAME = 'Provider'
+$env:VITE_NEKIRO_PROVIDER_TOKEN = 'provider-token'
+$env:VITE_NEKIRO_OWNER_TOKEN = 'owner-token'
+$env:VITE_NEKIRO_DEFAULT_WORKSPACE_ID = 'workspace-id'
+$env:NEKIRO_E2E_BASE_URL = 'http://127.0.0.1:4173'
+$env:NEKIRO_E2E_COMPOSE_PROJECT = 'nekiro-root-console-browser-local'
+$env:NEKIRO_E2E_COMPOSE_FILE = "$PWD/deploy/compose.yaml"
+```
+
+Map `gateway.nekiro.test` to `127.0.0.1`, start a fresh Compose project, then
+run the production build and browser test:
+
+```powershell
+docker compose --project-name $env:NEKIRO_E2E_COMPOSE_PROJECT --file $env:NEKIRO_E2E_COMPOSE_FILE up --build --detach --wait --wait-timeout 120
+pnpm --dir apps/console exec playwright install --with-deps chromium
+pnpm --dir apps/console run build
+pnpm --dir apps/console run test:e2e
+docker compose --project-name $env:NEKIRO_E2E_COMPOSE_PROJECT --file $env:NEKIRO_E2E_COMPOSE_FILE down --volumes --remove-orphans
+```
+
+The browser flow is `Register -> Verify -> Publish -> Discover -> Install ->
+Invoke -> Record`. Provider and Workspace-owner bearer values are separate and
+remain in process configuration only. The challenge proof is transient UI
+data; the Ledger displays metadata and lineage, not invocation result payloads.
+
 ## Stop or reset
 
 Stop containers while retaining database data:
