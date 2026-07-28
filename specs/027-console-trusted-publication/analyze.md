@@ -35,7 +35,7 @@ and is already represented by T005; it is not a new runtime or contract gap.
 - Root Slice D CI run `30322101411` passed seven workflow jobs plus the Codecov
   patch check, including `backend-acceptance` and `console-browser-acceptance`.
 - Standalone Console browser CI runs `30254947242` and `30254944783` passed.
-- Root frontend checks passed: `pnpm typecheck`, `pnpm test` (41/41), `pnpm
+- Root frontend checks passed: `pnpm typecheck`, `pnpm test` (42/42), `pnpm
   build`, `git diff --check`, and Compose configuration validation.
 - The prior browser failure was caused by reversed internal-auth digest wiring;
   commit `7a7aaa7` corrected the mapping and the fresh Slice D CI run passed.
