@@ -69,6 +69,8 @@ export default function App() {
       setCatalogReady(true);
     } catch (error) {
       if (!isCurrentRequest(generation, catalogRequestGeneration.current)) return;
+      setAgents([]);
+      setCatalogReady(false);
       setCatalogError(toPlatformErrorView(error, 'Unable to load the NeKiro Catalog.'));
     } finally {
       if (isCurrentRequest(generation, catalogRequestGeneration.current)) setCatalogLoading(false);
@@ -86,6 +88,7 @@ export default function App() {
       setProviderAgents(response.items.map(mapCatalogEntry).filter((agent) => agent.ownerId === providerId));
     } catch (error) {
       if (!isCurrentRequest(generation, providerCatalogRequestGeneration.current)) return;
+      setProviderAgents([]);
       setProviderCatalogError(toPlatformErrorView(error, 'Unable to load provider-owned Agent Cards.'));
     }
   }, [providerClient]);

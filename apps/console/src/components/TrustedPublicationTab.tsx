@@ -34,7 +34,7 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
     setConfirmAction(null);
   }, [release?.releaseId, release?.state]);
 
-  const selectedAgent = availableAgents.find((agent) => agentKey(agent) === selectedAgentKey) ?? availableAgents[0];
+  const selectedAgent = availableAgents.find((agent) => agentKey(agent) === selectedAgentKey);
 
   const selectAgent = (value: string) => {
     requestGeneration.current = nextRequestGeneration(requestGeneration.current);

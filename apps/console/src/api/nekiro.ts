@@ -452,19 +452,19 @@ export class NekiroApiClient {
   createWorkspace(workspaceId: string): Promise<Workspace> {
     return this.request<unknown>('/v3/workspaces', {
       method: 'POST',
-      body: JSON.stringify({workspaceId: readText(workspaceId, 'workspaceId')}),
+      body: JSON.stringify({workspaceId: readIdentifier(workspaceId, 'workspaceId')}),
     }, 201).then((value) => validateWorkspace(value));
   }
 
   getWorkspace(workspaceId: string): Promise<Workspace> {
-    return this.request<unknown>('/v3/workspaces/' + encodeURIComponent(readText(workspaceId, 'workspaceId'))).then((value) => validateWorkspace(value));
+    return this.request<unknown>('/v3/workspaces/' + encodeURIComponent(readIdentifier(workspaceId, 'workspaceId'))).then((value) => validateWorkspace(value));
   }
 
   installAgent(workspaceId: string, request: InstallAgentRequest): Promise<Installation> {
     return this.request<unknown>(this.workspaceInstallationPath(workspaceId), {
       method: 'POST',
       body: JSON.stringify({
-        agentId: readText(request.agentId, 'agentId'),
+        agentId: readIdentifier(request.agentId, 'agentId'),
         versionConstraint: readText(request.versionConstraint, 'versionConstraint'),
         acceptedPermissions: request.acceptedPermissions,
       }),
@@ -615,19 +615,19 @@ export class NekiroApiClient {
   }
 
   private workspaceInstallationPath(workspaceId: string): string {
-    return '/v3/workspaces/' + encodeURIComponent(readText(workspaceId, 'workspaceId')) + '/installations';
+    return '/v3/workspaces/' + encodeURIComponent(readIdentifier(workspaceId, 'workspaceId')) + '/installations';
   }
 
   private installationPath(workspaceId: string, installationId: string): string {
-    return this.workspaceInstallationPath(workspaceId) + '/' + encodeURIComponent(readText(installationId, 'installationId'));
+    return this.workspaceInstallationPath(workspaceId) + '/' + encodeURIComponent(readIdentifier(installationId, 'installationId'));
   }
 
   private invocationPath(workspaceId: string): string {
-    return '/v4/workspaces/' + encodeURIComponent(readText(workspaceId, 'workspaceId')) + '/invocations';
+    return '/v4/workspaces/' + encodeURIComponent(readIdentifier(workspaceId, 'workspaceId')) + '/invocations';
   }
 
   private tracePath(workspaceId: string, traceId: string): string {
-    return '/v4/workspaces/' + encodeURIComponent(readText(workspaceId, 'workspaceId')) + '/traces/' + encodeURIComponent(readIdentifier(traceId, 'traceId'));
+    return '/v4/workspaces/' + encodeURIComponent(readIdentifier(workspaceId, 'workspaceId')) + '/traces/' + encodeURIComponent(readIdentifier(traceId, 'traceId'));
   }
 
   private releaseAction(releaseId: string, action: 'verify' | 'publish' | 'suspend' | 'revoke'): Promise<AgentRelease> {
@@ -1229,8 +1229,8 @@ function validateAgentLimits(value: AgentCardV02['limits']): void {
   if (!isRecord(value)) throw new Error('limits must be a JSON object');
   assertAllowedKeys(value, ['timeoutMs', 'maxInputBytes', 'maxOutputBytes', 'streaming'], 'limits');
   if (!Number.isInteger(value.timeoutMs) || value.timeoutMs < 1 || value.timeoutMs > 600000) throw new Error('limits.timeoutMs must be between 1 and 600000');
-  if (!Number.isInteger(value.maxInputBytes) || value.maxInputBytes < 1 || value.maxInputBytes > 2147483647) throw new Error('limits.maxInputBytes must be between 1 and 2147483647');
-  if (!Number.isInteger(value.maxOutputBytes) || value.maxOutputBytes < 1 || value.maxOutputBytes > 2147483647) throw new Error('limits.maxOutputBytes must be between 1 and 2147483647');
+  if (!Number.isInteger(value.maxInputBytes) || value.maxInputBytes < 1) throw new Error('limits.maxInputBytes must be a positive integer');
+  if (!Number.isInteger(value.maxOutputBytes) || value.maxOutputBytes < 1) throw new Error('limits.maxOutputBytes must be a positive integer');
   if (typeof value.streaming !== 'boolean') throw new Error('limits.streaming must be a boolean');
 }
 
@@ -1275,15 +1275,29 @@ function validateCatalogCard(value: unknown): AgentCardV02 {
     assertPermissionKeys(permission, index);
     return {id: readIdentifier(permission.id, `permissions[${index}].id`), description: readText(permission.description, `permissions[${index}].description`)};
   });
-  const skills = readRecordArray(record.skills, 'skills').map((skill, index) => {
+  ensureUnique(permissions.map((permission) => permission.id), 'permission id');
+  const declaredPermissions = new Set(permissions.map((permission) => permission.id));
+  const skillRecords = readRecordArray(record.skills, 'skills');
+  if (skillRecords.length === 0) throw new Error('skills must contain at least one skill');
+  const skillIds = new Set<string>();
+  const skills = skillRecords.map((skill, index) => {
     assertAllowedKeys(skill, ['id', 'name', 'description', 'inputSchema', 'outputSchema', 'requiredPermissions'], `skills[${index}]`);
+    const id = readIdentifier(skill.id, `skills[${index}].id`);
+    if (skillIds.has(id)) throw new Error('duplicate skill id: ' + id);
+    skillIds.add(id);
+    const requiredPermissions = readStringArray(skill.requiredPermissions, `skills[${index}].requiredPermissions`);
+    for (const permissionId of requiredPermissions) {
+      if (!declaredPermissions.has(permissionId)) {
+        throw new Error('required permission is not declared in permissions: ' + permissionId);
+      }
+    }
     return {
-      id: readIdentifier(skill.id, `skills[${index}].id`),
+      id,
       name: readText(skill.name, `skills[${index}].name`),
       description: readText(skill.description, `skills[${index}].description`),
       inputSchema: requireRecord(skill.inputSchema, `skills[${index}].inputSchema`),
       outputSchema: requireRecord(skill.outputSchema, `skills[${index}].outputSchema`),
-      requiredPermissions: readStringArray(skill.requiredPermissions, `skills[${index}].requiredPermissions`),
+      requiredPermissions,
     };
   });
   validateAgentLimits(record.limits as AgentCardV02['limits']);
@@ -1452,49 +1466,140 @@ interface SemverParts {
   prerelease: string[];
 }
 
+interface SemverRangeVersion {
+  value: SemverParts;
+  majorWildcard: boolean;
+  minorWildcard: boolean;
+  patchWildcard: boolean;
+}
+
+interface SemverRangeToken {
+  operator: string;
+  version: SemverRangeVersion;
+}
+
 function satisfiesSemverRange(version: string, range: string): boolean {
   const parsedVersion = parseSemver(version);
   if (!parsedVersion) return false;
-  return range.split('||').some((branch) => satisfiesSemverBranch(parsedVersion, branch));
+  const branches = range.split('||').map((branch) => parseSemverBranch(branch));
+  if (branches.some((branch) => branch === undefined)) return false;
+  return branches.some((branch) => branch !== undefined && satisfiesSemverBranch(parsedVersion, branch));
 }
 
-function satisfiesSemverBranch(version: SemverParts, branch: string): boolean {
-  const tokens = branch.trim().split(/[\s,]+/).filter(Boolean);
-  if (tokens.length === 0) return false;
+function parseSemverBranch(branch: string): SemverRangeToken[] | undefined {
+  const hyphen = /^\s*(\S+)\s+-\s+(\S+)\s*$/.exec(branch);
+  if (hyphen) {
+    const lower = parseSemverRangeVersion(hyphen[1]);
+    const upper = parseSemverRangeVersion(hyphen[2]);
+    if (!lower || !upper) return undefined;
+    return [{operator: '>=', version: lower}, {operator: '<=', version: upper}];
+  }
+  const rawTokens = branch.trim().split(/[\s,]+/).filter(Boolean);
+  if (rawTokens.length === 0) return undefined;
+  const tokens = rawTokens.map((token) => parseSemverRangeToken(token));
+  return tokens.some((token) => token === undefined) ? undefined : tokens as SemverRangeToken[];
+}
+
+function parseSemverRangeToken(token: string): SemverRangeToken | undefined {
+  const match = /^(>=|<=|!=|=>|=<|>|<|=|~>|~|\^)?(.+)$/.exec(token);
+  if (!match) return undefined;
+  const version = parseSemverRangeVersion(match[2]);
+  if (!version) return undefined;
+  return {operator: match[1] ?? '', version};
+}
+
+function parseSemverRangeVersion(value: string): SemverRangeVersion | undefined {
+  const match = /^v?(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(value);
+  if (!match) return undefined;
+  const majorWildcard = isSemverWildcard(match[1]);
+  const minorWildcard = match[2] === undefined || isSemverWildcard(match[2]);
+  const patchWildcard = match[3] === undefined || isSemverWildcard(match[3]);
+  if (match[4] !== undefined && (majorWildcard || minorWildcard || patchWildcard)) return undefined;
+  return {
+    value: {
+      major: majorWildcard ? 0 : Number(match[1]),
+      minor: minorWildcard ? 0 : Number(match[2]),
+      patch: patchWildcard ? 0 : Number(match[3]),
+      prerelease: match[4]?.split('.') ?? [],
+    },
+    majorWildcard,
+    minorWildcard,
+    patchWildcard,
+  };
+}
+
+function isSemverWildcard(value: string | undefined): boolean {
+  return value === undefined || value === 'x' || value === 'X' || value === '*';
+}
+
+function satisfiesSemverBranch(version: SemverParts, tokens: SemverRangeToken[]): boolean {
+  const includesPrerelease = tokens.some((token) => token.version.value.prerelease.length > 0);
+  if (version.prerelease.length > 0 && !includesPrerelease) return false;
   return tokens.every((token) => satisfiesSemverToken(version, token));
 }
 
-function satisfiesSemverToken(version: SemverParts, token: string): boolean {
-  if (token === '*' || token.toLowerCase() === 'x') return true;
-  const wildcard = /^(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?$/.exec(token);
-  if (wildcard) {
-    if (wildcard[1] === 'x' || wildcard[1] === 'X' || wildcard[1] === '*') return true;
-    if (version.major !== Number(wildcard[1])) return false;
-    if (wildcard[2] === undefined || ['x', 'X', '*'].includes(wildcard[2])) return true;
-    if (version.minor !== Number(wildcard[2])) return false;
-    return wildcard[3] === undefined || ['x', 'X', '*'].includes(wildcard[3]) || version.patch === Number(wildcard[3]);
-  }
-  const operatorMatch = /^(\^|~|>=|<=|>|<|=)?(.+)$/.exec(token);
-  if (!operatorMatch) return false;
-  const operator = operatorMatch[1] ?? '=';
-  const base = parseSemver(operatorMatch[2]);
-  if (!base) return false;
+function satisfiesSemverToken(version: SemverParts, token: SemverRangeToken): boolean {
+  const base = token.version.value;
   const comparison = compareSemver(version, base);
-  if (operator === '=') return comparison === 0;
-  if (operator === '>') return comparison > 0;
-  if (operator === '>=') return comparison >= 0;
-  if (operator === '<') return comparison < 0;
-  if (operator === '<=') return comparison <= 0;
-  if (operator === '^') {
-    const upper = base.major > 0
-      ? {major: base.major + 1, minor: 0, patch: 0, prerelease: []}
-      : base.minor > 0
-        ? {major: 0, minor: base.minor + 1, patch: 0, prerelease: []}
-        : {major: 0, minor: 0, patch: base.patch + 1, prerelease: []};
-    return compareSemver(version, base) >= 0 && compareSemver(version, upper) < 0;
+  switch (token.operator) {
+    case '':
+    case '=':
+      return token.version.majorWildcard
+        || (token.version.minorWildcard
+          ? version.major === base.major
+          : token.version.patchWildcard
+            ? version.major === base.major && version.minor === base.minor
+            : comparison === 0);
+    case '!=':
+      return token.version.majorWildcard
+        ? false
+        : token.version.minorWildcard
+          ? version.major !== base.major
+          : token.version.patchWildcard
+            ? version.major !== base.major || version.minor !== base.minor
+            : comparison !== 0;
+    case '>=':
+    case '=>':
+      return comparison >= 0;
+    case '<':
+      return comparison < 0;
+    case '>':
+      if (token.version.majorWildcard) return false;
+      if (token.version.minorWildcard) return version.major > base.major;
+      if (token.version.patchWildcard) return version.major > base.major || (version.major === base.major && version.minor > base.minor);
+      return comparison > 0;
+    case '<=':
+    case '=<':
+      if (token.version.majorWildcard) return true;
+      if (token.version.minorWildcard) return version.major < base.major + 1;
+      if (token.version.patchWildcard) return version.major < base.major || (version.major === base.major && version.minor < base.minor + 1);
+      return comparison <= 0;
+    case '~':
+    case '~>':
+      if (token.version.majorWildcard || (base.major === 0 && base.minor === 0 && base.patch === 0 && !token.version.patchWildcard)) return true;
+      return comparison >= 0 && compareSemver(version, tildeUpper(token.version)) < 0;
+    case '^':
+      if (token.version.majorWildcard) return true;
+      return comparison >= 0 && compareSemver(version, caretUpper(token.version)) < 0;
+    default:
+      return false;
   }
-  const upper = {major: base.major, minor: base.minor + 1, patch: 0, prerelease: []};
-  return compareSemver(version, base) >= 0 && compareSemver(version, upper) < 0;
+}
+
+function tildeUpper(version: SemverRangeVersion): SemverParts {
+  return version.minorWildcard
+    ? {major: version.value.major + 1, minor: 0, patch: 0, prerelease: []}
+    : {major: version.value.major, minor: version.value.minor + 1, patch: 0, prerelease: []};
+}
+
+function caretUpper(version: SemverRangeVersion): SemverParts {
+  if (version.value.major > 0 || version.minorWildcard) {
+    return {major: version.value.major + 1, minor: 0, patch: 0, prerelease: []};
+  }
+  if (version.value.minor > 0 || version.patchWildcard) {
+    return {major: 0, minor: version.value.minor + 1, patch: 0, prerelease: []};
+  }
+  return {major: 0, minor: 0, patch: version.value.patch + 1, prerelease: []};
 }
 
 function parseSemver(value: string): SemverParts | undefined {

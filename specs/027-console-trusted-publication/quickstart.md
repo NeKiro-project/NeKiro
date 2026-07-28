@@ -129,7 +129,7 @@ git diff --check
 docker compose --file deploy/compose.yaml config --quiet
 ```
 
-The frontend suite passed 37/37 tests. The fresh Compose/browser workflow passed
+The frontend suite passed 40/40 tests. The fresh Compose/browser workflow passed
 in root CI run `30322101411`; seven workflow jobs plus the Codecov patch check
 passed, including
 `backend-acceptance` and `console-browser-acceptance`. The standalone browser

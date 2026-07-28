@@ -221,6 +221,49 @@ test('NekiroApiClient enforces Installation v2 semantic response rules', async (
   await assert.rejects(() => client.getInstallation('workspace.alpha', 'installation-1'), /must not precede/);
 });
 
+test('NekiroApiClient evaluates the active SemVer range forms and prerelease rule', async () => {
+  const base = {
+    installationId: 'installation-1', workspaceId: 'workspace.alpha', agentId: 'agent.echo', versionConstraint: '1.2.3', installedVersion: '1.2.3', acceptedPermissions: [], status: 'enabled', installedAt: '2026-07-26T00:00:00Z', updatedAt: '2026-07-26T00:00:00Z',
+  };
+  let response: Record<string, unknown> = base;
+  const client = new NekiroApiClient({baseUrl: 'https://api.example.test', token: 'owner-token', fetchImpl: async () => new Response(JSON.stringify(response), {status: 200, headers: {'Content-Type': 'application/json'}})});
+  for (const [versionConstraint, installedVersion, expected] of [
+    ['1.2.3 - 2.3', '2.3.9', true],
+    ['~1.2.3', '1.2.9', true],
+    ['^0.2.3', '0.3.0', false],
+    ['>=1.2.3 <2.0.0', '1.5.0', true],
+    ['>=1.2.3 <2.0.0', '1.2.3-alpha', false],
+    ['>=1.2.3-alpha <2.0.0', '1.2.3-beta', true],
+    ['1.2.x || 2.0.0', '2.0.0', true],
+  ] as const) {
+    response = {...base, versionConstraint, installedVersion};
+    if (expected) {
+      await assert.doesNotReject(() => client.getInstallation('workspace.alpha', 'installation-1'));
+    } else {
+      await assert.rejects(() => client.getInstallation('workspace.alpha', 'installation-1'), /does not satisfy/);
+    }
+  }
+});
+
+test('NekiroApiClient enforces Agent Card semantic rules on Catalog responses', async () => {
+  let card = catalogCard();
+  const client = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'owner-token',
+    fetchImpl: async () => new Response(JSON.stringify({items: [{card, publicationStatus: 'published', registeredAt: '2026-07-26T00:00:00Z'}]}), {status: 200, headers: {'Content-Type': 'application/json'}}),
+  });
+  assert.equal((await client.searchAgents()).items.length, 1);
+
+  card = {...catalogCard(), skills: []};
+  await assert.rejects(() => client.searchAgents(), /skills must contain at least one/);
+  card = {...catalogCard(), skills: [catalogCard().skills[0], {...catalogCard().skills[0], id: 'runtime.echo'}]};
+  await assert.rejects(() => client.searchAgents(), /duplicate skill id/);
+  card = {...catalogCard(), permissions: [{id: 'READ_LOGS', description: 'Read logs.'}, {id: 'READ_LOGS', description: 'Duplicate.'}]};
+  await assert.rejects(() => client.searchAgents(), /duplicate permission id/);
+  card = {...catalogCard(), skills: [{...catalogCard().skills[0], requiredPermissions: ['MISSING']}]};
+  await assert.rejects(() => client.searchAgents(), /not declared/);
+});
+
 test('NekiroApiClient installs an exact trusted version and preserves Release provenance', async () => {
   const requests: Array<{url: string; init?: RequestInit}> = [];
   const installation = {
@@ -580,6 +623,22 @@ function trustedResponse(value: unknown, status: number, extraHeaders: Record<st
     status,
     headers: {'Content-Type': 'application/json', ...extraHeaders},
   });
+}
+
+function catalogCard(): AgentCardV02 {
+  return {
+    schemaVersion: '0.2',
+    agentId: 'agent.echo',
+    name: 'Echo Agent',
+    description: 'Echoes structured input.',
+    owner: {id: 'provider.main', displayName: 'Provider Main'},
+    version: '1.2.3',
+    protocol: {type: 'a2a', version: '0.3.0', transport: 'JSONRPC', endpoint: 'https://agent.example/a2a'},
+    skills: [{id: 'runtime.echo', name: 'Echo', description: 'Echo input.', inputSchema: {type: 'object'}, outputSchema: {type: 'object'}, requiredPermissions: ['READ_LOGS']}],
+    authentication: {type: 'none'},
+    permissions: [{id: 'READ_LOGS', description: 'Read logs.'}],
+    limits,
+  };
 }
 
 function trustedBinding(): Record<string, unknown> {
