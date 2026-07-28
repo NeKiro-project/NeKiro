@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-26
 
-**Status**: Draft
+**Status**: Implementation complete; delivery closure pending
 
 **Input**: User request: advance `Agent A -> register -> NeKiro URL -> installer -> B -> Router -> A Agent` and provide a trustworthy Console operations surface, with upstream Issues and independently reviewed PR slices.
 

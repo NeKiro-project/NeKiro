@@ -59,14 +59,21 @@ capability, Invocation, Task, parent lineage, Trace, and endpoint origin.
 Both sample Runtimes verify the credential and reject direct execution before
 runtime logic; stream cancellation receives a separate one-time `jti`.
 
-Frontend Console work remains paused and `apps/console` is not yet present. The
-thin Go Agent SDK, Router-owned nested adapter, isolated Runtime A, cross-Runtime
-nested invocation, and process/Compose wiring are implemented. CI run
-`30060752722` passed root build/test/race/vet/lint, Runtime A test/vet/race,
-PostgreSQL integration, Compose configuration, Frontend, Codecov, and the real
-authenticated Invoke-to-Record acceptance. The repository therefore proves
-the backend/headless Phase 1 loop, but not yet the user-facing Console or the
-later production governance and deployment integration stages.
+The production Console is now imported under `apps/console` and exercises the
+Gateway-only trusted workflow: Register -> Verify -> Publish -> Discover ->
+Install -> Invoke -> Record. It preserves the four isolated comparison demo
+routes, keeps provider and Workspace-owner credentials separate and transient,
+and displays Gateway-provided Invocation/Trace lineage. Root CI run
+`30322101411` passed seven workflow jobs plus the Codecov patch check (eight
+reported checks), including the fresh Compose backend
+acceptance and production `console-browser-acceptance`. The reverse backend
+slice is tracked by [PR #63](https://github.com/NeKiro-project/NeKiro/pull/63)
+and the stacked Console/CI integration by
+[PR #64](https://github.com/NeKiro-project/NeKiro/pull/64). The standalone
+Console source and its independently reviewed UI/browser PRs remain in
+[NeKiro-Console](https://github.com/NeKiro-project/NeKiro-Console). The
+historical Slice A T005 ordering deviation remains a process record, not a
+runtime behavior gap.
 
 The Go Workspace Client SDK under `sdks/client-sdk` is the application-facing
 entry point for invoking an installed Agent through Gateway. One immutable
