@@ -215,6 +215,8 @@ test('NekiroApiClient enforces Installation v2 semantic response rules', async (
   assert.equal((await client.getInstallation('workspace.alpha', 'installation-1')).installedVersion, '1.2.3');
   response = {...base, installedVersion: '2.0.0'};
   await assert.rejects(() => client.getInstallation('workspace.alpha', 'installation-1'), /does not satisfy/);
+  response = {...base, acceptedPermissions: ['READ LOGS']};
+  await assert.rejects(() => client.getInstallation('workspace.alpha', 'installation-1'), /safe identifier/);
   response = {...base, status: 'uninstalled', uninstalledAt: '2026-07-26T00:01:00Z'};
   await assert.rejects(() => client.getInstallation('workspace.alpha', 'installation-1'), /uninstalledAt must equal/);
   response = {...base, installedAt: '2026-07-26T00:01:00Z', updatedAt: '2026-07-25T00:00:00Z'};
@@ -235,6 +237,9 @@ test('NekiroApiClient evaluates the active SemVer range forms and prerelease rul
     ['>= 1.2.3 < 2.0.0', '1.2.3-alpha', false],
     ['>= 1.2.3-alpha < 2.0.0', '1.2.3-beta', true],
     ['1.2.x || 2.0.0', '2.0.0', true],
+    ['>=0-0', '0.1.0-alpha', true],
+    ['>=0.0-0', '0.0.1-alpha', true],
+    ['~1.1-alpha', '1.1.5', true],
   ] as const) {
     response = {...base, versionConstraint, installedVersion};
     if (expected) {
@@ -262,6 +267,8 @@ test('NekiroApiClient enforces Agent Card semantic rules on Catalog responses', 
   await assert.rejects(() => client.searchAgents(), /duplicate permission id/);
   card = {...catalogCard(), skills: [{...catalogCard().skills[0], requiredPermissions: ['MISSING']}]};
   await assert.rejects(() => client.searchAgents(), /not declared/);
+  card = {...catalogCard(), name: 'x'.repeat(121)};
+  await assert.rejects(() => client.searchAgents(), /non-empty string/);
 });
 
 test('NekiroApiClient installs an exact trusted version and preserves Release provenance', async () => {

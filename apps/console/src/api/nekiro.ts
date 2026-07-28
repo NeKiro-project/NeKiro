@@ -1273,7 +1273,7 @@ function validateCatalogCard(value: unknown): AgentCardV02 {
   assertAllowedKeys(authentication, ['type'], 'Agent Card authentication');
   const permissions = readRecordArray(record.permissions, 'permissions').map((permission, index) => {
     assertPermissionKeys(permission, index);
-    return {id: readIdentifier(permission.id, `permissions[${index}].id`), description: readText(permission.description, `permissions[${index}].description`)};
+    return {id: readIdentifier(permission.id, `permissions[${index}].id`), description: readText(permission.description, `permissions[${index}].description`, 1000)};
   });
   ensureUnique(permissions.map((permission) => permission.id), 'permission id');
   const declaredPermissions = new Set(permissions.map((permission) => permission.id));
@@ -1293,8 +1293,8 @@ function validateCatalogCard(value: unknown): AgentCardV02 {
     }
     return {
       id,
-      name: readText(skill.name, `skills[${index}].name`),
-      description: readText(skill.description, `skills[${index}].description`),
+      name: readText(skill.name, `skills[${index}].name`, 120),
+      description: readText(skill.description, `skills[${index}].description`, 2000),
       inputSchema: requireRecord(skill.inputSchema, `skills[${index}].inputSchema`),
       outputSchema: requireRecord(skill.outputSchema, `skills[${index}].outputSchema`),
       requiredPermissions,
@@ -1304,11 +1304,11 @@ function validateCatalogCard(value: unknown): AgentCardV02 {
   return {
     schemaVersion: '0.2',
     agentId: readIdentifier(record.agentId, 'agentId'),
-    name: readText(record.name, 'name'),
-    description: readText(record.description, 'description'),
-    owner: {id: readIdentifier(owner.id, 'owner.id'), displayName: readText(owner.displayName, 'owner.displayName')},
+    name: readText(record.name, 'name', 120),
+    description: readText(record.description, 'description', 4000),
+    owner: {id: readIdentifier(owner.id, 'owner.id'), displayName: readText(owner.displayName, 'owner.displayName', 120)},
     version: requireSemver(record.version, 'version'),
-    protocol: {type: 'a2a', version: '0.3.0', transport: 'JSONRPC', endpoint: requireHttpUri(protocol.endpoint, 'protocol.endpoint')},
+    protocol: {type: 'a2a', version: '0.3.0', transport: 'JSONRPC', endpoint: requireHttpUri(readText(protocol.endpoint, 'protocol.endpoint', 2048), 'protocol.endpoint')},
     skills,
     authentication: {type: requireEnum(authentication.type, ['none', 'api_key', 'http_bearer', 'oauth2_client_credentials', 'mutual_tls'], 'authentication.type') as AuthenticationType},
     permissions,
@@ -1366,7 +1366,7 @@ function validateInstallation(value: unknown, workspaceId: string): Installation
   const versionConstraint = readText(record.versionConstraint, 'versionConstraint');
   const installedVersion = requireSemver(record.installedVersion, 'installedVersion');
   if (!satisfiesSemverRange(installedVersion, versionConstraint)) throw new Error('installedVersion does not satisfy versionConstraint');
-  const acceptedPermissions = readStringArray(record.acceptedPermissions, 'acceptedPermissions');
+  const acceptedPermissions = readStringArray(record.acceptedPermissions, 'acceptedPermissions').map((permission, index) => readIdentifier(permission, `acceptedPermissions[${index}]`));
   if ([...acceptedPermissions].sort().join('\u0000') !== acceptedPermissions.join('\u0000')) throw new Error('acceptedPermissions must be sorted');
   const status = requireEnum(record.status, ['enabled', 'disabled', 'uninstalled'], 'Installation status') as InstallationStatus;
   const installedAt = requireDateValue(record.installedAt, 'installedAt');
@@ -1523,7 +1523,6 @@ function parseSemverRangeVersion(value: string): SemverRangeVersion | undefined 
   const majorWildcard = isSemverWildcard(match[1]);
   const minorWildcard = match[2] === undefined || isSemverWildcard(match[2]);
   const patchWildcard = match[3] === undefined || isSemverWildcard(match[3]);
-  if (match[4] !== undefined && (majorWildcard || minorWildcard || patchWildcard)) return undefined;
   return {
     value: {
       major: majorWildcard ? 0 : Number(match[1]),
