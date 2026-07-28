@@ -231,9 +231,9 @@ test('NekiroApiClient evaluates the active SemVer range forms and prerelease rul
     ['1.2.3 - 2.3', '2.3.9', true],
     ['~1.2.3', '1.2.9', true],
     ['^0.2.3', '0.3.0', false],
-    ['>=1.2.3 <2.0.0', '1.5.0', true],
-    ['>=1.2.3 <2.0.0', '1.2.3-alpha', false],
-    ['>=1.2.3-alpha <2.0.0', '1.2.3-beta', true],
+    ['>= 1.2.3 < 2.0.0', '1.5.0', true],
+    ['>= 1.2.3 < 2.0.0', '1.2.3-alpha', false],
+    ['>= 1.2.3-alpha < 2.0.0', '1.2.3-beta', true],
     ['1.2.x || 2.0.0', '2.0.0', true],
   ] as const) {
     response = {...base, versionConstraint, installedVersion};

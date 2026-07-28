@@ -1487,17 +1487,26 @@ function satisfiesSemverRange(version: string, range: string): boolean {
 }
 
 function parseSemverBranch(branch: string): SemverRangeToken[] | undefined {
-  const hyphen = /^\s*(\S+)\s+-\s+(\S+)\s*$/.exec(branch);
-  if (hyphen) {
-    const lower = parseSemverRangeVersion(hyphen[1]);
-    const upper = parseSemverRangeVersion(hyphen[2]);
-    if (!lower || !upper) return undefined;
-    return [{operator: '>=', version: lower}, {operator: '<=', version: upper}];
-  }
-  const rawTokens = branch.trim().split(/[\s,]+/).filter(Boolean);
+  const rewritten = branch.trim().replace(/(\S+)\s+-\s+(\S+)/g, '>=$1 <=$2');
+  const rawTokens = rewritten.split(/[\s,]+/).filter(Boolean);
   if (rawTokens.length === 0) return undefined;
-  const tokens = rawTokens.map((token) => parseSemverRangeToken(token));
+  const tokens: Array<SemverRangeToken | undefined> = [];
+  for (let index = 0; index < rawTokens.length; index += 1) {
+    const rawToken = rawTokens[index];
+    if (isSemverRangeOperator(rawToken)) {
+      const nextToken = rawTokens[index + 1];
+      if (nextToken === undefined) return undefined;
+      tokens.push(parseSemverRangeToken(rawToken + nextToken));
+      index += 1;
+    } else {
+      tokens.push(parseSemverRangeToken(rawToken));
+    }
+  }
   return tokens.some((token) => token === undefined) ? undefined : tokens as SemverRangeToken[];
+}
+
+function isSemverRangeOperator(value: string): boolean {
+  return ['>=', '<=', '!=', '=>', '=<', '>', '<', '=', '~>', '~', '^'].includes(value);
 }
 
 function parseSemverRangeToken(token: string): SemverRangeToken | undefined {
