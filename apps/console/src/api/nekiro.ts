@@ -159,7 +159,8 @@ export interface AgentRelease {
 export type PlatformErrorCode =
   | 'VALIDATION_ERROR' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT'
   | 'NOT_ACCEPTABLE' | 'PAYLOAD_TOO_LARGE' | 'AGENT_NOT_INSTALLED'
-  | 'INSTALLATION_DISABLED' | 'AGENT_DISABLED' | 'CAPABILITY_NOT_ALLOWED'
+  | 'INSTALLATION_DISABLED' | 'AGENT_DISABLED' | 'AGENT_RELEASE_UNPUBLISHED'
+  | 'AGENT_RELEASE_SUSPENDED' | 'AGENT_RELEASE_REVOKED' | 'CAPABILITY_NOT_ALLOWED'
   | 'ROUTE_NOT_FOUND' | 'AGENT_AUTH_UNSUPPORTED' | 'AGENT_RESPONSE_TOO_LARGE'
   | 'A2A_PROTOCOL_ERROR' | 'AGENT_UNAVAILABLE' | 'AGENT_EXECUTION_FAILED'
   | 'DEPENDENCY_ERROR' | 'TIMEOUT' | 'CANCELED' | 'INTERNAL_ERROR';
@@ -340,26 +341,26 @@ export class NekiroApiClient {
 
   searchAgents(params: CatalogSearchParams = {}): Promise<CatalogSearchResponse> {
     const suffix = this.queryString(params);
-    return this.request<CatalogSearchResponse>('/v3/agents' + suffix);
+    return this.request<unknown>('/v3/agents' + suffix).then((value) => validateCatalogSearchResponse(value));
   }
 
   registerAgent(card: AgentCardV02): Promise<CatalogEntry> {
-    return this.request<CatalogEntry>('/v3/agents', {
+    return this.request<unknown>('/v3/agents', {
       method: 'POST',
       body: JSON.stringify({card}),
-    });
+    }, 201).then((value) => validateCatalogEntry(value));
   }
 
   getAgentVersion(agentId: string, version: string): Promise<CatalogEntry> {
-    return this.request<CatalogEntry>(this.versionPath(agentId, version));
+    return this.request<unknown>(this.versionPath(agentId, version)).then((value) => validateCatalogEntry(value));
   }
 
   publishAgentVersion(agentId: string, version: string): Promise<CatalogEntry> {
-    return this.request<CatalogEntry>(this.versionPath(agentId, version) + '/publish', {method: 'POST'});
+    return this.request<unknown>(this.versionPath(agentId, version) + '/publish', {method: 'POST'}).then((value) => validateCatalogEntry(value));
   }
 
   disableAgentVersion(agentId: string, version: string): Promise<CatalogEntry> {
-    return this.request<CatalogEntry>(this.versionPath(agentId, version) + '/disable', {method: 'POST'});
+    return this.request<unknown>(this.versionPath(agentId, version) + '/disable', {method: 'POST'}).then((value) => validateCatalogEntry(value));
   }
 
   createEndpointBinding(providerId: string, agentId: string, request: CreateEndpointBindingRequest): Promise<EndpointBinding> {
@@ -449,14 +450,14 @@ export class NekiroApiClient {
   }
 
   createWorkspace(workspaceId: string): Promise<Workspace> {
-    return this.request<Workspace>('/v3/workspaces', {
+    return this.request<unknown>('/v3/workspaces', {
       method: 'POST',
       body: JSON.stringify({workspaceId: readText(workspaceId, 'workspaceId')}),
-    });
+    }, 201).then((value) => validateWorkspace(value));
   }
 
   getWorkspace(workspaceId: string): Promise<Workspace> {
-    return this.request<Workspace>('/v3/workspaces/' + encodeURIComponent(readText(workspaceId, 'workspaceId')));
+    return this.request<unknown>('/v3/workspaces/' + encodeURIComponent(readText(workspaceId, 'workspaceId'))).then((value) => validateWorkspace(value));
   }
 
   installAgent(workspaceId: string, request: InstallAgentRequest): Promise<Installation> {
@@ -467,7 +468,7 @@ export class NekiroApiClient {
         versionConstraint: readText(request.versionConstraint, 'versionConstraint'),
         acceptedPermissions: request.acceptedPermissions,
       }),
-    }).then((value) => validateInstallation(value, workspaceId));
+    }, 201).then((value) => validateInstallation(value, workspaceId));
   }
 
   listInstallations(workspaceId: string, params: {limit: number; cursor?: string}): Promise<InstallationList> {
@@ -649,7 +650,7 @@ export class NekiroApiClient {
     return serialized ? '?' + serialized : '';
   }
 
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  private async request<T>(path: string, init: RequestInit = {}, expectedStatus = 200): Promise<T> {
     if (!this.baseUrl) {
       throw new NekiroApiError(0, 'NeKiro Control Plane API base URL is not configured.', 'CONFIGURATION_ERROR');
     }
@@ -669,6 +670,9 @@ export class NekiroApiClient {
       throw await this.errorFromResponse(response, payload);
     }
 
+    if (response.status !== expectedStatus) {
+      throw new NekiroApiError(response.status, 'NeKiro Control Plane API returned an unexpected HTTP status.', 'INVALID_RESPONSE');
+    }
     if (response.status === 204) {
       return undefined as T;
     }
@@ -714,9 +718,16 @@ export class NekiroApiClient {
   }
 
   private async errorFromResponse(response: Response, knownPayload?: unknown): Promise<NekiroApiError> {
+    if (response.headers.get('content-type')?.split(';', 1)[0].trim() !== 'application/json') {
+      return new NekiroApiError(response.status, 'NeKiro Control Plane API returned an invalid Platform Error payload.', 'INVALID_RESPONSE');
+    }
     const payload = knownPayload ?? parseJson<unknown>(await response.text());
     if (!isPlatformErrorV4(payload)) {
       return new NekiroApiError(response.status, 'NeKiro Control Plane API returned an invalid Platform Error payload.', 'INVALID_RESPONSE');
+    }
+    const headerTraceId = response.headers.get('x-nek-trace-id');
+    if (headerTraceId !== null && (headerTraceId !== payload.traceId || !/^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,127})$/.test(headerTraceId))) {
+      return new NekiroApiError(response.status, 'NeKiro Control Plane API returned inconsistent trace correlation.', 'INVALID_RESPONSE');
     }
     const invocationId = 'invocationId' in payload ? payload.invocationId : undefined;
     const rootTaskId = 'rootTaskId' in payload ? payload.rootTaskId : undefined;
@@ -749,6 +760,9 @@ const PLATFORM_ERROR_MESSAGES: Record<PlatformErrorCode, string> = {
   AGENT_NOT_INSTALLED: 'The Agent is not installed in this Workspace.',
   INSTALLATION_DISABLED: 'The Agent installation is disabled.',
   AGENT_DISABLED: 'The Agent version is disabled.',
+  AGENT_RELEASE_UNPUBLISHED: 'The Agent release is not published.',
+  AGENT_RELEASE_SUSPENDED: 'The Agent release is suspended.',
+  AGENT_RELEASE_REVOKED: 'The Agent release is revoked.',
   CAPABILITY_NOT_ALLOWED: 'The requested capability is not allowed.',
   ROUTE_NOT_FOUND: 'No route is available for the Agent.',
   AGENT_AUTH_UNSUPPORTED: 'The Agent authentication type is not supported for invocation.',
@@ -1223,6 +1237,85 @@ function validateAgentLimits(value: AgentCardV02['limits']): void {
 function assertPermissionKeys(value: unknown, index: number): void {
   if (!isRecord(value)) throw new Error('permissions[' + index + '] must be a JSON object');
   assertAllowedKeys(value, ['id', 'description'], 'permissions[' + index + ']');
+}
+
+function validateCatalogEntry(value: unknown): CatalogEntry {
+  const record = requireRecord(value, 'Catalog entry');
+  assertAllowedKeys(record, ['card', 'publicationStatus', 'registeredAt', 'publishedAt'], 'Catalog entry');
+  const result: CatalogEntry = {
+    card: validateCatalogCard(record.card),
+    publicationStatus: requireEnum(record.publicationStatus, ['draft', 'published', 'disabled'], 'publicationStatus') as PublicationStatus,
+    registeredAt: requireDateValue(record.registeredAt, 'registeredAt'),
+  };
+  if ('publishedAt' in record) result.publishedAt = requireDateValue(record.publishedAt, 'publishedAt');
+  return result;
+}
+
+function validateCatalogSearchResponse(value: unknown): CatalogSearchResponse {
+  const record = requireRecord(value, 'Catalog search response');
+  assertAllowedKeys(record, ['items', 'nextCursor'], 'Catalog search response');
+  if (!Array.isArray(record.items)) throw new Error('Catalog search items must be an array');
+  const result: CatalogSearchResponse = {items: record.items.map((item) => validateCatalogEntry(item))};
+  if ('nextCursor' in record) result.nextCursor = readText(record.nextCursor, 'nextCursor');
+  return result;
+}
+
+function validateCatalogCard(value: unknown): AgentCardV02 {
+  const record = requireRecord(value, 'Agent Card');
+  assertAllowedKeys(record, ['schemaVersion', 'agentId', 'name', 'description', 'owner', 'version', 'protocol', 'skills', 'authentication', 'permissions', 'limits'], 'Agent Card');
+  if (record.schemaVersion !== '0.2') throw new Error('Agent Card schemaVersion is invalid');
+  const owner = requireRecord(record.owner, 'Agent Card owner');
+  assertAllowedKeys(owner, ['id', 'displayName'], 'Agent Card owner');
+  const protocol = requireRecord(record.protocol, 'Agent Card protocol');
+  assertAllowedKeys(protocol, ['type', 'version', 'transport', 'endpoint'], 'Agent Card protocol');
+  if (protocol.type !== 'a2a' || protocol.version !== '0.3.0' || protocol.transport !== 'JSONRPC') throw new Error('Agent Card protocol is invalid');
+  const authentication = requireRecord(record.authentication, 'Agent Card authentication');
+  assertAllowedKeys(authentication, ['type'], 'Agent Card authentication');
+  const permissions = readRecordArray(record.permissions, 'permissions').map((permission, index) => {
+    assertPermissionKeys(permission, index);
+    return {id: readIdentifier(permission.id, `permissions[${index}].id`), description: readText(permission.description, `permissions[${index}].description`)};
+  });
+  const skills = readRecordArray(record.skills, 'skills').map((skill, index) => {
+    assertAllowedKeys(skill, ['id', 'name', 'description', 'inputSchema', 'outputSchema', 'requiredPermissions'], `skills[${index}]`);
+    return {
+      id: readIdentifier(skill.id, `skills[${index}].id`),
+      name: readText(skill.name, `skills[${index}].name`),
+      description: readText(skill.description, `skills[${index}].description`),
+      inputSchema: requireRecord(skill.inputSchema, `skills[${index}].inputSchema`),
+      outputSchema: requireRecord(skill.outputSchema, `skills[${index}].outputSchema`),
+      requiredPermissions: readStringArray(skill.requiredPermissions, `skills[${index}].requiredPermissions`),
+    };
+  });
+  validateAgentLimits(record.limits as AgentCardV02['limits']);
+  return {
+    schemaVersion: '0.2',
+    agentId: readIdentifier(record.agentId, 'agentId'),
+    name: readText(record.name, 'name'),
+    description: readText(record.description, 'description'),
+    owner: {id: readIdentifier(owner.id, 'owner.id'), displayName: readText(owner.displayName, 'owner.displayName')},
+    version: requireSemver(record.version, 'version'),
+    protocol: {type: 'a2a', version: '0.3.0', transport: 'JSONRPC', endpoint: requireHttpUri(protocol.endpoint, 'protocol.endpoint')},
+    skills,
+    authentication: {type: requireEnum(authentication.type, ['none', 'api_key', 'http_bearer', 'oauth2_client_credentials', 'mutual_tls'], 'authentication.type') as AuthenticationType},
+    permissions,
+    limits: record.limits as AgentCardV02['limits'],
+  };
+}
+
+function validateWorkspace(value: unknown): Workspace {
+  const record = requireRecord(value, 'Workspace');
+  assertAllowedKeys(record, ['workspaceId', 'ownerId', 'createdAt', 'updatedAt'], 'Workspace');
+  return {
+    workspaceId: readIdentifier(record.workspaceId, 'workspaceId'),
+    ownerId: readIdentifier(record.ownerId, 'ownerId'),
+    createdAt: requireDateValue(record.createdAt, 'createdAt'),
+    updatedAt: requireDateValue(record.updatedAt, 'updatedAt'),
+  };
+}
+
+function readRecordArray(value: unknown, field: string): Record<string, unknown>[] {
+  if (!Array.isArray(value) || !value.every((item) => isRecord(item))) throw new Error(field + ' must be an array of JSON objects');
+  return value;
 }
 
 export function mapCatalogEntry(entry: CatalogEntry): Agent {

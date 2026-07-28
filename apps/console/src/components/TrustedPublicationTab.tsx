@@ -154,7 +154,7 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
     if (!release) throw new Error('Create or read a Release first.');
     const value = await client.getAgentRelease(release.releaseId);
     if (!isCurrentRequest(generation, requestGeneration.current)) return;
-    assertReleaseMatches(value, providerId, selectedAgent, binding?.bindingId ?? value.endpointBindingId);
+    assertReleaseMatches(value, providerId, selectedAgent, binding?.bindingId);
     setRelease(value);
     setConfirmAction(null);
   });

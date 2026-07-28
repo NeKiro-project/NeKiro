@@ -365,7 +365,7 @@ export default function App() {
 
           {activeTab === 'ledger' && (
             <motion.div key="ledger" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
-              <LedgerTab workspace={workspace} client={ownerClient} />
+              <div key={workspace?.workspaceId ?? 'no-workspace'} className="contents"><LedgerTab workspace={workspace} client={ownerClient} /></div>
             </motion.div>
           )}
         </AnimatePresence>

@@ -1,4 +1,4 @@
-import React, {useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import {AlertTriangle, CheckCircle2, Code2, Database, Layers, Loader2, Plus, ShieldCheck, UploadCloud} from 'lucide-react';
 
 import {buildAgentCard, toPlatformErrorView, type AgentCardV02, type AuthenticationType} from '../api/nekiro';
@@ -60,7 +60,12 @@ export default function RegistryTab(props: RegistryTabProps) {
   const [capabilitiesJson, setCapabilitiesJson] = useState(defaultCapabilities);
 
   const allAgents = useMemo(() => [...draftAgents, ...agents], [agents, draftAgents]);
-  const selectedAgent = useMemo(() => allAgents.find((agent) => agentKey(agent) === selectedAgentKey) ?? allAgents[0], [allAgents, selectedAgentKey]);
+  const selectedAgent = useMemo(() => allAgents.find((agent) => agentKey(agent) === selectedAgentKey), [allAgents, selectedAgentKey]);
+  useEffect(() => {
+    if (selectedAgentKey && !allAgents.some((agent) => agentKey(agent) === selectedAgentKey)) {
+      setSelectedAgentKey(null);
+    }
+  }, [allAgents, selectedAgentKey]);
   const filteredDraftAgents = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return draftAgents;

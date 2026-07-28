@@ -291,7 +291,7 @@ test('NekiroApiClient preserves correlated Platform Error v4 fields', async () =
   const client = new NekiroApiClient({
     baseUrl: 'https://api.example.test',
     token: 'test-token',
-    fetchImpl: async () => new Response(JSON.stringify({code: 'TIMEOUT', message: 'The invocation timed out.', traceId: 'trace-1', invocationId: 'inv-1', rootTaskId: 'task-1'}), {status: 504}),
+    fetchImpl: async () => new Response(JSON.stringify({code: 'TIMEOUT', message: 'The invocation timed out.', traceId: 'trace-1', invocationId: 'inv-1', rootTaskId: 'task-1'}), {status: 504, headers: {'Content-Type': 'application/json'}}),
   });
   await assert.rejects(() => client.invoke('workspace.alpha', {agentId: 'runtime.echo', capability: 'runtime.echo', input: {}, stream: false}), (error: unknown) => {
     assert.ok(error instanceof NekiroApiError);
