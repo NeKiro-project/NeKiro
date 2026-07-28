@@ -116,3 +116,33 @@ The acceptance must include the reverse B -> Router -> A lineage and must
 report exact Release IDs, parent/child Invocation IDs, and Trace IDs on failure.
 Runtime A and Runtime B must each receive separate explicit Router Agent
 tokens and response/event limits; missing values must fail Compose interpolation.
+
+## Verification evidence
+
+The current root checkout was verified with:
+
+```text
+pnpm typecheck
+pnpm test
+pnpm build
+git diff --check
+docker compose --file deploy/compose.yaml config --quiet
+```
+
+The frontend suite passed 36/36 tests. The fresh Compose/browser workflow passed
+in root CI run `30319275997`; all seven checks passed, including
+`backend-acceptance` and `console-browser-acceptance`. The standalone browser
+workflow passed in Console CI runs `30254947242` and `30254944783`.
+
+Reviewed delivery records:
+
+- Console Issue #2 / API client: `https://github.com/NeKiro-project/NeKiro-Console/pull/5`
+- Console Issue #4 / operations UI: `https://github.com/NeKiro-project/NeKiro-Console/pull/6`
+- Console Issue #3 / browser acceptance: `https://github.com/NeKiro-project/NeKiro-Console/pull/7`
+- NeKiro Issue #60 / root integration: `https://github.com/NeKiro-project/NeKiro/pull/62`
+- Parent Issue #59: `https://github.com/NeKiro-project/NeKiro/issues/59`
+
+Accepted limitation: Slice C and Slice D are currently combined in root PR #62,
+so the literal independent-PR closure gate remains open even though the code,
+tests, reviews, and CI evidence are complete. No runtime fallback or compatibility
+path is introduced to address this delivery limitation.
