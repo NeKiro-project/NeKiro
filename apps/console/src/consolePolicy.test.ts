@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type {AgentRelease} from './api/nekiro';
-import {canReleaseAction, isCurrentRequest, isTrustedEnabledInstallation, matchesPublishedRelease, nextRequestGeneration, agentKey} from './consolePolicy';
+import {canEndpointChallenge, canReleaseAction, isCurrentRequest, isTrustedEnabledInstallation, matchesPublishedRelease, nextRequestGeneration, agentKey, shouldClearEndpointChallenge} from './consolePolicy';
 
 const agent = {id: 'agent.echo', version: '1.2.3', ownerId: 'provider-1'};
 const release = {
@@ -48,4 +48,18 @@ test('console policy distinguishes stale request generations', () => {
   const second = nextRequestGeneration(first);
   assert.equal(isCurrentRequest(first, second), false);
   assert.equal(isCurrentRequest(second, second), true);
+});
+
+test('console policy permits failed Binding challenge recovery and clears replaced challenges', () => {
+  assert.equal(canEndpointChallenge('pending'), true);
+  assert.equal(canEndpointChallenge('failed'), true);
+  assert.equal(canEndpointChallenge('verified'), false);
+  assert.equal(canEndpointChallenge('revoked'), false);
+  assert.equal(canEndpointChallenge(undefined), false);
+
+  const pending = {bindingId: 'binding-1', verificationStatus: 'pending' as const};
+  assert.equal(shouldClearEndpointChallenge(pending, pending), false);
+  assert.equal(shouldClearEndpointChallenge(pending, {...pending, verificationStatus: 'failed'}), true);
+  assert.equal(shouldClearEndpointChallenge(pending, {bindingId: 'binding-2', verificationStatus: 'pending'}), true);
+  assert.equal(shouldClearEndpointChallenge(null, pending), false);
 });
