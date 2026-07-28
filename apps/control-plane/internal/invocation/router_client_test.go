@@ -78,6 +78,86 @@ func TestRouterClientRequiresOneMatchingTraceAndClosesRejectedBodies(t *testing.
 	}
 }
 
+func TestRouterClientClassifiesDispatchBoundaryFailuresWithoutChangingHTTPSemantics(t *testing.T) {
+	t.Run("transport failure", func(t *testing.T) {
+		client, err := NewRouterClient(roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("transport secret")
+		}), "https://router.example/internal/v4/invocations", "service-secret")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = client.Dispatch(context.Background(), contracts.DispatchInvocationRequestV4{TraceID: "trace-a"}, contracts.InvocationResultModeJSON)
+		var failure *RouterDispatchFailure
+		if !errors.As(err, &failure) {
+			t.Fatalf("failure type=%T err=%v", err, err)
+		}
+		if failure.Phase != RouterDispatchPhaseTransport {
+			t.Fatalf("phase=%q", failure.Phase)
+		}
+	})
+
+	t.Run("transport context cancellation remains discoverable", func(t *testing.T) {
+		client, err := NewRouterClient(roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, context.Canceled
+		}), "https://router.example/internal/v4/invocations", "service-secret")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = client.Dispatch(context.Background(), contracts.DispatchInvocationRequestV4{TraceID: "trace-a"}, contracts.InvocationResultModeJSON)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error=%v does not preserve context cancellation", err)
+		}
+	})
+
+	t.Run("transport deadline remains discoverable", func(t *testing.T) {
+		client, err := NewRouterClient(roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, context.DeadlineExceeded
+		}), "https://router.example/internal/v4/invocations", "service-secret")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = client.Dispatch(context.Background(), contracts.DispatchInvocationRequestV4{TraceID: "trace-a"}, contracts.InvocationResultModeJSON)
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("error=%v does not preserve deadline exceeded", err)
+		}
+	})
+
+	t.Run("response validation failure", func(t *testing.T) {
+		client, err := NewRouterClient(roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return traceTestResponse([]string{"trace-b"})(&trackedReadCloser{Reader: strings.NewReader(`{}`)}), nil
+		}), "https://router.example/internal/v4/invocations", "service-secret")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = client.Dispatch(context.Background(), contracts.DispatchInvocationRequestV4{TraceID: "trace-a"}, contracts.InvocationResultModeJSON)
+		var failure *RouterDispatchFailure
+		if !errors.As(err, &failure) {
+			t.Fatalf("failure type=%T err=%v", err, err)
+		}
+		if failure.Phase != RouterDispatchPhaseResponseValidation {
+			t.Fatalf("phase=%q", failure.Phase)
+		}
+	})
+
+	t.Run("HTTP error response remains a response", func(t *testing.T) {
+		body := `{"code":"DEPENDENCY_ERROR"}`
+		client, err := NewRouterClient(roundTripFunc(func(*http.Request) (*http.Response, error) {
+			header := make(http.Header)
+			header.Set("Content-Type", "application/json")
+			header.Set(routerTraceHeader, "trace-a")
+			return &http.Response{StatusCode: http.StatusServiceUnavailable, Header: header, Body: io.NopCloser(strings.NewReader(body))}, nil
+		}), "https://router.example/internal/v4/invocations", "service-secret")
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := client.Dispatch(context.Background(), contracts.DispatchInvocationRequestV4{TraceID: "trace-a"}, contracts.InvocationResultModeJSON)
+		if err != nil || response == nil || response.StatusCode != http.StatusServiceUnavailable {
+			t.Fatalf("response=%#v err=%v", response, err)
+		}
+		_ = response.Body.Close()
+	})
+}
+
 func traceTestResponse(values []string) func(*trackedReadCloser) *http.Response {
 	return func(body *trackedReadCloser) *http.Response {
 		header := http.Header{"Content-Type": []string{"application/json"}}

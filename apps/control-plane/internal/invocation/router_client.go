@@ -26,6 +26,29 @@ type RouterResponse struct {
 	Body        io.ReadCloser
 }
 
+// RouterDispatchPhase identifies an internal transport boundary for safe
+// diagnostics. It is not part of the public invocation error contract.
+type RouterDispatchPhase string
+
+const (
+	RouterDispatchPhaseTransport          RouterDispatchPhase = "transport"
+	RouterDispatchPhaseResponse           RouterDispatchPhase = "response"
+	RouterDispatchPhaseResponseValidation RouterDispatchPhase = "response_validation"
+)
+
+// RouterDispatchFailure preserves the existing error behavior while allowing
+// callers to log the failed boundary without logging raw transport details.
+type RouterDispatchFailure struct {
+	Phase RouterDispatchPhase
+	cause error
+}
+
+func (failure *RouterDispatchFailure) Error() string {
+	return "Router dispatch failed at " + string(failure.Phase)
+}
+
+func (failure *RouterDispatchFailure) Unwrap() error { return failure.cause }
+
 type RouterClient struct {
 	doer  HTTPDoer
 	url   string
@@ -62,20 +85,20 @@ func (client *RouterClient) Dispatch(ctx context.Context, value contracts.Dispat
 	}
 	response, err := client.doer.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("dispatch to Router: %w", err)
+		return nil, &RouterDispatchFailure{Phase: RouterDispatchPhaseTransport, cause: err}
 	}
 	if response == nil || response.Body == nil {
-		return nil, errors.New("Router dispatch response is empty")
+		return nil, &RouterDispatchFailure{Phase: RouterDispatchPhaseResponse, cause: errors.New("Router dispatch response is empty")}
 	}
 	traceValues := response.Header.Values(routerTraceHeader)
 	if len(traceValues) != 1 {
 		_ = response.Body.Close()
-		return nil, errors.New("Router dispatch response must contain exactly one Trace header")
+		return nil, &RouterDispatchFailure{Phase: RouterDispatchPhaseResponseValidation, cause: errors.New("Router dispatch response must contain exactly one Trace header")}
 	}
 	responseTrace, err := contracts.ParseTraceID(traceValues[0])
 	if err != nil || responseTrace != value.TraceID {
 		_ = response.Body.Close()
-		return nil, errors.New("Router dispatch response Trace does not match request")
+		return nil, &RouterDispatchFailure{Phase: RouterDispatchPhaseResponseValidation, cause: errors.New("Router dispatch response Trace does not match request")}
 	}
 	contentType := response.Header.Get("Content-Type")
 	want := "application/json"
@@ -84,7 +107,7 @@ func (client *RouterClient) Dispatch(ctx context.Context, value contracts.Dispat
 	}
 	if contentType != want {
 		_ = response.Body.Close()
-		return nil, fmt.Errorf("Router response Content-Type %q does not match %q", contentType, want)
+		return nil, &RouterDispatchFailure{Phase: RouterDispatchPhaseResponseValidation, cause: fmt.Errorf("Router response Content-Type %q does not match %q", contentType, want)}
 	}
 	return &RouterResponse{StatusCode: response.StatusCode, ContentType: contentType, Headers: response.Header.Clone(), Body: response.Body}, nil
 }
