@@ -2,7 +2,7 @@ import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {AlertTriangle, CheckCircle2, Copy, ExternalLink, Loader2, RefreshCw, ShieldAlert, ShieldCheck} from 'lucide-react';
 
 import {NekiroApiError, toPlatformErrorView, type AgentRelease, type EndpointBinding, type NekiroApiClient, type VerificationChallenge} from '../api/nekiro';
-import {agentKey, canReleaseAction, isCurrentRequest, nextRequestGeneration} from '../consolePolicy';
+import {agentKey, canEndpointChallenge, canReleaseAction, isCurrentRequest, nextRequestGeneration, shouldClearEndpointChallenge} from '../consolePolicy';
 import type {Agent, PlatformErrorView} from '../types';
 
 interface TrustedPublicationTabProps {
@@ -35,6 +35,11 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
   }, [release?.releaseId, release?.state]);
 
   const selectedAgent = availableAgents.find((agent) => agentKey(agent) === selectedAgentKey);
+
+  const replaceBinding = (next: EndpointBinding) => {
+    if (shouldClearEndpointChallenge(binding, next)) setChallenge(null);
+    setBinding(next);
+  };
 
   const selectAgent = (value: string) => {
     requestGeneration.current = nextRequestGeneration(requestGeneration.current);
@@ -89,7 +94,7 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
       const authoritative = await client.getEndpointBinding(providerId, value.bindingId);
       if (!isCurrentRequest(generation, requestGeneration.current)) return;
       assertBindingMatches(authoritative, providerId, selectedAgent, value.bindingId);
-      setBinding(authoritative);
+      replaceBinding(authoritative);
       setBindingId(authoritative.bindingId);
       setChallenge(null);
       setRelease(null);
@@ -114,7 +119,7 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
       const value = await client.getEndpointBinding(providerId, requestedBindingId);
       if (!isCurrentRequest(generation, requestGeneration.current)) return;
       assertBindingMatches(value, providerId, selectedAgent, requestedBindingId);
-      setBinding(value);
+      replaceBinding(value);
     } catch (value) {
       if (isCurrentRequest(generation, requestGeneration.current)) {
         setBinding(null);
@@ -147,7 +152,7 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
       const value = await client.getEndpointBinding(providerId, binding.bindingId);
       if (!isCurrentRequest(generation, requestGeneration.current)) return;
       assertBindingMatches(value, providerId, selectedAgent, binding.bindingId);
-      setBinding(value);
+      replaceBinding(value);
     } catch (readBackError) {
       if (isCurrentRequest(generation, requestGeneration.current)) {
         setBinding(null);
@@ -251,8 +256,8 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
       }
   });
 
-  const canIssueChallenge = binding?.verificationStatus === 'pending';
-  const canCompleteChallenge = Boolean(challenge && binding?.verificationStatus === 'pending');
+  const canIssueChallenge = canEndpointChallenge(binding?.verificationStatus);
+  const canCompleteChallenge = Boolean(challenge && canEndpointChallenge(binding?.verificationStatus));
   const canCreateRelease = Boolean(binding && selectedAgent && (binding.verificationStatus === 'pending' || binding.verificationStatus === 'verified'));
   const canVerify = canReleaseAction(release?.state, 'verify');
   const canPublish = canReleaseAction(release?.state, 'publish');

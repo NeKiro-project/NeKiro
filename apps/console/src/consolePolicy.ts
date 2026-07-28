@@ -1,5 +1,5 @@
 import type {Agent, Installation} from './types';
-import type {AgentRelease, AgentReleaseState} from './api/nekiro';
+import type {AgentRelease, AgentReleaseState, EndpointBinding, EndpointBindingVerificationStatus} from './api/nekiro';
 
 export type ReleaseLifecycleAction = 'verify' | 'publish' | 'suspend' | 'revoke';
 
@@ -23,6 +23,15 @@ export function canReleaseAction(state: AgentReleaseState | undefined, action: R
   if (action === 'publish') return state === 'verified';
   if (action === 'suspend') return state === 'verified' || state === 'published';
   return state === 'verified' || state === 'published' || state === 'suspended';
+}
+
+export function canEndpointChallenge(status: EndpointBindingVerificationStatus | undefined): boolean {
+  return status === 'pending' || status === 'failed';
+}
+
+export function shouldClearEndpointChallenge(previous: Pick<EndpointBinding, 'bindingId' | 'verificationStatus'> | null, next: Pick<EndpointBinding, 'bindingId' | 'verificationStatus'>): boolean {
+  return previous !== null
+    && (previous.bindingId !== next.bindingId || previous.verificationStatus !== next.verificationStatus);
 }
 
 export function nextRequestGeneration(current: number): number {
