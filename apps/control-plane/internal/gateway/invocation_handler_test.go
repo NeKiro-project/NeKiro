@@ -171,41 +171,6 @@ func TestInvocationHandlerMapsWorkspaceBeforeRootAndRouterAfterRootErrors(t *tes
 	})
 }
 
-func TestInvocationHandlerDiagnosticsKeepDispatchFailureSecretSafe(t *testing.T) {
-	var output bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&output, nil))
-	traces, err := newTraceGenerator(bytes.NewReader(make([]byte, 16)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	dispatcher := &invocationDispatcherStub{err: &invocation.DispatchError{
-		Code:         contracts.ErrorCodeDependency,
-		InvocationID: "inv-root",
-		RootTaskID:   "task-root",
-		Cause:        &invocation.RouterDispatchFailure{Phase: invocation.RouterDispatchPhaseResponseValidation},
-	}}
-	handler, err := NewInvocationHandler(invocationAuthenticatorStub{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, dispatcher, traces, logger, 4096, 4096, time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mux := http.NewServeMux()
-	handler.RegisterRoutes(mux)
-	request := httptest.NewRequest(http.MethodPost, "/v4/workspaces/workspace-a/invocations", strings.NewReader(validInvokeBody(false)))
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Accept", "application/json")
-	response := httptest.NewRecorder()
-	mux.ServeHTTP(response, request)
-	if response.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
-	}
-	logText := output.String()
-	for _, value := range []string{"stage=dispatch_failed", "invocation_id=inv-root", "root_task_id=task-root", "code=DEPENDENCY_ERROR", "router_phase=response_validation"} {
-		if !strings.Contains(logText, value) {
-			t.Fatalf("missing %s in log %q", value, logText)
-		}
-	}
-}
-
 type flushRecorder struct {
 	*httptest.ResponseRecorder
 	flushes int

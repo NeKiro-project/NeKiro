@@ -84,11 +84,9 @@ func (handler *InvocationHandler) invoke(writer http.ResponseWriter, request *ht
 	defer cancel()
 	response, err := handler.dispatcher.Dispatch(ctx, workspace.AuthenticatedCaller{ID: caller.ID, AuthenticationKind: caller.AuthenticationKind}, traceID, workspaceID, invokeRequest, input, mode)
 	if err != nil {
-		handler.logDispatchFailure(request, traceID, err)
 		handler.writeDispatchError(writer, traceID, err)
 		return
 	}
-	handler.logger.InfoContext(request.Context(), "gateway invocation diagnostic", "stage", "router_response", "trace_id", traceID, "http_status", response.StatusCode)
 	defer func() {
 		if closeErr := response.Body.Close(); closeErr != nil {
 			handler.logger.WarnContext(request.Context(), "close Router invocation response", "trace_id", traceID)
@@ -105,22 +103,6 @@ func (handler *InvocationHandler) invoke(writer http.ResponseWriter, request *ht
 	if err := proxyFlushed(writer, response.Body); err != nil {
 		handler.logger.WarnContext(request.Context(), "Router JSON proxy interrupted", "trace_id", traceID)
 	}
-}
-
-func (handler *InvocationHandler) logDispatchFailure(request *http.Request, traceID contracts.TraceID, err error) {
-	code := workspaceErrorCode(err)
-	fields := []any{"stage", "dispatch_failed", "trace_id", traceID}
-	var dispatchError *invocation.DispatchError
-	if errors.As(err, &dispatchError) {
-		code = dispatchError.Code
-		fields = append(fields, "invocation_id", dispatchError.InvocationID, "root_task_id", dispatchError.RootTaskID)
-	}
-	fields = append(fields, "code", string(code))
-	var routerFailure *invocation.RouterDispatchFailure
-	if errors.As(err, &routerFailure) {
-		fields = append(fields, "router_phase", string(routerFailure.Phase))
-	}
-	handler.logger.InfoContext(request.Context(), "gateway invocation diagnostic", fields...)
 }
 
 var errInvocationPayloadTooLarge = errors.New("invocation payload is too large")

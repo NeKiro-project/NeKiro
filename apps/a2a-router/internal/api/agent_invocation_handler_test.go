@@ -72,7 +72,7 @@ func newTestAgentHandler(t *testing.T, ledgerReader NestedLedgerReader, versionR
 	}
 
 	resolver := &mockResolver{}
-	dispatchHandler, err := NewDispatchHandler(serviceAuth, resolver, 1048576, 30000*1000000, dispatchTestLogger)
+	dispatchHandler, err := NewDispatchHandler(serviceAuth, resolver, 1048576, 30000*1000000)
 	if err != nil {
 		t.Fatalf("NewDispatchHandler() error = %v", err)
 	}
@@ -169,7 +169,7 @@ func TestAgentHandlerRejects100InvalidCasesWithoutChildSideEffects(t *testing.T)
 			resolver := &resolverStub{}
 			transport := &transportStub{}
 			ledgerRecorder := &ledgerRecorder{}
-			dispatch, err := NewDispatchHandlerWithTransportAndLedger(serviceAuth, resolver, transport, ledgerRecorder, 1048576, 30*time.Second, dispatchTestLogger)
+			dispatch, err := NewDispatchHandlerWithTransportAndLedger(serviceAuth, resolver, transport, ledgerRecorder, 1048576, 30*time.Second)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -462,7 +462,7 @@ func TestNewAgentInvocationHandlerValidation(t *testing.T) {
 	serviceAuth, _ := auth.NewStaticAuthenticator([]auth.Principal{
 		{ID: "service", TokenSHA256: agentTokenDigest("svc-token")},
 	})
-	dispatchHandler, _ := NewDispatchHandler(serviceAuth, &mockResolver{}, 1048576, 30000*1000000, dispatchTestLogger)
+	dispatchHandler, _ := NewDispatchHandler(serviceAuth, &mockResolver{}, 1048576, 30000*1000000)
 	ledgerReader := &mockNestedLedgerReader{}
 	versionResolver := &mockVersionResolver{}
 
@@ -539,7 +539,7 @@ func TestAgentHandlerNestedJSONSuccessPath(t *testing.T) {
 	// Ledger records all appended events.
 	ledgerRec := &ledgerRecorder{}
 
-	dispatchHandler, err := NewDispatchHandlerWithTransportAndLedger(serviceAuth, resolver, transport, ledgerRec, 1048576, 30*time.Second, dispatchTestLogger)
+	dispatchHandler, err := NewDispatchHandlerWithTransportAndLedger(serviceAuth, resolver, transport, ledgerRec, 1048576, 30*time.Second)
 	if err != nil {
 		t.Fatalf("NewDispatchHandlerWithTransportAndLedger() error = %v", err)
 	}
@@ -717,7 +717,7 @@ func TestAgentHandlerNestedSSESuccessPath(t *testing.T) {
 
 	ledgerRec := &ledgerRecorder{}
 
-	dispatchHandler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(serviceAuth, resolver, streamTransport, ledgerRec, 65536, 1048576, 30*time.Second, dispatchTestLogger)
+	dispatchHandler, err := NewDispatchHandlerWithTransportAndLedgerAndStreaming(serviceAuth, resolver, streamTransport, ledgerRec, 65536, 1048576, 30*time.Second)
 	if err != nil {
 		t.Fatalf("NewDispatchHandlerWithTransportAndLedgerAndStreaming() error = %v", err)
 	}
@@ -834,7 +834,7 @@ func TestAgentHandlerDispatchChildResolverFailure(t *testing.T) {
 
 			transport := &transportStub{result: json.RawMessage(`{}`)}
 			ledgerRec := &ledgerRecorder{}
-			dispatchHandler, err := NewDispatchHandlerWithTransportAndLedger(serviceAuth, resolver, transport, ledgerRec, 1048576, 30*time.Second, dispatchTestLogger)
+			dispatchHandler, err := NewDispatchHandlerWithTransportAndLedger(serviceAuth, resolver, transport, ledgerRec, 1048576, 30*time.Second)
 			if err != nil {
 				t.Fatalf("NewDispatchHandlerWithTransportAndLedger() error = %v", err)
 			}
