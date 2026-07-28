@@ -30,6 +30,10 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
   const [confirmAction, setConfirmAction] = useState<ReleaseAction | null>(null);
   const requestGeneration = useRef(0);
 
+  useEffect(() => {
+    setConfirmAction(null);
+  }, [release?.releaseId, release?.state]);
+
   const selectedAgent = availableAgents.find((agent) => agentKey(agent) === selectedAgentKey) ?? availableAgents[0];
 
   const selectAgent = (value: string) => {
@@ -41,6 +45,7 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
     setChallenge(null);
     setRelease(null);
     setReleaseId('');
+    setConfirmAction(null);
     setError(null);
   };
 
@@ -54,6 +59,7 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
       setChallenge(null);
       setRelease(null);
       setReleaseId('');
+      setConfirmAction(null);
     }
   }, [availableAgents, selectedAgentKey]);
 
@@ -87,6 +93,7 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
     setChallenge(null);
     setRelease(null);
     setReleaseId('');
+    setConfirmAction(null);
   });
 
   const readBinding = () => run('read-binding', async (generation) => {
@@ -140,6 +147,7 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
     if (!isCurrentRequest(generation, requestGeneration.current)) return;
     assertReleaseMatches(value, providerId, selectedAgent, binding?.bindingId);
     setRelease(value);
+    setConfirmAction(null);
   });
 
   const refreshRelease = () => run('refresh-release', async (generation) => {
@@ -148,6 +156,7 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
     if (!isCurrentRequest(generation, requestGeneration.current)) return;
     assertReleaseMatches(value, providerId, selectedAgent, binding?.bindingId ?? value.endpointBindingId);
     setRelease(value);
+    setConfirmAction(null);
   });
 
   const releaseAction = (action: 'verify' | 'publish' | ReleaseAction) => run(action + '-release', async (generation) => {

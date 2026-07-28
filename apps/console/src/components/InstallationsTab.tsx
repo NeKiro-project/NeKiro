@@ -48,6 +48,7 @@ export default function InstallationsTab({
   const invalidatePreflight = () => {
     preflightGeneration.current = nextRequestGeneration(preflightGeneration.current);
     setPreflightRelease(null);
+    setPreflightLoading(false);
   };
 
   useEffect(() => {

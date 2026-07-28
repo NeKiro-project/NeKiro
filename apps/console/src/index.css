@@ -130,14 +130,14 @@ aside#sidebar {
   border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
 }
 
-header {
+.glass-app header {
   background: rgba(2, 6, 23, 0.4) !important;
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
 }
 
-main {
+.glass-app main {
   background: transparent !important;
 }
 

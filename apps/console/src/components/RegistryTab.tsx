@@ -46,6 +46,7 @@ export default function RegistryTab(props: RegistryTabProps) {
   const [showForm, setShowForm] = useState(false);
   const [selectedAgentKey, setSelectedAgentKey] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [localError, setLocalError] = useState<PlatformErrorView | null>(null);
   const [agentId, setAgentId] = useState('runtime.echo');
   const [name, setName] = useState('Runtime Echo Agent');
@@ -96,6 +97,18 @@ export default function RegistryTab(props: RegistryTabProps) {
       setLocalError(toPlatformErrorView(error, 'Unable to register Agent Card.'));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handlePublish = async (agent: Agent) => {
+    setLocalError(null);
+    setPublishing(true);
+    try {
+      await onPublishAgent(agent);
+    } catch (error) {
+      setLocalError(toPlatformErrorView(error, 'Unable to publish Agent Card.'));
+    } finally {
+      setPublishing(false);
     }
   };
 
@@ -198,7 +211,7 @@ export default function RegistryTab(props: RegistryTabProps) {
                   <div className="text-xs text-brand-on-surface-variant mt-1">Owner {selectedAgent.owner} ({selectedAgent.ownerId})</div>
                 </div>
                 <div className="flex gap-2">
-                  {selectedAgent.status === 'draft' && <ActionButton icon={<UploadCloud size={13} />} label="Publish to Catalog" onClick={() => onPublishAgent(selectedAgent)} />}
+                  {selectedAgent.status === 'draft' && <ActionButton icon={publishing ? <Loader2 size={13} className="animate-spin" /> : <UploadCloud size={13} />} label="Publish to Catalog" disabled={publishing} onClick={() => void handlePublish(selectedAgent)} />}
                   {selectedAgent.status === 'published' && <span className="text-[10px] text-brand-on-surface-variant border border-brand-outline-variant rounded px-2 py-1">Review Release in Trusted Publication</span>}
                 </div>
               </div>
@@ -327,8 +340,8 @@ function StatusBadge({status}: {status: Agent['status']}) {
   return <span className={'glass-status-badge text-[10px] px-2 py-0.5 rounded border uppercase font-mono-label ' + cls}>{status}</span>;
 }
 
-function ActionButton({icon, label, onClick}: {icon: React.ReactNode; label: string; onClick: () => void}) {
-  return <button onClick={onClick} className="px-3 py-1.5 rounded bg-brand-container border border-brand-outline-variant text-xs text-brand-on-surface-variant hover:text-brand-on-surface flex items-center gap-1.5">{icon}{label}</button>;
+function ActionButton({icon, label, onClick, disabled = false}: {icon: React.ReactNode; label: string; onClick: () => void; disabled?: boolean}) {
+  return <button onClick={onClick} disabled={disabled} className="px-3 py-1.5 rounded bg-brand-container border border-brand-outline-variant text-xs text-brand-on-surface-variant hover:text-brand-on-surface flex items-center gap-1.5 disabled:opacity-50">{icon}{label}</button>;
 }
 
 function Fact({label, value}: {label: string; value: string}) {

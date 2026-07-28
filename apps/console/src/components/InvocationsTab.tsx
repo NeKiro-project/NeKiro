@@ -37,6 +37,11 @@ export default function InvocationsTab({workspace, installations, client}: Invoc
 
   useEffect(() => {
     if (installationId && !enabled.some((item) => item.installationId === installationId)) {
+      requestGeneration.current = nextRequestGeneration(requestGeneration.current);
+      setLoading(false);
+      setResult(null);
+      setEvents([]);
+      setError(null);
       setInstallationId('');
       setCapability('');
     }

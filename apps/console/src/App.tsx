@@ -38,6 +38,7 @@ export default function App() {
   const providerCatalogRequestGeneration = useRef(0);
   const workspaceRequestGeneration = useRef(0);
   const installationRequestGeneration = useRef(0);
+  const defaultWorkspaceInitialized = useRef(false);
 
   const providerClient = useMemo(
     () => new NekiroApiClient({
@@ -90,6 +91,9 @@ export default function App() {
   const loadWorkspace = useCallback(async (workspaceId: string) => {
     const generation = nextRequestGeneration(workspaceRequestGeneration.current);
     workspaceRequestGeneration.current = generation;
+    installationRequestGeneration.current = nextRequestGeneration(installationRequestGeneration.current);
+    setInstallations([]);
+    setInstallationLoading(false);
     setWorkspaceLoading(true);
     setWorkspaceError(null);
     try {
@@ -139,14 +143,11 @@ export default function App() {
   }, [loadAgents, loadProviderAgents, searchQuery]);
 
   useEffect(() => {
+    if (defaultWorkspaceInitialized.current) return;
     const defaultWorkspaceId = import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID;
-    if (defaultWorkspaceId) {
-      void loadWorkspace(defaultWorkspaceId).then((value) => {
-        if (value) {
-          void loadInstallations(value.workspaceId);
-        }
-      });
-    }
+    if (!defaultWorkspaceId) return;
+    defaultWorkspaceInitialized.current = true;
+    void loadWorkspace(defaultWorkspaceId).then((value) => value && loadInstallations(value.workspaceId));
   }, [loadInstallations, loadWorkspace]);
 
   const handleCreateWorkspace = async () => {

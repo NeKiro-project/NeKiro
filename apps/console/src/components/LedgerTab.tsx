@@ -32,13 +32,13 @@ export default function LedgerTab({workspace, client}: {workspace: Workspace | n
     const workspaceId = workspace.workspaceId;
     setLoading(true);
     setError(null);
+    setDetail(null);
+    setTrace(null);
     try {
       if (kind === 'invocation') {
-        setTrace(null);
         const value = await client.getInvocation(workspaceId, invocationId);
         if (isCurrentRequest(generation, requestGeneration.current)) setDetail(value);
       } else {
-        setDetail(null);
         const value = await client.getTrace(workspaceId, traceId);
         if (isCurrentRequest(generation, requestGeneration.current)) setTrace(value);
       }

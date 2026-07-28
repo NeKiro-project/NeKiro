@@ -648,9 +648,9 @@ export class NekiroApiClient {
     if (response.status === 204) {
       return undefined as T;
     }
-    if (responseText.length === 0) throw new NekiroApiError(response.status, 'NeKiro Control Plane API returned an empty success response.', 'INVALID_RESPONSE');
-    if (payload === undefined) {
-      throw new NekiroApiError(response.status, 'NeKiro Control Plane API returned invalid JSON.', 'INVALID_RESPONSE');
+    const mediaType = response.headers.get('content-type')?.split(';', 1)[0].trim();
+    if (responseText.length === 0 || mediaType !== 'application/json' || payload === undefined) {
+      throw new NekiroApiError(response.status, 'NeKiro Control Plane API returned an invalid JSON success response.', 'INVALID_RESPONSE');
     }
     return payload as T;
   }
@@ -683,8 +683,8 @@ export class NekiroApiClient {
     if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
     headers.set('Authorization', 'Bearer ' + this.token);
     try {
-      return await this.fetchImpl(new URL(path, this.baseUrl + '/'), {...init, headers});
-    } catch (error) {
+      return await this.fetchImpl(new URL(path, this.baseUrl + '/'), {...init, headers, redirect: 'error'});
+    } catch {
       throw new NekiroApiError(0, 'NeKiro API request failed.', 'NETWORK_ERROR');
     }
   }
@@ -1275,14 +1275,14 @@ function validateInstallationList(value: unknown, workspaceId: string): Installa
   return result;
 }
 
-export function toPlatformErrorView(error: unknown, _fallbackMessage: string): PlatformErrorView {
+export function toPlatformErrorView(error: unknown, fallbackMessage: string): PlatformErrorView {
   if (error instanceof NekiroApiError) {
     return error.toView();
   }
   return {
     status: 0,
     code: 'CLIENT_ERROR',
-    message: error instanceof Error ? error.message : String(error),
+    message: fallbackMessage,
   };
 }
 

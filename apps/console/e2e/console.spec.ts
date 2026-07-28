@@ -152,6 +152,11 @@ test('production Console completes trusted publication, invocation, trace, and i
   expect(ledgerText).toContain(releaseA.cardDigest);
   expect(ledgerText).toContain(releaseB.cardDigest);
 
+  const gatewayOrigin = new URL(apiBaseURL).origin;
+  expect(apiRequests.length).toBeGreaterThan(0);
+  expect(apiRequests.every((url) => new URL(url).origin === gatewayOrigin)).toBe(true);
+  expect(apiRequests.some((url) => /\/internal\/|\/agent\//.test(new URL(url).pathname))).toBe(false);
+
   apiRequests.length = 0;
   for (const {hash, marker} of [
     {hash: '#/demo', marker: 'Three directions. Same data. Pick one.'},
