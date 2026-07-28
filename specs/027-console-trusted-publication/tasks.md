@@ -24,10 +24,16 @@ order without an explicit dependency decision:
 
 ## Phase 1: Repository setup and source ownership
 
-- [ ] T001 [US5] Record the standalone Console source relationship and platform import ownership in `E:/Progarms/NeKiro/specs/027-console-trusted-publication/quickstart.md` and the platform delivery notes without creating a second live production path.
-- [ ] T002 [P] [US5] Confirm the clean standalone Console baseline in `E:/Progarms/NeKiro-Console` and preserve its production route plus all four comparison demo routes as the source for Console Issues #2/#4/#3.
-- [ ] T003 [P] [US5] Confirm the root workspace/CI import target `E:/Progarms/NeKiro/apps/console` and lockfile strategy; do not modify root business code before the standalone slices are reviewed.
-- [ ] T004 [P] [US5] Record the trace-body/header policy in the contract mapping: body `traceId` is authoritative, an optional header must match, and missing header remains valid under the active OpenAPI.
+- [x] T001 [US5] Record the standalone Console source relationship and platform import ownership in `E:/Progarms/NeKiro/specs/027-console-trusted-publication/quickstart.md` and the platform delivery notes without creating a second live production path.
+- [x] T002 [P] [US5] Confirm the clean standalone Console baseline in `E:/Progarms/NeKiro-Console` and preserve its production route plus all four comparison demo routes as the source for Console Issues #2/#4/#3.
+- [x] T003 [P] [US5] Confirm the root workspace/CI import target `E:/Progarms/NeKiro/apps/console` and lockfile strategy; do not modify root business code before the standalone slices are reviewed.
+- [x] T004 [P] [US5] Record the trace-body/header policy in the contract mapping: body `traceId` is authoritative, an optional header must match, and missing header remains valid under the active OpenAPI.
+
+Repository setup evidence: the standalone production Console remains the source for
+Issues #2/#4/#3, while the reviewed source is imported as the root-owned
+`apps/console` workspace package. The import excludes `.git`, `node_modules`,
+`dist`, and credentials. The active mapping records the error-body Trace policy
+and the browser acceptance asserts it.
 
 ## Phase 2: Slice A - Trusted Publication Gateway client (Console Issue #2)
 
@@ -39,20 +45,30 @@ order without an explicit dependency decision:
 
 ### Implementation
 
-- [ ] T006 [US1] Add `EndpointBinding`, `VerificationChallenge`, `AgentRelease`, and Trusted Publication error code types to `E:/Progarms/NeKiro-Console/src/api/nekiro.ts` or a dedicated contract module, matching `contracts/schemas/trusted-publication.v1.schema.json` with no unknown-field acceptance.
-- [ ] T007 [US1] Add strict request methods in `E:/Progarms/NeKiro-Console/src/api/nekiro.ts` for binding create/read, challenge issue/complete, Release create/read, and Release verify/publish/suspend/revoke using only the public `/v4` Gateway paths from `specs/027-console-trusted-publication/contracts/console-gateway-mapping.md`.
-- [ ] T008 [US1] Add response validators and relationship checks in `E:/Progarms/NeKiro-Console/src/api/nekiro.ts` for required IDs, semver, URI, enum, lowercase digest, date-time, Card/Binding/Release identity, and trace/error consistency; treat the error-body trace as authoritative and reject an optional mismatched header; keep challenge proof out of logs, storage, and later request bodies.
-- [ ] T009 [US1] Keep the standalone API contract types in `E:/Progarms/NeKiro-Console/src/api/nekiro.ts` or a dedicated API contract module; defer Release-aware Installation view-model changes in `src/types.ts` to Issue #4.
+- [x] T006 [US1] Add `EndpointBinding`, `VerificationChallenge`, `AgentRelease`, and Trusted Publication error code types to `E:/Progarms/NeKiro-Console/src/api/nekiro.ts` or a dedicated contract module, matching `contracts/schemas/trusted-publication.v1.schema.json` with no unknown-field acceptance.
+- [x] T007 [US1] Add strict request methods in `E:/Progarms/NeKiro-Console/src/api/nekiro.ts` for binding create/read, challenge issue/complete, Release create/read, and Release verify/publish/suspend/revoke using only the public `/v4` Gateway paths from `specs/027-console-trusted-publication/contracts/console-gateway-mapping.md`.
+- [x] T008 [US1] Add response validators and relationship checks in `E:/Progarms/NeKiro-Console/src/api/nekiro.ts` for required IDs, semver, URI, enum, lowercase digest, date-time, Card/Binding/Release identity, and trace/error consistency; treat the error-body trace as authoritative and reject an optional mismatched header; keep challenge proof out of logs, storage, and later request bodies.
+- [x] T009 [US1] Keep the standalone API contract types in `E:/Progarms/NeKiro-Console/src/api/nekiro.ts` or a dedicated API contract module; defer Release-aware Installation view-model changes in `src/types.ts` to Issue #4.
 
 ### Tests
 
-- [ ] T010 [P] [US1] Add focused API contract tests in `E:/Progarms/NeKiro-Console/src/api/nekiro.test.ts` for every Trusted Publication request path, method, body, Authorization behavior, exact success mapping, unknown-field rejection, and ID relationship mismatch (Spec US1 acceptance scenarios 2-5, FR-002/FR-008/FR-012/FR-014).
-- [ ] T011 [P] [US1] Add API failure tests in `E:/Progarms/NeKiro-Console/src/api/nekiro.test.ts` for `WRONG_PROOF`, `CHALLENGE_EXPIRED`, `CHALLENGE_REUSED`, `DISALLOWED_NETWORK`, `ENDPOINT_UNAVAILABLE`, `CONFLICT`, `FORBIDDEN`, invalid response bodies, absent trace headers, mismatched trace headers, and safe transport errors while asserting no secret leakage (Spec FR-005 and Edge Cases).
-- [ ] T012 [US1] Run the Slice A typecheck and focused tests, scan source/test output for bearer values, challenge proof fixtures, and direct/internal URLs, and capture the Issue acceptance evidence.
+- [x] T010 [P] [US1] Add focused API contract tests in `E:/Progarms/NeKiro-Console/src/api/nekiro.test.ts` for every Trusted Publication request path, method, body, Authorization behavior, exact success mapping, unknown-field rejection, and ID relationship mismatch (Spec US1 acceptance scenarios 2-5, FR-002/FR-008/FR-012/FR-014).
+- [x] T011 [P] [US1] Add API failure tests in `E:/Progarms/NeKiro-Console/src/api/nekiro.test.ts` for `WRONG_PROOF`, `CHALLENGE_EXPIRED`, `CHALLENGE_REUSED`, `DISALLOWED_NETWORK`, `ENDPOINT_UNAVAILABLE`, `CONFLICT`, `FORBIDDEN`, invalid response bodies, absent trace headers, mismatched trace headers, and safe transport errors while asserting no secret leakage (Spec FR-005 and Edge Cases).
+- [x] T012 [US1] Run the Slice A typecheck and focused tests, scan source/test output for bearer values, challenge proof fixtures, and direct/internal URLs, and capture the Issue acceptance evidence.
 
 **Review gate**:
 
-- [ ] T013 [US1] Launch an independent review agent for Console Issue #2 against the Slice A diff, Spec 027, Plan, Tasks, Trusted Publication v1, and constitution; do not proceed to Slice B until it reports no High/Medium findings.
+- [x] T013 [US1] Launch an independent review agent for Console Issue #2 against the Slice A diff, Spec 027, Plan, Tasks, Trusted Publication v1, and constitution; do not proceed to Slice B until it reports no High/Medium findings.
+
+Slice A evidence: Console PR #5 was merged from commit `799fa14` as merge
+commit `6db32c4`; its focused API suite contains 20 trusted-publication tests
+and the independent review reported PASS with no High/Medium findings. The
+standalone checks `npm run typecheck`, `npm test`, `npm run build`, and
+`git diff --check` passed. Production source scans found zero bearer literals
+and zero browser persistence calls; the only localhost/demo matches are the
+explicit production-origin rejection and isolated comparison fixture. T005 is
+not marked complete because its scope review was performed retrospectively
+during convergence rather than persisted before Slice A implementation.
 
 ## Phase 3: Slice B - Trusted publication and Release operations UI (Console Issue #4)
 
@@ -125,8 +141,8 @@ were fixed with regression coverage in the current follow-up commit. The
 review's two Low observations (an additional nested input cap and an explicit
 HTTP client timeout) remain non-blocking because the managed Router path
 already enforces the active request deadline/byte limits; no new policy was
-approved for expanding this slice. T028 remains pending until CI validates the
-fixes and a new independent review reports no High/Medium findings.
+approved for expanding this slice. T028 is complete after the new independent
+ review reported no High/Medium findings and CI validated the fixes.
 
 The second fresh independent review completed with PASS (0 High, 0 Medium,
 2 non-blocking Low findings). It confirmed the context derivation and empty
@@ -171,8 +187,8 @@ root runbook and this Quickstart document the integrated path.
 
 ### Tests
 
-- [ ] T034 [US5] Run root frontend typecheck, focused tests, production build, browser acceptance, `git diff --check`, and secret scans; verify comparison demos remain available and separate from production evidence.
-- [ ] T035 [US5] Run the full mapped backend/Console verification set and record fresh-environment acceptance IDs, review evidence, and any non-blocking residual policy items as `Needs policy` rather than fallback.
+- [x] T034 [US5] Run root frontend typecheck, focused tests, production build, browser acceptance, `git diff --check`, and secret scans; verify comparison demos remain available and separate from production evidence.
+- [x] T035 [US5] Run the full mapped backend/Console verification set and record fresh-environment acceptance IDs, review evidence, and any non-blocking residual policy items as `Needs policy` rather than fallback.
 
 **Review gate**:
 
@@ -184,14 +200,22 @@ the Gateway-only browser boundary, the secret boundary, and prior review
 records. The review found 0 High, 0 Medium, and 0 Low findings. It confirmed
 that the Quickstart consistently names six explicit browser configuration
 values, includes Compose startup, and that T030-T033 are complete. Root
-fresh-Compose browser and mapped backend verification remain pending until
-the main repository CI runs.
+fresh-Compose browser and mapped backend verification completed in CI run
+`30319275997` after the internal-auth digest correction; all seven checks passed,
+including `backend-acceptance` and `console-browser-acceptance`.
 
 ## Phase 6: Convergence and delivery records
 
-- [ ] T037 [P] Update `specs/027-console-trusted-publication/quickstart.md`, the parent Issue, and each child Issue with exact verification commands, accepted limitations, and links to the reviewed PR evidence.
-- [ ] T038 [P] Run a final read-only Spec/Plan/Tasks/contract/constitution consistency analysis and append any remaining approved work to this `tasks.md`; do not implement unapproved behavior.
+- [x] T037 [P] Update `specs/027-console-trusted-publication/quickstart.md`, the parent Issue, and each child Issue with exact verification commands, accepted limitations, and links to the reviewed PR evidence.
+- [x] T038 [P] Run a final read-only Spec/Plan/Tasks/contract/constitution consistency analysis and append any remaining approved work to this `tasks.md`; do not implement unapproved behavior.
 - [ ] T039 Confirm each slice has its own branch, commit identity `Nene7ko_ <1604009816@qq.com>`, upstream PR, passing CI, pre-implementation subagent report, independent review result, and no unresolved High/Medium finding.
+
+Delivery closure note: Slice C and Slice D are both represented in root PR #62
+(`codex/060-reverse-cross-runtime`) rather than separate root PRs. Their write
+scopes, issue reviews, implementation commits, and independent reviews remain
+distinct and all mapped CI checks pass, but this does not satisfy the literal
+independent-PR requirement in FR-017/T039. No historical review order is being
+rewritten; split PR delivery remains an explicit follow-up before final merge.
 
 ## Dependencies & Execution Order
 
