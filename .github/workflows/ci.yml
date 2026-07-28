@@ -140,8 +140,8 @@ jobs:
       A2A_ROUTER_PORT: "18081"
       NEKIRO_COMPOSE_DATABASE_URL: postgresql://nekiro_console_acceptance:nekiro-console-acceptance-only@postgres:5432/nekiro_console_acceptance?sslmode=disable
       NEKIRO_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"root-console-provider","tokenSha256":"4def860d949646b1515e6d28096af112224f06cf6a5941ab0ac51b9a458b1252"},{"id":"root-console-owner","tokenSha256":"4162f45cb0487cc2205850cc622fbecaa976a87f7aae8a96fa1676e2a984d2ac"}]'
-      NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"root-console-router-internal","tokenSha256":"e3a864d8b9d70000e50e42d94761cc5d5996a36f39137735dca3a830f23cf4ba"}]'
-      NEKIRO_ROUTER_SERVICE_PRINCIPALS_JSON: '[{"id":"root-console-control-plane","tokenSha256":"4285e7349a2517fbdbfac9c1bc072a5ff1ef702d6cfe1826d62f02d73334bdc0"}]'
+      NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"root-console-router-internal","tokenSha256":"4285e7349a2517fbdbfac9c1bc072a5ff1ef702d6cfe1826d62f02d73334bdc0"}]'
+      NEKIRO_ROUTER_SERVICE_PRINCIPALS_JSON: '[{"id":"root-console-control-plane","tokenSha256":"e3a864d8b9d70000e50e42d94761cc5d5996a36f39137735dca3a830f23cf4ba"}]'
       NEKIRO_ROUTER_AGENT_PRINCIPALS_JSON: '[{"workspaceId":"root-console-workspace","agentId":"runtime-a","tokenSha256":"fd59489764dad19b9c276a8fb0187fdb187f3de6b426467c0af9659edbe4159f"},{"workspaceId":"root-console-workspace","agentId":"runtime-b","tokenSha256":"43a0b80acc0b4436c4433b8313bc4c41cbb5534751c458f6e2cfe4af602ca34f"}]'
       NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN: root-console-router-internal-token
       NEKIRO_CONTROL_PLANE_SERVICE_TOKEN: root-console-control-plane-token
