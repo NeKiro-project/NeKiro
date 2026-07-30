@@ -3,7 +3,7 @@
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/027-console-trusted-publication/plan.md
+at specs/029-extract-a2a-transport/plan.md
 <!-- SPECKIT END -->
 
 ## Current delivery status
