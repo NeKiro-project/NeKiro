@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	a2atransport "github.com/NeKiro-project/nekiro-a2a-transport-go"
 	"github.com/Nene7ko/NeKiro/contracts"
 	a2ago "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2aclient"
@@ -19,12 +20,11 @@ const (
 )
 
 type Client struct {
-	httpClient         *http.Client
+	transportClient    *a2atransport.Client
 	credentialIssuer   CredentialIssuer
 	inputLimitBytes    int64
 	responseLimitBytes int64
 	a2aEventLimitBytes int64
-	sseEventLimitBytes int64
 }
 
 type CredentialIssuer interface {
@@ -58,11 +58,11 @@ func NewClient(httpClient *http.Client, credentialIssuer CredentialIssuer, input
 	if sseEventLimitBytes < contracts.RuntimeByteLimitMinimum || sseEventLimitBytes > contracts.RuntimeByteLimitMaximum {
 		return nil, errors.New("SSE event limit is invalid")
 	}
-	client := *httpClient
-	client.CheckRedirect = func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
+	transportClient, err := a2atransport.NewClient(httpClient)
+	if err != nil {
+		return nil, err
 	}
-	return &Client{httpClient: &client, credentialIssuer: credentialIssuer, inputLimitBytes: inputLimitBytes, responseLimitBytes: responseLimitBytes, a2aEventLimitBytes: a2aEventLimitBytes, sseEventLimitBytes: sseEventLimitBytes}, nil
+	return &Client{transportClient: transportClient, credentialIssuer: credentialIssuer, inputLimitBytes: inputLimitBytes, responseLimitBytes: responseLimitBytes, a2aEventLimitBytes: a2aEventLimitBytes}, nil
 }
 
 func (client *Client) SendMessage(ctx context.Context, target Target, headers ContextHeaders, params *a2ago.MessageSendParams) (a2ago.SendMessageResult, error) {
@@ -75,22 +75,14 @@ func (client *Client) SendMessage(ctx context.Context, target Target, headers Co
 	if headers.TraceID == "" || headers.InvocationID == "" || headers.RootTaskID == "" || headers.WorkspaceID == "" {
 		return nil, classify(contracts.ErrorCodeA2AProtocol, errors.New("platform context headers are required"))
 	}
-	httpClient := *client.httpClient
-	base := httpClient.Transport
-	if base == nil {
-		base = http.DefaultTransport
-	}
 	responseLimit := client.responseLimitBytes
 	if target.MaxOutputBytes < responseLimit {
 		responseLimit = target.MaxOutputBytes
 	}
-	httpClient.Transport = envelopeValidatingRoundTripper{base: base, maxResponseBytes: responseLimit}
-	a2aClient, err := a2aclient.NewFromEndpoints(ctx, []a2ago.AgentInterface{{Transport: a2ago.TransportProtocolJSONRPC, URL: target.Endpoint}}, a2aclient.WithJSONRPCTransport(&httpClient))
-	if err != nil {
-		return nil, classify(contracts.ErrorCodeA2AProtocol, err)
-	}
-	a2aClient.AddCallInterceptor(newCredentialInterceptor(client.credentialIssuer, credentialContext(target, headers)))
-	result, err := a2aClient.SendMessage(ctx, params)
+	result, err := client.transportClient.SendMessage(ctx, a2atransport.CallOptions{
+		Endpoint: target.Endpoint, MaxResponseBytes: responseLimit,
+		Interceptors: []a2aclient.CallInterceptor{newCredentialInterceptor(client.credentialIssuer, credentialContext(target, headers))},
+	}, params)
 	if err != nil {
 		return nil, classifyTransportError(err)
 	}

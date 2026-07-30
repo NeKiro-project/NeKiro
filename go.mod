@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
+	github.com/NeKiro-project/nekiro-a2a-transport-go v0.1.1
 	github.com/a2aproject/a2a-go v0.3.15
 	github.com/getkin/kin-openapi v0.142.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
