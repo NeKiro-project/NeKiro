@@ -37,7 +37,7 @@ func TestTrustedPublicationStorePersistsSingleUseVerification(t *testing.T) {
 	if err := Migrate(ctx, connection, "up"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := connection.Exec(ctx, `INSERT INTO catalog.agent_identities (agent_id, owner_id, created_at) VALUES ('agent-trust', 'provider-trust', now())`); err != nil {
+	if _, err := connection.Exec(ctx, `INSERT INTO catalog.agent_identities (agent_id, owner_id, created_at, public_agent_id) VALUES ('agent-trust', 'provider-trust', now(), 'agt_0123456789abcdef0123456789abcdef')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := connection.Exec(ctx, `INSERT INTO catalog.agent_versions (agent_id, version, schema_version, card, card_name, card_description, card_digest, publication_status, registered_at, legacy_unverified) VALUES ('agent-trust', '1.0.0', '0.2', '{}', 'Trust Agent', 'Trust Agent', $1, 'draft', now(), false)`, make([]byte, 32)); err != nil {
