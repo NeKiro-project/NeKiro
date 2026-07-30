@@ -105,7 +105,7 @@ VALUES ('release-public', 'provider-public', 'agent-public', '1.0.0', $1, 'bindi
 	if view.PublicAgentID != publicAgentID || !view.RegisteredAt.Equal(now) || len(view.Releases) != 1 {
 		t.Fatalf("public view = %#v", view)
 	}
-	if release := view.Releases[0]; release.ReleaseID != "release-public" || release.AgentID != card.AgentID || release.Name != card.Name || release.CardDigest != digest || release.PublishedAt != now {
+	if release := view.Releases[0]; release.ReleaseID != "release-public" || release.AgentID != card.AgentID || release.Name != card.Name || release.CardDigest != digest || !release.PublishedAt.Equal(now) {
 		t.Fatalf("public release = %#v", release)
 	}
 
