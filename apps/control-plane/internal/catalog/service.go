@@ -2,7 +2,9 @@ package catalog
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,18 +17,33 @@ import (
 )
 
 type Clock func() time.Time
+type PublicAgentIDGenerator func() (string, error)
 
 type Service struct {
-	store     Store
-	validator *contracts.Validator
-	clock     Clock
+	store            Store
+	validator        *contracts.Validator
+	clock            Clock
+	publicOrigin     string
+	newPublicAgentID PublicAgentIDGenerator
 }
 
 func NewService(store Store, validator *contracts.Validator, clock Clock) (*Service, error) {
-	if store == nil || validator == nil || clock == nil {
+	return NewServiceWithPublicConfig(store, validator, clock, "", NewPublicAgentID)
+}
+
+func NewServiceWithPublicConfig(store Store, validator *contracts.Validator, clock Clock, publicOrigin string, generator PublicAgentIDGenerator) (*Service, error) {
+	if store == nil || validator == nil || clock == nil || generator == nil {
 		return nil, errors.New("catalog service dependencies are required")
 	}
-	return &Service{store: store, validator: validator, clock: clock}, nil
+	return &Service{store: store, validator: validator, clock: clock, publicOrigin: publicOrigin, newPublicAgentID: generator}, nil
+}
+
+func NewPublicAgentID() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("generate public Agent ID: %w", ErrDependency)
+	}
+	return "agt_" + hex.EncodeToString(raw[:]), nil
 }
 
 func (service *Service) Register(ctx context.Context, caller AuthenticatedCaller, requestJSON []byte) (contracts.CatalogEntry, error) {
@@ -42,17 +59,25 @@ func (service *Service) Register(ctx context.Context, caller AuthenticatedCaller
 		return contracts.CatalogEntry{}, fmt.Errorf("canonicalize Agent Card: %w", ErrDependency)
 	}
 	digest := sha256.Sum256(cardJSON)
+	publicAgentID, err := service.newPublicAgentID()
+	if err != nil || !ValidPublicAgentID(publicAgentID) {
+		if err != nil {
+			return contracts.CatalogEntry{}, err
+		}
+		return contracts.CatalogEntry{}, fmt.Errorf("generated public Agent ID is invalid: %w", ErrDependency)
+	}
 	registered, err := service.store.Register(ctx, AgentVersion{
-		Card:         request.Card,
-		CardJSON:     cardJSON,
-		CardDigest:   digest,
-		Status:       PublicationDraft,
-		RegisteredAt: service.clock().UTC(),
+		PublicAgentID: publicAgentID,
+		Card:          request.Card,
+		CardJSON:      cardJSON,
+		CardDigest:    digest,
+		Status:        PublicationDraft,
+		RegisteredAt:  service.clock().UTC(),
 	})
 	if err != nil {
 		return contracts.CatalogEntry{}, err
 	}
-	return registered.CatalogEntry(), nil
+	return service.catalogEntry(registered), nil
 }
 
 func (service *Service) Get(ctx context.Context, caller AuthenticatedCaller, agentID, version string) (contracts.CatalogEntry, error) {
@@ -66,7 +91,7 @@ func (service *Service) Get(ctx context.Context, caller AuthenticatedCaller, age
 	if entry.Status != PublicationPublished && caller.ID != entry.Card.Owner.ID {
 		return contracts.CatalogEntry{}, ErrForbidden
 	}
-	return entry.CatalogEntry(), nil
+	return service.catalogEntry(entry), nil
 }
 
 // GetVersion is the controlled Catalog read used by Workspace and future
@@ -171,7 +196,7 @@ func (service *Service) Publish(ctx context.Context, caller AuthenticatedCaller,
 	if err != nil {
 		return contracts.CatalogEntry{}, err
 	}
-	return entry.CatalogEntry(), nil
+	return service.catalogEntry(entry), nil
 }
 
 func (service *Service) Disable(ctx context.Context, caller AuthenticatedCaller, agentID, version string) (contracts.CatalogEntry, error) {
@@ -182,7 +207,7 @@ func (service *Service) Disable(ctx context.Context, caller AuthenticatedCaller,
 	if err != nil {
 		return contracts.CatalogEntry{}, err
 	}
-	return entry.CatalogEntry(), nil
+	return service.catalogEntry(entry), nil
 }
 
 func (service *Service) Search(ctx context.Context, query contracts.SearchAgentsQuery) (SearchResult, error) {
@@ -198,7 +223,7 @@ func (service *Service) Search(ctx context.Context, query contracts.SearchAgents
 		if err != nil {
 			return SearchResult{}, err
 		}
-		return buildSearchResult(filter, snapshot, firstPage)
+		return service.buildSearchResult(filter, snapshot, firstPage)
 	} else {
 		var position DiscoveryPosition
 		snapshot, position, err = DecodeCursor(*query.Cursor, filter)
@@ -213,13 +238,13 @@ func (service *Service) Search(ctx context.Context, query contracts.SearchAgents
 	if err != nil {
 		return SearchResult{}, err
 	}
-	return buildSearchResult(filter, snapshot, result)
+	return service.buildSearchResult(filter, snapshot, result)
 }
 
-func buildSearchResult(filter DiscoveryFilter, snapshot int64, result DiscoveryResult) (SearchResult, error) {
+func (service *Service) buildSearchResult(filter DiscoveryFilter, snapshot int64, result DiscoveryResult) (SearchResult, error) {
 	entries := make([]contracts.CatalogEntry, 0, len(result.Versions))
 	for _, version := range result.Versions {
-		entries = append(entries, version.CatalogEntry())
+		entries = append(entries, service.catalogEntry(version))
 	}
 	response := SearchResult{Entries: entries}
 	if result.HasMore && len(result.Versions) > 0 {
@@ -238,6 +263,14 @@ func buildSearchResult(filter DiscoveryFilter, snapshot int64, result DiscoveryR
 		response.NextCursor = &cursor
 	}
 	return response, nil
+}
+
+func (service *Service) catalogEntry(version AgentVersion) contracts.CatalogEntry {
+	entry := version.CatalogEntry()
+	if version.PublicAgentID != "" && service.publicOrigin != "" {
+		entry.PublicURL = service.publicOrigin + "/a/" + version.PublicAgentID
+	}
+	return entry
 }
 
 func validAgentVersionIdentity(agentID, version string) bool {

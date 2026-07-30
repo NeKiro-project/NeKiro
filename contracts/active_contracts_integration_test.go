@@ -16,6 +16,7 @@ func TestActiveContractVersionSynchronization(t *testing.T) {
 		"Agent Card Schema":             "0.2",
 		"Workspace Schema":              "1",
 		"Installation Schema":           "2",
+		"Public Agent Share Schema":     "1",
 		"Invocation Event Schema":       "0.2",
 		"Platform Error Schema":         "2",
 		"Workspace Platform Error":      "3",
@@ -35,6 +36,7 @@ func TestActiveContractVersionSynchronization(t *testing.T) {
 		"Agent Card Schema":             AgentCardSchemaVersion,
 		"Workspace Schema":              WorkspaceSchemaVersion,
 		"Installation Schema":           InstallationSchemaVersion,
+		"Public Agent Share Schema":     PublicAgentShareSchemaVersion,
 		"Invocation Event Schema":       InvocationEventSchemaVersion,
 		"Platform Error Schema":         PlatformErrorSchemaVersion,
 		"Workspace Platform Error":      WorkspacePlatformErrorSchemaVersion,
@@ -66,6 +68,7 @@ func TestActiveContractVersionSynchronization(t *testing.T) {
 		{path: "schemas/invocation-result.v1.schema.json", property: "schemaVersion", want: InvocationResultSchemaVersion},
 		{path: "schemas/invocation-result-stream-event.v1.schema.json", property: "schemaVersion", want: InvocationResultStreamEventSchemaVersion},
 		{path: "schemas/a2a-profile.v0.2.schema.json", property: "schemaVersion", want: A2AProfileSchemaVersion},
+		{path: "schemas/public-agent-share.v1.schema.json", property: "schemaVersion", want: PublicAgentShareSchemaVersion},
 	}
 	for _, schema := range schemaVersions {
 		t.Run(schema.path, func(t *testing.T) {
@@ -98,6 +101,7 @@ func TestActiveContractVersionSynchronization(t *testing.T) {
 		want string
 	}{
 		{path: filepath.Join("openapi", "control-plane.v3.yaml"), want: "3.0.0"},
+		{path: filepath.Join("openapi", "public-agent-share.v1.yaml"), want: "1.0.0"},
 		{path: filepath.Join("openapi", "control-plane-internal.v2.yaml"), want: "2.0.0"},
 		{path: filepath.Join("openapi", "control-plane-internal.v3.yaml"), want: "3.0.0"},
 		{path: filepath.Join("openapi", "router-internal.v2.yaml"), want: "2.0.0"},

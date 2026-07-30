@@ -266,12 +266,14 @@ $env:VITE_NEKIRO_PROVIDER_NAME = 'Provider'
 $env:VITE_NEKIRO_PROVIDER_TOKEN = 'provider-token'
 $env:VITE_NEKIRO_OWNER_TOKEN = 'owner-token'
 $env:VITE_NEKIRO_DEFAULT_WORKSPACE_ID = 'workspace-id'
+$env:VITE_NEKIRO_PUBLIC_AGENT_ORIGIN = 'https://agents.nekiro.test'
+$env:NEKIRO_PUBLIC_AGENT_ORIGIN = 'https://agents.nekiro.test'
 $env:NEKIRO_E2E_BASE_URL = 'http://127.0.0.1:4173'
 $env:NEKIRO_E2E_COMPOSE_PROJECT = 'nekiro-root-console-browser-local'
 $env:NEKIRO_E2E_COMPOSE_FILE = "$PWD/deploy/compose.yaml"
 ```
 
-Map `gateway.nekiro.test` to `127.0.0.1`, start a fresh Compose project, then
+Map `gateway.nekiro.test` and `agents.nekiro.test` to `127.0.0.1`, start a fresh Compose project, then
 run the production build and browser test:
 
 ```powershell

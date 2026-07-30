@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/tern/v2/migrate"
 )
 
-const ExpectedSchemaVersion int32 = 4
+const ExpectedSchemaVersion int32 = 5
 
 var ErrSchemaVersionMismatch = errors.New("catalog schema version mismatch")
 
@@ -20,6 +20,9 @@ var ErrSchemaVersionMismatch = errors.New("catalog schema version mismatch")
 //
 //go:embed 004_agent_release.sql
 var migration004 []byte
+
+//go:embed 005_public_agent_share.sql
+var migration005 []byte
 
 // migration001 is generated from apps/control-plane/migrations/001_catalog.sql.
 const migration001 = `CREATE SCHEMA IF NOT EXISTS catalog;
@@ -216,6 +219,7 @@ var migrationFiles = fstest.MapFS{
 	"002_card_text.sql":           &fstest.MapFile{Data: []byte(migration002), Mode: 0o444},
 	"003_trusted_publication.sql": &fstest.MapFile{Data: []byte(migration003), Mode: 0o444},
 	"004_agent_release.sql":       &fstest.MapFile{Data: migration004, Mode: 0o444},
+	"005_public_agent_share.sql":  &fstest.MapFile{Data: migration005, Mode: 0o444},
 }
 
 type RowQuerier interface {
@@ -272,9 +276,13 @@ func CheckSchema(ctx context.Context, db RowQuerier) error {
 	var releaseChecksReady bool
 	var releaseIndexesReady bool
 	var releaseImmutableTrigger bool
+	var publicIdentityColumnReady bool
+	var publicIdentityIndexReady bool
+	var publicIdentityTriggerReady bool
 	err := db.QueryRow(ctx, `
 WITH required_columns(table_name, column_name, is_nullable, data_type) AS (VALUES
     ('agent_identities', 'provider_id', 'YES', 'character varying'),
+    ('agent_identities', 'public_agent_id', 'NO', 'character varying'),
     ('providers', 'provider_id', 'NO', 'character varying'),
     ('providers', 'owner_identity', 'NO', 'character varying'),
     ('providers', 'verification_status', 'NO', 'character varying'),
@@ -344,7 +352,7 @@ SELECT version,
        to_regclass('catalog.providers') IS NOT NULL,
        to_regclass('catalog.endpoint_bindings') IS NOT NULL,
        to_regclass('catalog.verification_challenges') IS NOT NULL,
-       (SELECT count(*) = 30
+       (SELECT count(*) = 31
         FROM required_columns expected
         JOIN information_schema.columns actual
           ON actual.table_schema = 'catalog'
@@ -375,7 +383,20 @@ SELECT version,
         WHERE namespace_row.nspname = 'catalog'
           AND constraint_row.conname IN ('endpoint_bindings_evidence_digest_length', 'verification_challenges_proof_digest_length')
           AND constraint_row.contype = 'c'
-          AND constraint_row.convalidated)
+          AND constraint_row.convalidated),
+       EXISTS (
+           SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'catalog' AND table_name = 'agent_identities'
+             AND column_name = 'public_agent_id' AND is_nullable = 'NO' AND data_type = 'character varying'
+       ),
+       to_regclass('catalog.agent_identities_public_agent_id_idx') IS NOT NULL,
+       EXISTS (
+           SELECT 1 FROM pg_trigger trigger_row
+           JOIN pg_class relation ON relation.oid = trigger_row.tgrelid
+           WHERE relation.oid = to_regclass('catalog.agent_identities')
+             AND trigger_row.tgname = 'agent_identities_public_agent_id_immutable'
+             AND trigger_row.tgenabled = 'O' AND NOT trigger_row.tgisinternal
+       )
 FROM catalog.schema_version`).Scan(
 		&version,
 		&identitiesPresent,
@@ -394,6 +415,9 @@ FROM catalog.schema_version`).Scan(
 		&trustForeignKeysReady,
 		&trustStatusChecksReady,
 		&trustDigestChecksReady,
+		&publicIdentityColumnReady,
+		&publicIdentityIndexReady,
+		&publicIdentityTriggerReady,
 	)
 	if err != nil {
 		return fmt.Errorf("read catalog schema version: %w", err)
@@ -457,7 +481,7 @@ SELECT to_regclass('catalog.agent_releases') IS NOT NULL,
 	); err != nil {
 		return fmt.Errorf("read Agent Release schema: %w", err)
 	}
-	if version != ExpectedSchemaVersion || !identitiesPresent || !clockPresent || !versionsPresent || !capabilitiesPresent || !clockReady || !cardTextReady || !cardNameReady || !cardDescriptionReady || !legacyUnverifiedReady || !providersPresent || !bindingsPresent || !challengesPresent || !trustColumnsReady || !trustForeignKeysReady || !trustStatusChecksReady || !trustDigestChecksReady || !releasesPresent || !releaseColumnsReady || !releaseForeignKeysReady || !releaseChecksReady || !releaseIndexesReady || !releaseImmutableTrigger {
+	if version != ExpectedSchemaVersion || !identitiesPresent || !clockPresent || !versionsPresent || !capabilitiesPresent || !clockReady || !cardTextReady || !cardNameReady || !cardDescriptionReady || !legacyUnverifiedReady || !providersPresent || !bindingsPresent || !challengesPresent || !trustColumnsReady || !trustForeignKeysReady || !trustStatusChecksReady || !trustDigestChecksReady || !publicIdentityColumnReady || !publicIdentityIndexReady || !publicIdentityTriggerReady || !releasesPresent || !releaseColumnsReady || !releaseForeignKeysReady || !releaseChecksReady || !releaseIndexesReady || !releaseImmutableTrigger {
 		return ErrSchemaVersionMismatch
 	}
 	return nil

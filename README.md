@@ -91,6 +91,15 @@ responses, persistence, and logs for secret material. See the
 and [trusted-publication operations](docs/runbooks/trusted-publication-operations.md)
 for the provider, Workspace-owner, and operator workflow.
 
+Spec 028 adds the native public Agent identity flow. Each registered Agent
+identity receives one immutable `agt_` public ID and a configured canonical URL
+such as `https://agents.nekiro.test/a/agt_<id>`. The URL is public discovery
+metadata, not an Agent endpoint, credential, invitation, or Workspace grant.
+Anonymous resolution returns only eligible published trusted Releases; B must
+choose one exact Release and explicitly accept its permissions before the
+existing Workspace Installation boundary creates a pin. See
+[Public Agent Share](specs/028-public-agent-share/quickstart.md).
+
 The first-stage architecture keeps these boundaries:
 
 ```text

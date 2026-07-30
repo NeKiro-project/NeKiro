@@ -100,7 +100,7 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return errors.New("initialize contract validator")
 	}
-	catalogService, err := catalog.NewService(catalogStore, validator, time.Now)
+	catalogService, err := catalog.NewServiceWithPublicConfig(catalogStore, validator, time.Now, cfg.PublicAgentOrigin, catalog.NewPublicAgentID)
 	if err != nil {
 		return err
 	}
@@ -155,6 +155,15 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 	}
 	mux := http.NewServeMux()
 	catalogHandler.RegisterRoutes(mux)
+	publicShareService, err := catalog.NewPublicShareService(catalogStore, cfg.PublicAgentOrigin)
+	if err != nil {
+		return err
+	}
+	publicShareHandler, err := gateway.NewPublicShareHandler(publicShareService, traces, logger)
+	if err != nil {
+		return err
+	}
+	publicShareHandler.RegisterRoutes(mux)
 	trustHandler, err := gateway.NewTrustHandler(authenticator, trustService, traces, logger)
 	if err != nil {
 		return err

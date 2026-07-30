@@ -2,6 +2,8 @@ import {Component, lazy, StrictMode, Suspense, useSyncExternalStore, type ErrorI
 import {createRoot} from 'react-dom/client';
 
 import App from './App.tsx';
+import PublicAgentPage from './components/PublicAgentPage.tsx';
+import {requirePublicConsoleConfiguration} from './consoleConfig.ts';
 import {demoFromHash, type DemoId} from './demos/routing';
 import './index.css';
 
@@ -20,7 +22,12 @@ function useHash(): string {
 function Root() {
   const hash = useHash();
   const demo = demoFromHash(hash);
-  return demo ? <Suspense fallback={<DemoLoading />}><DemoRoot demo={demo as DemoId} /></Suspense> : <ConfigurationBoundary><App /></ConfigurationBoundary>;
+  if (demo) return <Suspense fallback={<DemoLoading />}><DemoRoot demo={demo as DemoId} /></Suspense>;
+  if (window.location.pathname.startsWith('/a/')) {
+    requirePublicConsoleConfiguration(import.meta.env);
+    return <ConfigurationBoundary><PublicAgentPage /></ConfigurationBoundary>;
+  }
+  return <ConfigurationBoundary><App /></ConfigurationBoundary>;
 }
 
 class ConfigurationBoundary extends Component<{children: ReactNode}, {error: Error | null}> {

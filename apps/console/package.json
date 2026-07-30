@@ -10,7 +10,7 @@
     "clean": "rm -rf dist server.js",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/api/nekiro.test.ts src/consoleConfig.test.ts src/consolePolicy.test.ts src/components/consoleSurface.test.tsx src/demos/routing.test.ts",
+    "test": "tsx --test src/api/nekiro.test.ts src/consoleConfig.test.ts src/consolePolicy.test.ts src/publicAgentUrl.test.ts src/components/consoleSurface.test.tsx src/demos/routing.test.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {

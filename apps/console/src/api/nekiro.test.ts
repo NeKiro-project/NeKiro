@@ -171,6 +171,31 @@ test('NekiroApiClient sends v3 Catalog search requests with auth and decodes pla
   assert.equal(headers.get('Authorization'), 'Bearer test-token');
 });
 
+test('NekiroApiClient resolves public Agent shares anonymously and preserves exact Release facts', async () => {
+  const requests: Array<{url: string; init?: RequestInit}> = [];
+  const publicAgentId = 'agt_0123456789abcdef0123456789abcdef';
+  const release = {
+    releaseId: 'release-1', agentId: 'agent.echo', name: 'Echo', description: 'Public echo',
+    owner: {id: 'owner-a', displayName: 'Owner A'}, agentCardVersion: '1.2.3',
+    cardDigest: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    publishedAt: '2026-07-30T00:01:00Z', authenticationType: 'none',
+    skills: [{id: 'runtime.echo', name: 'Echo', description: 'Echo input.', inputSchema: {type: 'object'}, outputSchema: {type: 'object'}, requiredPermissions: []}],
+    permissions: [], limits,
+  };
+  const client = new NekiroApiClient({
+    baseUrl: 'https://api.example.test', anonymousOnly: true, publicAgentOrigin: 'https://agents.example.test',
+    fetchImpl: async (input, init) => {
+      requests.push({url: String(input), init});
+      return new Response(JSON.stringify({schemaVersion: '1', publicAgentId, publicUrl: 'https://agents.example.test/a/' + publicAgentId, registeredAt: '2026-07-30T00:00:00Z', availability: 'installable', releases: [release]}), {status: 200, headers: {'Content-Type': 'application/json'}});
+    },
+  });
+  const result = await client.resolvePublicAgent(publicAgentId);
+  assert.equal(result.releases[0]?.releaseId, 'release-1');
+  assert.equal(requests[0]?.url, 'https://api.example.test/v4/public/agents/' + publicAgentId);
+  const headers = new Headers(requests[0]?.init?.headers);
+  assert.equal(headers.get('Authorization'), null);
+});
+
 test('NekiroApiClient covers Workspace and Installation v3 paths', async () => {
   const requests: Array<{url: string; init?: RequestInit}> = [];
   const client = new NekiroApiClient({

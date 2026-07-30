@@ -28,6 +28,7 @@ type Config struct {
 	DatabaseURL        string
 	ListenAddress      string
 	CORSAllowedOrigins []string
+	PublicAgentOrigin  string
 	AuthMode           string
 	Principals         []StaticPrincipal
 	InternalAuthMode   string
@@ -73,6 +74,13 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	publicAgentOrigin, err := requiredEnv("NEKIRO_PUBLIC_AGENT_ORIGIN")
+	if err != nil {
+		return Config{}, err
+	}
+	if err := validateHTTPOrigin(publicAgentOrigin); err != nil {
+		return Config{}, fmt.Errorf("NEKIRO_PUBLIC_AGENT_ORIGIN is invalid: %w", err)
+	}
 
 	authMode, err := requiredEnv("NEKIRO_AUTH_MODE")
 	if err != nil {
@@ -106,7 +114,7 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON is invalid: %w", err)
 	}
 	return Config{
-		DatabaseURL: databaseURL, ListenAddress: listenAddress, CORSAllowedOrigins: corsOrigins, AuthMode: authMode,
+		DatabaseURL: databaseURL, ListenAddress: listenAddress, CORSAllowedOrigins: corsOrigins, PublicAgentOrigin: publicAgentOrigin, AuthMode: authMode,
 		Principals: principals, InternalAuthMode: internalAuthMode, InternalPrincipals: internalPrincipals,
 	}, nil
 }
@@ -122,18 +130,8 @@ func loadCORSAllowedOrigins() ([]string, error) {
 		if origin == "" || origin != strings.TrimSpace(origin) || origin == "*" || strings.ContainsAny(origin, "?#") {
 			return nil, fmt.Errorf("NEKIRO_CORS_ALLOWED_ORIGINS entry %d is invalid", index+1)
 		}
-		parsed, err := url.Parse(origin)
-		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		if err := validateHTTPOrigin(origin); err != nil {
 			return nil, fmt.Errorf("NEKIRO_CORS_ALLOWED_ORIGINS entry %d is invalid", index+1)
-		}
-		if parsed.ForceQuery || parsed.RawFragment != "" {
-			return nil, fmt.Errorf("NEKIRO_CORS_ALLOWED_ORIGINS entry %d is invalid", index+1)
-		}
-		if port := parsed.Port(); port != "" {
-			parsedPort, parseErr := strconv.Atoi(port)
-			if parseErr != nil || parsedPort < 1 || parsedPort > 65535 {
-				return nil, fmt.Errorf("NEKIRO_CORS_ALLOWED_ORIGINS entry %d is invalid", index+1)
-			}
 		}
 		if _, exists := seen[origin]; exists {
 			return nil, fmt.Errorf("NEKIRO_CORS_ALLOWED_ORIGINS contains duplicate origin %q", origin)
@@ -141,6 +139,23 @@ func loadCORSAllowedOrigins() ([]string, error) {
 		seen[origin] = struct{}{}
 	}
 	return origins, nil
+}
+
+func validateHTTPOrigin(value string) error {
+	parsed, err := url.Parse(value)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.Hostname() == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.ForceQuery || parsed.RawFragment != "" || parsed.Opaque != "" {
+		return errors.New("must be an exact HTTP or HTTPS origin")
+	}
+	if strings.ContainsAny(parsed.Host, " \\") {
+		return errors.New("host is invalid")
+	}
+	if port := parsed.Port(); port != "" {
+		parsedPort, parseErr := strconv.Atoi(port)
+		if parseErr != nil || parsedPort < 1 || parsedPort > 65535 {
+			return errors.New("port must be between 1 and 65535")
+		}
+	}
+	return nil
 }
 
 func LoadDatabaseURL() (string, error) {

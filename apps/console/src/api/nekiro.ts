@@ -54,6 +54,32 @@ export interface CatalogEntry {
   publicationStatus: PublicationStatus;
   registeredAt: string;
   publishedAt?: string;
+  publicAgentId?: string;
+  publicUrl?: string;
+}
+
+export interface PublicAgentRelease {
+  releaseId: string;
+  agentId: string;
+  name: string;
+  description: string;
+  owner: {id: string; displayName: string};
+  agentCardVersion: string;
+  cardDigest: string;
+  publishedAt: string;
+  authenticationType: AuthenticationType;
+  skills: AgentSkill[];
+  permissions: AgentPermission[];
+  limits: AgentCardV02['limits'];
+}
+
+export interface PublicAgentShare {
+  schemaVersion: '1';
+  publicAgentId: string;
+  publicUrl: string;
+  registeredAt: string;
+  availability: 'installable' | 'not_installable';
+  releases: PublicAgentRelease[];
 }
 
 export interface CatalogSearchResponse {
@@ -299,7 +325,9 @@ export class NekiroApiError extends Error {
 
 interface NekiroApiClientOptions {
   baseUrl: string;
-  token: string;
+  token?: string;
+  anonymousOnly?: boolean;
+  publicAgentOrigin?: string;
   fetchImpl?: typeof fetch;
 }
 
@@ -307,6 +335,7 @@ export class NekiroApiClient {
   private readonly baseUrl: string;
   private readonly token: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly publicAgentOrigin: string;
 
   constructor(options: NekiroApiClientOptions) {
     if (typeof options.baseUrl !== 'string' || options.baseUrl === '' || options.baseUrl !== options.baseUrl.trim()) {
@@ -331,38 +360,45 @@ export class NekiroApiClient {
     }
     this.baseUrl = options.baseUrl.replace(/\/+$/, '');
     const token = options.token;
-    if (typeof token !== 'string' || token === '') {
+    if (!options.anonymousOnly && (typeof token !== 'string' || token === '')) {
       throw new NekiroApiError(0, 'NeKiro development bearer token is required.', 'CONFIGURATION_ERROR');
     }
-    if (token !== token.trim() || /\s/.test(token)) {
+    if (typeof token === 'string' && (token !== token.trim() || /\s/.test(token))) {
       throw new Error('NeKiro bearer token must not contain whitespace');
     }
-    this.token = token;
+    this.token = token ?? '';
+    this.publicAgentOrigin = options.publicAgentOrigin ?? '';
     this.fetchImpl = options.fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
   }
 
   searchAgents(params: CatalogSearchParams = {}): Promise<CatalogSearchResponse> {
     const suffix = this.queryString(params);
-    return this.request<unknown>('/v3/agents' + suffix).then((value) => validateCatalogSearchResponse(value));
+    return this.request<unknown>('/v3/agents' + suffix).then((value) => validateCatalogSearchResponse(value, this.publicAgentOrigin));
+  }
+
+  resolvePublicAgent(publicAgentId: string): Promise<PublicAgentShare> {
+    const safePublicAgentID = readPublicAgentID(publicAgentId);
+    return this.publicRequest<unknown>('/v4/public/agents/' + encodeURIComponent(safePublicAgentID))
+      .then((value) => validatePublicAgentShare(value, safePublicAgentID, this.publicAgentOrigin));
   }
 
   registerAgent(card: AgentCardV02): Promise<CatalogEntry> {
     return this.request<unknown>('/v3/agents', {
       method: 'POST',
       body: JSON.stringify({card}),
-    }, 201).then((value) => validateCatalogEntry(value));
+    }, 201).then((value) => validateCatalogEntry(value, this.publicAgentOrigin));
   }
 
   getAgentVersion(agentId: string, version: string): Promise<CatalogEntry> {
-    return this.request<unknown>(this.versionPath(agentId, version)).then((value) => validateCatalogEntry(value));
+    return this.request<unknown>(this.versionPath(agentId, version)).then((value) => validateCatalogEntry(value, this.publicAgentOrigin));
   }
 
   publishAgentVersion(agentId: string, version: string): Promise<CatalogEntry> {
-    return this.request<unknown>(this.versionPath(agentId, version) + '/publish', {method: 'POST'}).then((value) => validateCatalogEntry(value));
+    return this.request<unknown>(this.versionPath(agentId, version) + '/publish', {method: 'POST'}).then((value) => validateCatalogEntry(value, this.publicAgentOrigin));
   }
 
   disableAgentVersion(agentId: string, version: string): Promise<CatalogEntry> {
-    return this.request<unknown>(this.versionPath(agentId, version) + '/disable', {method: 'POST'}).then((value) => validateCatalogEntry(value));
+    return this.request<unknown>(this.versionPath(agentId, version) + '/disable', {method: 'POST'}).then((value) => validateCatalogEntry(value, this.publicAgentOrigin));
   }
 
   createEndpointBinding(providerId: string, agentId: string, request: CreateEndpointBindingRequest): Promise<EndpointBinding> {
@@ -657,7 +693,7 @@ export class NekiroApiClient {
   }
 
   private async request<T>(path: string, init: RequestInit = {}, expectedStatus = 200): Promise<T> {
-    if (!this.baseUrl) {
+    if (!this.baseUrl || !this.token) {
       throw new NekiroApiError(0, 'NeKiro Control Plane API base URL is not configured.', 'CONFIGURATION_ERROR');
     }
 
@@ -711,7 +747,7 @@ export class NekiroApiClient {
   }
 
   private async rawRequest(path: string, init: RequestInit = {}): Promise<Response> {
-    if (!this.baseUrl) throw new NekiroApiError(0, 'NeKiro Control Plane API base URL is not configured.', 'CONFIGURATION_ERROR');
+    if (!this.baseUrl || !this.token) throw new NekiroApiError(0, 'NeKiro authenticated API client is not configured.', 'CONFIGURATION_ERROR');
     const headers = new Headers(init.headers);
     headers.set('Accept', headers.get('Accept') ?? 'application/json');
     if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
@@ -721,6 +757,24 @@ export class NekiroApiClient {
     } catch {
       throw new NekiroApiError(0, 'NeKiro API request failed.', 'NETWORK_ERROR');
     }
+  }
+
+  private async publicRequest<T>(path: string): Promise<T> {
+    if (!this.baseUrl) throw new NekiroApiError(0, 'NeKiro Control Plane API base URL is not configured.', 'CONFIGURATION_ERROR');
+    const headers = new Headers({'Accept': 'application/json'});
+    let response: Response;
+    try {
+      response = await this.fetchImpl(new URL(path, this.baseUrl + '/'), {headers, redirect: 'error'});
+    } catch {
+      throw new NekiroApiError(0, 'NeKiro API request failed.', 'NETWORK_ERROR');
+    }
+    const responseText = await response.text();
+    const payload = parseJson<unknown>(responseText);
+    if (!response.ok) throw await this.errorFromResponse(response, payload);
+    if (response.status !== 200 || response.headers.get('content-type')?.split(';', 1)[0].trim() !== 'application/json' || payload === undefined) {
+      throw new NekiroApiError(response.status, 'NeKiro public Agent response is invalid.', 'INVALID_RESPONSE');
+    }
+    return payload as T;
   }
 
   private async errorFromResponse(response: Response, knownPayload?: unknown): Promise<NekiroApiError> {
@@ -1297,23 +1351,84 @@ function assertPermissionKeys(value: unknown, index: number): void {
   assertAllowedKeys(value, ['id', 'description'], 'permissions[' + index + ']');
 }
 
-function validateCatalogEntry(value: unknown): CatalogEntry {
+function validateCatalogEntry(value: unknown, publicAgentOrigin = ''): CatalogEntry {
   const record = requireRecord(value, 'Catalog entry');
-  assertAllowedKeys(record, ['card', 'publicationStatus', 'registeredAt', 'publishedAt'], 'Catalog entry');
+  assertAllowedKeys(record, ['card', 'publicationStatus', 'registeredAt', 'publishedAt', 'publicAgentId', 'publicUrl'], 'Catalog entry');
   const result: CatalogEntry = {
     card: validateCatalogCard(record.card),
     publicationStatus: requireEnum(record.publicationStatus, ['draft', 'published', 'disabled'], 'publicationStatus') as PublicationStatus,
     registeredAt: requireDateValue(record.registeredAt, 'registeredAt'),
   };
   if ('publishedAt' in record) result.publishedAt = requireDateValue(record.publishedAt, 'publishedAt');
+  if (('publicAgentId' in record) !== ('publicUrl' in record)) throw new Error('Catalog public identity fields must be paired');
+  if ('publicAgentId' in record) {
+    result.publicAgentId = readPublicAgentID(record.publicAgentId);
+    result.publicUrl = requirePublicAgentURL(record.publicUrl, result.publicAgentId, publicAgentOrigin);
+  }
   return result;
 }
 
-function validateCatalogSearchResponse(value: unknown): CatalogSearchResponse {
+function validatePublicAgentShare(value: unknown, expectedPublicAgentID: string, publicAgentOrigin: string): PublicAgentShare {
+  const record = requireRecord(value, 'Public Agent share');
+  assertAllowedKeys(record, ['schemaVersion', 'publicAgentId', 'publicUrl', 'registeredAt', 'availability', 'releases'], 'Public Agent share');
+  const publicAgentID = readPublicAgentID(record.publicAgentId);
+  if (publicAgentID !== expectedPublicAgentID) throw new Error('Public Agent identity changed');
+  const releases = readRecordArray(record.releases, 'releases').map((release, index) => validatePublicAgentRelease(release, index));
+  const availability = requireEnum(record.availability, ['installable', 'not_installable'], 'availability') as PublicAgentShare['availability'];
+  if ((availability === 'installable') !== (releases.length > 0)) throw new Error('Public Agent availability does not match Releases');
+  return {
+    schemaVersion: record.schemaVersion === '1' ? '1' : (() => { throw new Error('Public Agent share schemaVersion is invalid'); })(),
+    publicAgentId: publicAgentID,
+    publicUrl: requirePublicAgentURL(record.publicUrl, publicAgentID, publicAgentOrigin),
+    registeredAt: requireDateValue(record.registeredAt, 'registeredAt'),
+    availability,
+    releases,
+  };
+}
+
+function validatePublicAgentRelease(value: Record<string, unknown>, index: number): PublicAgentRelease {
+  const field = `releases[${index}]`;
+  assertAllowedKeys(value, ['releaseId', 'agentId', 'name', 'description', 'owner', 'agentCardVersion', 'cardDigest', 'publishedAt', 'authenticationType', 'skills', 'permissions', 'limits'], field);
+  const owner = requireRecord(value.owner, `${field}.owner`);
+  assertAllowedKeys(owner, ['id', 'displayName'], `${field}.owner`);
+  const skills = readRecordArray(value.skills, `${field}.skills`).map((skill, skillIndex) => {
+    const skillField = `${field}.skills[${skillIndex}]`;
+    assertAllowedKeys(skill, ['id', 'name', 'description', 'inputSchema', 'outputSchema', 'requiredPermissions'], skillField);
+    return {
+      id: readIdentifier(skill.id, `${skillField}.id`),
+      name: readText(skill.name, `${skillField}.name`, 120),
+      description: readText(skill.description, `${skillField}.description`, 2000),
+      inputSchema: requireRecord(skill.inputSchema, `${skillField}.inputSchema`),
+      outputSchema: requireRecord(skill.outputSchema, `${skillField}.outputSchema`),
+      requiredPermissions: readStringArray(skill.requiredPermissions, `${skillField}.requiredPermissions`),
+    };
+  });
+  const permissions = readRecordArray(value.permissions, `${field}.permissions`).map((permission, permissionIndex) => {
+    assertPermissionKeys(permission, permissionIndex);
+    return {id: readIdentifier(permission.id, `${field}.permissions[${permissionIndex}].id`), description: readText(permission.description, `${field}.permissions[${permissionIndex}].description`, 1000)};
+  });
+  validateAgentLimits(value.limits as AgentCardV02['limits']);
+  return {
+    releaseId: readIdentifier(value.releaseId, `${field}.releaseId`),
+    agentId: readIdentifier(value.agentId, `${field}.agentId`),
+    name: readText(value.name, `${field}.name`, 120),
+    description: readText(value.description, `${field}.description`, 4000),
+    owner: {id: readIdentifier(owner.id, `${field}.owner.id`), displayName: readText(owner.displayName, `${field}.owner.displayName`, 120)},
+    agentCardVersion: requireSemver(value.agentCardVersion, `${field}.agentCardVersion`),
+    cardDigest: requireDigest(value.cardDigest, `${field}.cardDigest`),
+    publishedAt: requireDateValue(value.publishedAt, `${field}.publishedAt`),
+    authenticationType: requireEnum(value.authenticationType, ['none', 'api_key', 'http_bearer', 'oauth2_client_credentials', 'mutual_tls'], `${field}.authenticationType`) as AuthenticationType,
+    skills,
+    permissions,
+    limits: value.limits as AgentCardV02['limits'],
+  };
+}
+
+function validateCatalogSearchResponse(value: unknown, publicAgentOrigin = ''): CatalogSearchResponse {
   const record = requireRecord(value, 'Catalog search response');
   assertAllowedKeys(record, ['items', 'nextCursor'], 'Catalog search response');
   if (!Array.isArray(record.items)) throw new Error('Catalog search items must be an array');
-  const result: CatalogSearchResponse = {items: record.items.map((item) => validateCatalogEntry(item))};
+  const result: CatalogSearchResponse = {items: record.items.map((item) => validateCatalogEntry(item, publicAgentOrigin))};
   if ('nextCursor' in record) result.nextCursor = readText(record.nextCursor, 'nextCursor');
   return result;
 }
@@ -1404,6 +1519,8 @@ export function mapCatalogEntry(entry: CatalogEntry): Agent {
     permissions: entry.card.permissions,
     registeredAt: entry.registeredAt,
     publishedAt: entry.publishedAt,
+    publicAgentId: entry.publicAgentId,
+    publicUrl: entry.publicUrl,
   };
 }
 
@@ -1510,6 +1627,21 @@ export function validateTrustedInstallation(value: Installation, release: AgentR
   return value;
 }
 
+export function validatePublicInstallation(value: Installation, release: PublicAgentRelease, workspaceId: string, acceptedPermissions: string[]): Installation {
+  const samePermissions = value.acceptedPermissions.length === acceptedPermissions.length
+    && value.acceptedPermissions.every((permission, index) => permission === acceptedPermissions[index]);
+  if (value.workspaceId !== workspaceId
+    || value.agentId !== release.agentId
+    || value.versionConstraint !== release.agentCardVersion
+    || value.installedVersion !== release.agentCardVersion
+    || value.installedReleaseId !== release.releaseId
+    || !samePermissions
+    || value.status !== 'enabled') {
+    throw new NekiroApiError(200, 'NeKiro Installation did not preserve the selected public Release identity.', 'INVALID_RESPONSE');
+  }
+  return value;
+}
+
 function parseCapabilities(value: string): Record<string, unknown>[] {
   let parsed: unknown;
   try {
@@ -1538,6 +1670,20 @@ function readIdentifier(value: unknown, field: string): string {
   if (!/^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,127})$/.test(text)) {
     throw new Error(field + ' must be a NeKiro safe identifier');
   }
+  return text;
+}
+
+function readPublicAgentID(value: unknown): string {
+  const text = readText(value, 'publicAgentId');
+  if (!/^agt_[0-9a-f]{32}$/.test(text)) throw new Error('publicAgentId must be an exact public Agent identifier');
+  return text;
+}
+
+function requirePublicAgentURL(value: unknown, publicAgentID: string, origin: string): string {
+  const text = readText(value, 'publicUrl', 2048);
+  if (typeof origin !== 'string' || origin === '' || origin !== origin.trim()) throw new Error('VITE_NEKIRO_PUBLIC_AGENT_ORIGIN is required');
+  const expected = origin + '/a/' + publicAgentID;
+  if (text !== expected) throw new Error('publicUrl is not the canonical configured public Agent URL');
   return text;
 }
 

@@ -4,10 +4,12 @@ import {expect, test, type Locator, type Page} from '@playwright/test';
 
 const providerId = required('VITE_NEKIRO_PROVIDER_ID');
 const apiBaseURL = required('VITE_NEKIRO_API_BASE_URL');
+const publicAgentOrigin = required('VITE_NEKIRO_PUBLIC_AGENT_ORIGIN');
 const ownerToken = required('VITE_NEKIRO_OWNER_TOKEN');
 const workspaceId = required('VITE_NEKIRO_DEFAULT_WORKSPACE_ID');
 const composeFile = required('NEKIRO_E2E_COMPOSE_FILE');
 const composeProject = required('NEKIRO_E2E_COMPOSE_PROJECT');
+const gatewayProxyTarget = process.env.NEKIRO_E2E_GATEWAY_PROXY_TARGET;
 
 type AgentFixture = {
   id: string;
@@ -15,6 +17,7 @@ type AgentFixture = {
   endpoint: string;
   service: string;
   capability: string;
+  permissions?: string[];
 };
 
 type ReleaseEvidence = {
@@ -34,6 +37,7 @@ const runtimeA: AgentFixture = {
   endpoint: 'http://runtime-a:8091',
   service: 'runtime-a',
   capability: 'runtime.echo',
+  permissions: [],
 };
 
 const runtimeB: AgentFixture = {
@@ -42,7 +46,10 @@ const runtimeB: AgentFixture = {
   endpoint: 'http://runtime-b:8092',
   service: 'runtime-b',
   capability: 'runtime.echo',
+  permissions: ['text.read'],
 };
+
+type PublicShare = {publicAgentId: string; publicUrl: string};
 
 test.describe.configure({mode: 'serial'});
 
@@ -52,6 +59,15 @@ test('production Console completes trusted publication, invocation, trace, and i
   const requestBodies: string[] = [];
   const consoleMessages: string[] = [];
   const leakTracker: BrowserLeakTracker = {requestUrls, requestBodies, consoleMessages};
+  if (gatewayProxyTarget) {
+    const targetOrigin = new URL(gatewayProxyTarget).origin;
+    await page.route(`${apiBaseURL}/**`, async (route) => {
+      const requestURL = new URL(route.request().url());
+      const targetURL = new URL(requestURL.pathname + requestURL.search, targetOrigin + '/');
+      const response = await route.fetch({url: targetURL.toString()});
+      await route.fulfill({response});
+    });
+  }
   page.on('request', (request) => {
     requestUrls.push(request.url());
     if (request.postData()) requestBodies.push(request.postData() ?? '');
@@ -64,8 +80,10 @@ test('production Console completes trusted publication, invocation, trace, and i
   await expect(page.getByText('API: configured', {exact: true})).toBeVisible();
 
   await createWorkspace(page);
-  await registerCard(page, runtimeA);
-  await registerCard(page, runtimeB);
+  const shareA = await registerCard(page, runtimeA);
+  const shareB = await registerCard(page, runtimeB);
+  expect(shareA.publicUrl).toBe(`${publicAgentOrigin}/a/${shareA.publicAgentId}`);
+  expect(shareB.publicUrl).toBe(`${publicAgentOrigin}/a/${shareB.publicAgentId}`);
 
   const releaseA = await publishTrustedRelease(page, runtimeA, leakTracker);
   const releaseB = await publishTrustedRelease(page, runtimeB, leakTracker);
@@ -89,10 +107,51 @@ test('production Console completes trusted publication, invocation, trace, and i
     {agentId: runtimeB.id, version: '1.0.0', publicationStatus: 'published'},
   ]));
   await expect(page.getByRole('heading', {name: 'Agent Card Catalog'})).toBeVisible();
-  await installRelease(page, runtimeA, releaseA.releaseId);
-  await installRelease(page, runtimeB, releaseB.releaseId);
+  const publicResolutionRequests: string[] = [];
+  const directPublicRequestPromise = page.waitForRequest((request) => request.method() === 'GET' && request.url().endsWith(`/v4/public/agents/${shareA.publicAgentId}`));
+  await page.goto(`/a/${shareA.publicAgentId}`);
+  const directPublicRequest = await directPublicRequestPromise;
+  publicResolutionRequests.push(directPublicRequest.url());
+  expect(directPublicRequest.headers().authorization).toBeUndefined();
+  await expect(page.getByRole('heading', {name: 'Review a shared Agent'})).toBeVisible();
+  const directPanel = page.locator('section').filter({hasText: 'Public Share'});
+  const directReleaseSelect = directPanel.getByLabel('Exact public Release', {exact: true});
+  await expect(directReleaseSelect).toHaveValue('');
+  await directReleaseSelect.selectOption(releaseA.releaseId);
+  const directInstallResponsePromise = page.waitForResponse((response) => response.url().includes(`/v3/workspaces/${workspaceId}/installations`) && response.request().method() === 'POST');
+  await directPanel.getByRole('button', {name: 'Install exact Release', exact: true}).click();
+  const directInstallResponse = await directInstallResponsePromise;
+  expect(directInstallResponse.status()).toBe(201);
+  const directInstallation = await directInstallResponse.json() as {installedReleaseId: string; agentId: string; versionConstraint: string};
+  expect(directInstallation).toMatchObject({installedReleaseId: releaseA.releaseId, agentId: runtimeA.id, versionConstraint: '1.0.0'});
+  await expect(directPanel.getByText(`Installed exact Release ${releaseA.releaseId}.`, {exact: true})).toBeVisible();
+
+  await page.goto('/');
+  await expect(page.getByRole('heading', {name: 'Agent Card Catalog'})).toBeVisible();
+  await page.getByRole('button', {name: 'Installations', exact: true}).click();
+  const publicPanel = page.locator('section').filter({hasText: 'Public Share'});
+  await publicPanel.getByLabel('Public Agent URL', {exact: true}).fill(shareB.publicUrl);
+  const pastedPublicRequestPromise = page.waitForRequest((request) => request.method() === 'GET' && request.url().endsWith(`/v4/public/agents/${shareB.publicAgentId}`));
+  await publicPanel.getByRole('button', {name: 'Resolve', exact: true}).click();
+  const pastedPublicRequest = await pastedPublicRequestPromise;
+  publicResolutionRequests.push(pastedPublicRequest.url());
+  expect(pastedPublicRequest.headers().authorization).toBeUndefined();
+  const pastedReleaseSelect = publicPanel.getByLabel('Exact public Release', {exact: true});
+  await expect(pastedReleaseSelect).toHaveValue('');
+  await pastedReleaseSelect.selectOption(releaseB.releaseId);
+  await expect(publicPanel.getByRole('checkbox', {name: /text\.read/})).not.toBeChecked();
+  await publicPanel.getByRole('checkbox', {name: /text\.read/}).check();
+  const pastedInstallResponsePromise = page.waitForResponse((response) => response.url().includes(`/v3/workspaces/${workspaceId}/installations`) && response.request().method() === 'POST');
+  await publicPanel.getByRole('button', {name: 'Install exact Release', exact: true}).click();
+  const pastedInstallResponse = await pastedInstallResponsePromise;
+  expect(pastedInstallResponse.status()).toBe(201);
+  const pastedInstallation = await pastedInstallResponse.json() as {installedReleaseId: string; agentId: string; acceptedPermissions: string[]};
+  expect(pastedInstallation).toMatchObject({installedReleaseId: releaseB.releaseId, agentId: runtimeB.id, acceptedPermissions: ['text.read']});
+  await expect(publicPanel.getByText(`Installed exact Release ${releaseB.releaseId}.`, {exact: true})).toBeVisible();
+  expect(publicResolutionRequests).toEqual([`${apiBaseURL}/v4/public/agents/${shareA.publicAgentId}`, `${apiBaseURL}/v4/public/agents/${shareB.publicAgentId}`]);
 
   await page.getByRole('button', {name: 'Installations', exact: true}).click();
+  await selectOptionContaining(page.getByLabel('Published Agent', {exact: true}), runtimeA.id);
   await page.getByLabel('Trusted Release ID', {exact: true}).fill('release-does-not-exist');
   const preflightResponsePromise = page.waitForResponse((response) => response.url().includes('/v4/releases/release-does-not-exist') && response.request().method() === 'GET');
   await page.getByRole('button', {name: 'Preflight', exact: true}).click();
@@ -195,7 +254,7 @@ async function createWorkspace(page: Page): Promise<void> {
   await expect(page.getByText(`Workspace: ${workspaceId}`, {exact: true})).toBeVisible();
 }
 
-async function registerCard(page: Page, fixture: AgentFixture): Promise<void> {
+async function registerCard(page: Page, fixture: AgentFixture): Promise<PublicShare> {
   await page.getByRole('button', {name: 'Registry', exact: true}).click();
   await page.getByRole('button', {name: 'Register Agent Card', exact: true}).click();
   await page.getByLabel('Agent ID', {exact: true}).fill(fixture.id);
@@ -205,11 +264,20 @@ async function registerCard(page: Page, fixture: AgentFixture): Promise<void> {
   await page.getByLabel('Version', {exact: true}).fill('1.0.0');
   await page.getByLabel('A2A endpoint', {exact: true}).fill(fixture.endpoint);
   await page.getByLabel('Authentication', {exact: true}).selectOption('http_bearer');
+  await page.getByLabel('Permissions, one per line as ID: description', {exact: true}).fill((fixture.permissions ?? []).map((permission) => `${permission}: ${permission}`).join('\n'));
   await page.getByLabel('Capabilities JSON', {exact: true}).fill(JSON.stringify({capabilities: [
-    {id: fixture.capability, name: fixture.capability, description: 'Browser acceptance capability', inputSchema: {type: 'object'}, outputSchema: {type: 'object'}, requiredPermissions: []},
+    {id: fixture.capability, name: fixture.capability, description: 'Browser acceptance capability', inputSchema: {type: 'object'}, outputSchema: {type: 'object'}, requiredPermissions: fixture.permissions ?? []},
   ]}, null, 2));
+  const responsePromise = page.waitForResponse((response) => response.url().endsWith('/v3/agents') && response.request().method() === 'POST');
   await page.getByRole('button', {name: 'Submit draft', exact: true}).click();
+  const response = await responsePromise;
+  expect(response.status()).toBe(201);
+  const body = await response.json() as {publicAgentId?: string; publicUrl?: string};
+  expect(body.publicAgentId).toMatch(/^agt_[0-9a-f]{32}$/);
+  expect(body.publicUrl).toBe(`${publicAgentOrigin}/a/${body.publicAgentId}`);
   await expect(page.getByText(fixture.id, {exact: true}).first()).toBeVisible();
+  await expect(page.getByRole('link', {name: body.publicUrl, exact: true})).toBeVisible();
+  return {publicAgentId: body.publicAgentId as string, publicUrl: body.publicUrl as string};
 }
 
 async function publishTrustedRelease(page: Page, fixture: AgentFixture, leakTracker: BrowserLeakTracker): Promise<ReleaseEvidence> {

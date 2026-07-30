@@ -13,6 +13,7 @@ func TestLoadRequiresExplicitValidConfiguration(t *testing.T) {
 	t.Setenv("NEKIRO_DATABASE_URL", "postgresql://user:password@127.0.0.1:5432/catalog_test?sslmode=disable")
 	t.Setenv("NEKIRO_LISTEN_ADDRESS", "127.0.0.1:18080")
 	t.Setenv("NEKIRO_CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+	t.Setenv("NEKIRO_PUBLIC_AGENT_ORIGIN", "https://agents.nekiro.test")
 	t.Setenv("NEKIRO_AUTH_MODE", DevelopmentStaticAuthMode)
 	t.Setenv("NEKIRO_DEV_AUTH_PRINCIPALS_JSON", `[{"id":"owner-a","tokenSha256":"`+hex.EncodeToString(digest[:])+`"}]`)
 	t.Setenv("NEKIRO_INTERNAL_AUTH_MODE", DevelopmentStaticAuthMode)
@@ -54,6 +55,7 @@ func TestLoadRejectsMissingBlankAndMalformedConfiguration(t *testing.T) {
 			t.Setenv("NEKIRO_DATABASE_URL", test.database)
 			t.Setenv("NEKIRO_LISTEN_ADDRESS", test.listen)
 			t.Setenv("NEKIRO_CORS_ALLOWED_ORIGINS", "http://localhost:3000")
+			t.Setenv("NEKIRO_PUBLIC_AGENT_ORIGIN", "https://agents.nekiro.test")
 			t.Setenv("NEKIRO_AUTH_MODE", test.mode)
 			t.Setenv("NEKIRO_DEV_AUTH_PRINCIPALS_JSON", test.principals)
 			if _, err := Load(); err == nil {
@@ -86,6 +88,7 @@ func TestLoadRejectsMissingInternalAuthenticationConfiguration(t *testing.T) {
 	t.Setenv("NEKIRO_DATABASE_URL", "postgresql://user:password@127.0.0.1:5432/catalog_test?sslmode=disable")
 	t.Setenv("NEKIRO_LISTEN_ADDRESS", "127.0.0.1:18080")
 	t.Setenv("NEKIRO_CORS_ALLOWED_ORIGINS", "http://localhost:3000")
+	t.Setenv("NEKIRO_PUBLIC_AGENT_ORIGIN", "https://agents.nekiro.test")
 	t.Setenv("NEKIRO_AUTH_MODE", DevelopmentStaticAuthMode)
 	t.Setenv("NEKIRO_DEV_AUTH_PRINCIPALS_JSON", `[{"id":"owner-a","tokenSha256":"`+hex.EncodeToString(digest[:])+`"}]`)
 	t.Setenv("NEKIRO_INTERNAL_AUTH_MODE", "")
@@ -102,12 +105,30 @@ func TestLoadRejectsImplicitOrMalformedCORSOrigins(t *testing.T) {
 			t.Setenv("NEKIRO_DATABASE_URL", "postgresql://user:password@127.0.0.1:5432/catalog_test?sslmode=disable")
 			t.Setenv("NEKIRO_LISTEN_ADDRESS", "127.0.0.1:18080")
 			t.Setenv("NEKIRO_CORS_ALLOWED_ORIGINS", origins)
+			t.Setenv("NEKIRO_PUBLIC_AGENT_ORIGIN", "https://agents.nekiro.test")
 			t.Setenv("NEKIRO_AUTH_MODE", DevelopmentStaticAuthMode)
 			t.Setenv("NEKIRO_DEV_AUTH_PRINCIPALS_JSON", `[{"id":"owner-a","tokenSha256":"`+hex.EncodeToString(digest[:])+`"}]`)
 			t.Setenv("NEKIRO_INTERNAL_AUTH_MODE", DevelopmentStaticAuthMode)
 			t.Setenv("NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON", `[{"id":"router-a","tokenSha256":"`+hex.EncodeToString(digest[:])+`"}]`)
 			if _, err := Load(); err == nil {
 				t.Fatal("malformed CORS origins were accepted")
+			}
+		})
+	}
+}
+
+func TestLoadRejectsMissingOrNonOriginPublicAgentOrigin(t *testing.T) {
+	for _, value := range []string{"", " https://agents.nekiro.test", "https://user@agents.nekiro.test", "https://agents.nekiro.test/", "https://agents.nekiro.test/a", "https://agents.nekiro.test?x=1", "agents.nekiro.test"} {
+		t.Run(value, func(t *testing.T) {
+			if value == "" {
+				t.Setenv("NEKIRO_PUBLIC_AGENT_ORIGIN", " ")
+			} else {
+				t.Setenv("NEKIRO_PUBLIC_AGENT_ORIGIN", value)
+			}
+			if _, err := requiredEnv("NEKIRO_PUBLIC_AGENT_ORIGIN"); err == nil {
+				if err := validateHTTPOrigin(value); err == nil {
+					t.Fatal("invalid public Agent origin was accepted")
+				}
 			}
 		})
 	}

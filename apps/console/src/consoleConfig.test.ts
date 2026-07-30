@@ -9,6 +9,7 @@ const validConfiguration = {
   VITE_NEKIRO_PROVIDER_TOKEN: 'provider-token',
   VITE_NEKIRO_OWNER_TOKEN: 'owner-token',
   VITE_NEKIRO_DEFAULT_WORKSPACE_ID: 'workspace.main',
+  VITE_NEKIRO_PUBLIC_AGENT_ORIGIN: 'https://agents.example.test',
 };
 
 test('console configuration requires all production identities and the Workspace', () => {
@@ -25,4 +26,10 @@ test('console configuration rejects whitespace-padded values', () => {
     () => requireConsoleConfiguration({...validConfiguration, VITE_NEKIRO_OWNER_TOKEN: ' owner-token'}),
     /VITE_NEKIRO_OWNER_TOKEN/,
   );
+});
+
+test('console configuration rejects non-origin public Agent URLs', () => {
+  for (const value of ['https://agents.example.test/', 'https://user@agents.example.test', 'https://agents.example.test/a', 'agents.example.test']) {
+    assert.throws(() => requireConsoleConfiguration({...validConfiguration, VITE_NEKIRO_PUBLIC_AGENT_ORIGIN: value}));
+  }
 });

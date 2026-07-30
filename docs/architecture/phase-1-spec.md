@@ -60,6 +60,12 @@ Cross-language contracts are owned by language-neutral artifacts:
   remains unchanged migration evidence. Any legacy Invocation paths still
   present in the v3 document are migration evidence and are not served by the
   current Gateway.
+- `contracts/openapi/public-agent-share.v1.yaml` and
+  `contracts/schemas/public-agent-share.v1.schema.json` define the anonymous
+  public Agent identity projection. `GET /v4/public/agents/:publicAgentId`
+  exposes only the canonical public URL and eligible published trusted Release
+  facts; it never exposes an endpoint, binding, evidence, credential,
+  Workspace, or Ledger data.
 - `contracts/openapi/control-plane-invocation.v4.yaml` defines the active
   Invocation and Trace Northbound API.
 - `contracts/openapi/control-plane-internal.v2.yaml` defines Router-to-Control Plane exact Agent resolution; `control-plane-internal.v3.yaml` defines nested installed-version resolution.
@@ -104,6 +110,18 @@ key, signature, or `jti` enters Agent Card, result, event, or Ledger storage.
 | `GET` | `/v3/workspaces/:workspaceId/installations/:installationId` | Read one exact Installation |
 | `PATCH` | `/v3/workspaces/:workspaceId/installations/:installationId` | Enable or disable an installation |
 | `DELETE` | `/v3/workspaces/:workspaceId/installations/:installationId` | Uninstall and return preserved history |
+
+Public sharing is a read-only Catalog projection, not a second installation or
+invocation boundary:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/v4/public/agents/:publicAgentId` | Resolve a stable public Agent ID anonymously to exact selectable Releases |
+
+The Console requires an exact configured `VITE_NEKIRO_PUBLIC_AGENT_ORIGIN` and
+accepts only canonical `/a/:publicAgentId` URLs. Installation reuses the
+authenticated `/v3/workspaces/:workspaceId/installations` contract, so the
+public URL never reaches Agent transport and never authorizes a Workspace.
 
 The Gateway returns Platform Error v2 for Catalog failures and Platform Error v3
 for Workspace/Installation failures. Public messages are fixed by error code and

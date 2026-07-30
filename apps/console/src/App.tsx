@@ -46,6 +46,7 @@ export default function App() {
     () => new NekiroApiClient({
       baseUrl: import.meta.env.VITE_NEKIRO_API_BASE_URL,
       token: import.meta.env.VITE_NEKIRO_PROVIDER_TOKEN,
+      publicAgentOrigin: import.meta.env.VITE_NEKIRO_PUBLIC_AGENT_ORIGIN,
     }),
     [],
   );
@@ -53,6 +54,7 @@ export default function App() {
     () => new NekiroApiClient({
       baseUrl: import.meta.env.VITE_NEKIRO_API_BASE_URL,
       token: import.meta.env.VITE_NEKIRO_OWNER_TOKEN,
+      publicAgentOrigin: import.meta.env.VITE_NEKIRO_PUBLIC_AGENT_ORIGIN,
     }),
     [],
   );
@@ -372,6 +374,7 @@ export default function App() {
                 onUpdateInstallation={handleUpdateInstallation}
                 onUninstall={handleUninstall}
                 onRefresh={() => void loadInstallations()}
+                onPublicInstalled={() => loadInstallations()}
               />
             </motion.div>
           )}
