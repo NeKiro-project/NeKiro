@@ -29,5 +29,8 @@ Thumbs.db
 !.agents/skills/
 !.agents/skills/**
 
+# Qoder generated repository wiki
+.qoder/repowiki/
+
 # Linked worktrees
 .worktrees/
