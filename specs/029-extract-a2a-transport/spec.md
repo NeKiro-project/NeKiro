@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-30
 
-**Status**: Implemented (awaiting downstream Linux CI gate)
+**Status**: Implemented
 
 **Input**: User description: "Lead the migration of reusable NeKiro A2A transport behavior into NeKiro-project/nekiro-a2a-transport-go and consume it from NeKiro through go.mod."
 

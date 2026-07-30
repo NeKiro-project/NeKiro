@@ -113,7 +113,7 @@ public tag, and changing it requires an explicit dependency diff.
 - [X] T029 [US4] Commit and push the upstream branch, create and merge its reviewed PR with green CI, then create and push immutable tags `v0.1.0` and conformance-complete `v0.1.1` in `E:/nekiro-a2a-transport-go/`
 - [X] T030 [US4] Prove a clean temporary external module resolves and compiles `github.com/NeKiro-project/nekiro-a2a-transport-go@v0.1.1` without `replace` or NeKiro imports
 - [X] T031 [US4] Remove the temporary replacement and require upstream `v0.1.1`, update sums, and verify the committed module graph in `E:/NeKiro-a2a-transport-integration/go.mod` and `E:/NeKiro-a2a-transport-integration/go.sum`
-- [ ] T032 [US4] Rerun focused, full, race, vet, module, diff, fallback, secrecy, Runtime A, and invoke-to-record checks using only the public tag in `E:/NeKiro-a2a-transport-integration/`
+- [X] T032 [US4] Rerun focused, full, race, vet, module, diff, fallback, secrecy, Runtime A, and invoke-to-record checks using only the public tag in `E:/NeKiro-a2a-transport-integration/`
 
 **Checkpoint**: Upstream `v0.1.1` is public and NeKiro no longer depends on a
 local or duplicate implementation.
@@ -127,7 +127,7 @@ local or duplicate implementation.
 - [X] T033 Run an independent NeKiro review against AGENTS.md, Spec, Clarify, Plan, Tasks, ADR 0008, active contracts, fallback policy, and both repository diffs in `E:/NeKiro-a2a-transport-integration/`
 - [X] T034 Resolve every blocking downstream review finding, return any behavior/scope issue to Spec or Tasks first, rerun affected verification, and obtain a fresh independent PASS in `E:/NeKiro-a2a-transport-integration/`
 - [X] T035 Update Spec 029 status, task evidence, delivery docs, and fallback delta after final verification in `E:/NeKiro-a2a-transport-integration/specs/029-extract-a2a-transport/` and `E:/NeKiro-a2a-transport-integration/docs/`
-- [ ] T036 Commit and push the NeKiro branch and create a downstream PR that depends only on public upstream `v0.1.1` in `E:/NeKiro-a2a-transport-integration/`
+- [X] T036 Commit and push the NeKiro branch and create a downstream PR that depends only on public upstream `v0.1.1` in `E:/NeKiro-a2a-transport-integration/`
 
 ---
 
@@ -185,7 +185,10 @@ Setup
   `invoke_record_test.go:1030-1065` (reverse Runtime B -> Router -> Runtime A
   root/child trace relationship).
 - Local Windows `go test -race ./...` cannot run because the environment has
-  no CGO compiler (`gcc`); downstream Linux CI remains required for T032.
+  no CGO compiler (`gcc`). Downstream PR #72 CI run `30518021473` then passed
+  all eight reported checks, including Linux `go-quality` race/vet/module
+  verification and `backend-acceptance`; this closes T032's race and
+  acceptance gate.
 
 ## Parallel Opportunities
 
