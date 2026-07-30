@@ -114,6 +114,11 @@ INSERT INTO catalog.agent_identities (agent_id, owner_id, created_at, public_age
 VALUES ('agent-empty', 'owner-empty', $1, 'agt_abcdefabcdefabcdefabcdefabcdefab')`, now); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := connection.Exec(ctx, `
+INSERT INTO catalog.agent_versions (agent_id, version, schema_version, card, card_name, card_description, card_digest, publication_status, registered_at, legacy_unverified)
+VALUES ('agent-empty', '1.0.0', '0.2', '{}', 'Draft Agent', 'Draft Agent', $1, 'draft', $2, false)`, make([]byte, 32), now); err != nil {
+		t.Fatal(err)
+	}
 	empty, err := store.GetPublicShare(ctx, "agt_abcdefabcdefabcdefabcdefabcdefab")
 	if err != nil || empty.PublicAgentID == "" || len(empty.Releases) != 0 {
 		t.Fatalf("empty public view = %#v error=%v", empty, err)
