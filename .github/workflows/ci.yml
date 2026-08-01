@@ -35,7 +35,7 @@ jobs:
         run: go test -race ./...
 
       - name: Upload Go coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
         with:
           files: coverage.txt
           flags: go
@@ -87,9 +87,10 @@ jobs:
           go test -tags=integration -coverprofile integration-catalog-coverage.txt -count=1 ./apps/control-plane/internal/catalog/postgres
           go test -tags=integration -count=1 ./apps/control-plane/internal/workspace/postgres
           go test -tags=integration -count=1 ./apps/control-plane/internal/workspace/integration
+          go test -tags=integration -count=1 ./tests/integration/catalog
 
       - name: Upload PostgreSQL integration coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
         with:
           files: integration-catalog-coverage.txt
           flags: go-integration

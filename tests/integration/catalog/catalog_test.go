@@ -66,7 +66,7 @@ func TestCatalogPostgreSQLAndHTTPAcceptance(t *testing.T) {
 	binary := buildControlPlane(t, root)
 	assertV1ToV2Migration(t, databaseURL, root, pool)
 	runCommand(t, root, databaseURL, binary, "migrate", "up")
-	assertCatalogSchemaV4(t, pool)
+	assertCatalogSchemaV5(t, pool)
 	runCommand(t, root, databaseURL, binary, "migrate", "up")
 	assertUnsupportedMigrationLeavesPopulatedCatalog(t, root, databaseURL, binary, pool)
 
@@ -523,10 +523,11 @@ JOIN pg_attribute description
 	}
 }
 
-func assertCatalogSchemaV4(t *testing.T, pool *pgxpool.Pool) {
+func assertCatalogSchemaV5(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	var version int
 	var providers, bindings, challenges, releases, legacyMarker bool
+	var publicAgentIDColumnReady, publicAgentIDIndexReady, publicAgentIDTriggerReady bool
 	err := pool.QueryRow(context.Background(), `
 SELECT version,
        to_regclass('catalog.providers') IS NOT NULL,
@@ -536,15 +537,29 @@ SELECT version,
        EXISTS (
          SELECT 1 FROM information_schema.columns
          WHERE table_schema = 'catalog' AND table_name = 'agent_versions'
-           AND column_name = 'legacy_unverified' AND data_type = 'boolean'
+            AND column_name = 'legacy_unverified' AND data_type = 'boolean'
+            AND is_nullable = 'NO'
+        ),
+       EXISTS (
+         SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'catalog' AND table_name = 'agent_identities'
+           AND column_name = 'public_agent_id' AND data_type = 'character varying'
            AND is_nullable = 'NO'
+       ),
+       to_regclass('catalog.agent_identities_public_agent_id_idx') IS NOT NULL,
+       EXISTS (
+         SELECT 1 FROM pg_trigger trigger_row
+         JOIN pg_class relation ON relation.oid = trigger_row.tgrelid
+         WHERE relation.oid = to_regclass('catalog.agent_identities')
+           AND trigger_row.tgname = 'agent_identities_public_agent_id_immutable'
+           AND trigger_row.tgenabled = 'O' AND NOT trigger_row.tgisinternal
        )
-FROM catalog.schema_version`).Scan(&version, &providers, &bindings, &challenges, &releases, &legacyMarker)
+FROM catalog.schema_version`).Scan(&version, &providers, &bindings, &challenges, &releases, &legacyMarker, &publicAgentIDColumnReady, &publicAgentIDIndexReady, &publicAgentIDTriggerReady)
 	if err != nil {
-		t.Fatalf("inspect Catalog schema v4: %v", err)
+		t.Fatalf("inspect Catalog schema v5: %v", err)
 	}
-	if version != 4 || !providers || !bindings || !challenges || !releases || !legacyMarker {
-		t.Fatalf("Catalog schema v4 = version %d, providers %t, bindings %t, challenges %t, releases %t, legacy marker %t", version, providers, bindings, challenges, releases, legacyMarker)
+	if version != 5 || !providers || !bindings || !challenges || !releases || !legacyMarker || !publicAgentIDColumnReady || !publicAgentIDIndexReady || !publicAgentIDTriggerReady {
+		t.Fatalf("Catalog schema v5 = version %d, providers %t, bindings %t, challenges %t, releases %t, legacy marker %t, public Agent ID column %t, index %t, trigger %t", version, providers, bindings, challenges, releases, legacyMarker, publicAgentIDColumnReady, publicAgentIDIndexReady, publicAgentIDTriggerReady)
 	}
 }
 
@@ -641,6 +656,7 @@ WHERE agent_id = 'migration-agent' AND version = '1.0.0'`).Scan(&storedDigest); 
 type migrationGuardSnapshot struct {
 	schemaVersion       int
 	ownerID             string
+	publicAgentID       string
 	identityCreatedAt   time.Time
 	card                string
 	cardName            string
@@ -677,8 +693,8 @@ func assertUnsupportedMigrationLeavesPopulatedCatalog(t *testing.T, root, databa
 		t.Fatalf("seed migration guard clock: %v", err)
 	}
 	if _, err := tx.Exec(ctx, `
-INSERT INTO catalog.agent_identities (agent_id, owner_id, created_at)
-VALUES ($1, $2, $3)`, card.AgentID, card.Owner.ID, createdAt); err != nil {
+	INSERT INTO catalog.agent_identities (agent_id, owner_id, created_at, public_agent_id)
+VALUES ($1, $2, $3, 'agt_abcdefabcdefabcdefabcdefabcdefab')`, card.AgentID, card.Owner.ID, createdAt); err != nil {
 		t.Fatalf("seed migration guard identity: %v", err)
 	}
 	if _, err := tx.Exec(ctx, `
@@ -707,7 +723,7 @@ VALUES ($1, $2, $3)`, card.AgentID, card.Version, card.Skills[0].ID); err != nil
 	if output, err := command.CombinedOutput(); err == nil {
 		t.Fatalf("unsupported migrate down succeeded: %s", output)
 	}
-	assertCatalogSchemaV4(t, pool)
+	assertCatalogSchemaV5(t, pool)
 	after := readMigrationGuardSnapshot(t, pool)
 	if after != before {
 		t.Fatalf("unsupported migrate down changed Catalog\nbefore: %#v\nafter:  %#v", before, after)
@@ -741,6 +757,7 @@ func readMigrationGuardSnapshot(t *testing.T, pool *pgxpool.Pool) migrationGuard
 	err := pool.QueryRow(context.Background(), `
 SELECT sv.version,
        i.owner_id,
+       i.public_agent_id,
        i.created_at,
        v.card,
        v.card_name,
@@ -762,6 +779,7 @@ CROSS JOIN catalog.publication_clock p
 WHERE i.agent_id = 'migration-guard-agent' AND p.singleton = true`).Scan(
 		&snapshot.schemaVersion,
 		&snapshot.ownerID,
+		&snapshot.publicAgentID,
 		&snapshot.identityCreatedAt,
 		&snapshot.card,
 		&snapshot.cardName,
@@ -1051,7 +1069,7 @@ func seedPublishedVersions(t *testing.T, pool *pgxpool.Pool, start, count int) {
 	}
 	defer tx.Rollback(ctx)
 	registeredAt := time.Date(2026, 7, 14, 0, 0, 0, 0, time.UTC)
-	if _, err := tx.Exec(ctx, `INSERT INTO catalog.agent_identities (agent_id, owner_id, created_at) VALUES ('scale-agent', 'catalog-owner-a', $1) ON CONFLICT DO NOTHING`, registeredAt); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO catalog.agent_identities (agent_id, owner_id, created_at, public_agent_id) VALUES ('scale-agent', 'catalog-owner-a', $1, 'agt_0123456789abcdef0123456789abcdef') ON CONFLICT DO NOTHING`, registeredAt); err != nil {
 		t.Fatal(err)
 	}
 	var sequence int64
