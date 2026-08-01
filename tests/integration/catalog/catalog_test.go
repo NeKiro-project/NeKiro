@@ -849,15 +849,24 @@ func startServer(t *testing.T, root, databaseURL, binary string) *testServer {
 	server.command = exec.Command(binary, "serve")
 	server.command.Dir = root
 	server.command.Env = environmentWith(map[string]string{
-		"NEKIRO_DATABASE_URL":                        databaseURL,
-		"NEKIRO_LISTEN_ADDRESS":                      address,
-		"NEKIRO_AUTH_MODE":                           "development-static",
-		"NEKIRO_DEV_AUTH_PRINCIPALS_JSON":            string(principalsJSON),
-		"NEKIRO_INTERNAL_AUTH_MODE":                  "development-static",
-		"NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON":   string(internalPrincipalsJSON),
-		"NEKIRO_ENDPOINT_CHALLENGE_TTL_SECONDS":      "300",
-		"NEKIRO_ENDPOINT_VERIFICATION_TIMEOUT_MS":    "10000",
-		"NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON": "[]",
+		"NEKIRO_DATABASE_URL":                             databaseURL,
+		"NEKIRO_LISTEN_ADDRESS":                           address,
+		"NEKIRO_CORS_ALLOWED_ORIGINS":                     "http://127.0.0.1:4173",
+		"NEKIRO_PUBLIC_AGENT_ORIGIN":                      "https://agents.nekiro.test",
+		"NEKIRO_AUTH_MODE":                                "development-static",
+		"NEKIRO_DEV_AUTH_PRINCIPALS_JSON":                 string(principalsJSON),
+		"NEKIRO_INTERNAL_AUTH_MODE":                       "development-static",
+		"NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON":        string(internalPrincipalsJSON),
+		"NEKIRO_ROUTER_INTERNAL_URL":                      "http://router-integration:8081/internal/v4/invocations",
+		"NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN":             internalToken,
+		"NEKIRO_CONTROL_PLANE_INTERNAL_REQUEST_MAX_BYTES": "1048576",
+		"NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES":     "1048576",
+		"NEKIRO_GATEWAY_SSE_EVENT_MAX_BYTES":              "65536",
+		"NEKIRO_GATEWAY_METADATA_RESPONSE_MAX_BYTES":      "1048576",
+		"NEKIRO_GATEWAY_INVOCATION_DEADLINE_MS":           "30000",
+		"NEKIRO_ENDPOINT_CHALLENGE_TTL_SECONDS":           "300",
+		"NEKIRO_ENDPOINT_VERIFICATION_TIMEOUT_MS":         "10000",
+		"NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON":      "[]",
 	})
 	server.command.Stdout = &server.logs
 	server.command.Stderr = &server.logs
