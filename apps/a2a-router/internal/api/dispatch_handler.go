@@ -15,10 +15,10 @@ import (
 	"time"
 
 	semver "github.com/Masterminds/semver/v3"
-	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/auth"
-	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/resolution"
-	streammodel "github.com/Nene7ko/NeKiro/apps/a2a-router/internal/stream"
-	"github.com/Nene7ko/NeKiro/contracts"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/auth"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/resolution"
+	streammodel "github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/stream"
+	"github.com/NeKiro-project/NeKiro/contracts"
 )
 
 const TraceHeader = "x-nek-trace-id"

@@ -1,4 +1,4 @@
-module github.com/Nene7ko/NeKiro
+module github.com/NeKiro-project/NeKiro
 
 go 1.26.0
 

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Nene7ko/NeKiro/apps/control-plane/internal/catalog"
+	"github.com/NeKiro-project/NeKiro/apps/control-plane/internal/catalog"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

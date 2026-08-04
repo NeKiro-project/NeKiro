@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/Nene7ko/NeKiro/apps/control-plane/internal/catalog"
+	"github.com/NeKiro-project/NeKiro/apps/control-plane/internal/catalog"
 )
 
 var (

@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	a2atransport "github.com/NeKiro-project/nekiro-a2a-transport-go"
-	"github.com/Nene7ko/NeKiro/contracts"
+	"github.com/NeKiro-project/NeKiro/contracts"
 	a2ago "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2aclient"
 )

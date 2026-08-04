@@ -3,8 +3,35 @@
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/028-public-agent-share/plan.md
+at specs\030-core-repository-boundary\plan.md
 <!-- SPECKIT END -->
+
+## Repository governance amendment (2026-08-04)
+
+This amendment supersedes conflicting repository-layout and tracked-SDD
+provisions below for the core-repository extraction approved by the project
+owner:
+
+- `NeKiro-project/NeKiro` is the core platform repository. It retains the
+  Control Plane, A2A Router, canonical contracts, service-owned database
+  migrations, core tests, architecture decisions, and usage documentation.
+- Console, public SDKs, sample Agent Runtimes, multi-component deployment, and
+  product-level acceptance are independently released satellite projects.
+- Catalog, Workspace, and Ledger migrations remain with their owning core
+  service. SQL is not extracted by file type, and each schema version has one
+  canonical migration source.
+- Spec 030 is the final tracked Spec Kit migration record. After its accepted
+  implementation, `specs/`, `.specify/`, and repository-local Spec Kit skills
+  are removed from the tracked core tree.
+- Future work is governed by GitHub Issues, architecture decisions for public
+  or structural changes, focused implementation, mapped tests, and independent
+  pull-request review. A passing test suite does not replace review.
+- The core repository keeps only architecture, contract-usage, and operator or
+  developer usage documentation. Roadmaps, handoffs, delivery diaries, and
+  narrative project history move to GitHub Issues, Releases, or the Wiki.
+
+The permanent decision and migration impact are recorded in
+`docs/decisions/0009-core-repository-boundary.md`.
 
 ## Current delivery status
 

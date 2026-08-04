@@ -12,8 +12,8 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/Nene7ko/NeKiro/apps/control-plane/internal/workspace"
-	"github.com/Nene7ko/NeKiro/contracts"
+	"github.com/NeKiro-project/NeKiro/apps/control-plane/internal/workspace"
+	"github.com/NeKiro-project/NeKiro/contracts"
 )
 
 type WorkspaceService interface {

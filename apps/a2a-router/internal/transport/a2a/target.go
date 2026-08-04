@@ -6,7 +6,7 @@ import (
 	"math/big"
 	"net/url"
 
-	"github.com/Nene7ko/NeKiro/contracts"
+	"github.com/NeKiro-project/NeKiro/contracts"
 )
 
 type Target struct {
