@@ -576,7 +576,7 @@ func assertV1ToV2Migration(t *testing.T, databaseURL, root string, pool *pgxpool
 	}
 	migrationFS := fstest.MapFS{}
 	for _, filename := range []string{"001_catalog.sql", "002_card_text.sql"} {
-		data, err := os.ReadFile(filepath.Join(root, "apps", "control-plane", "migrations", filename))
+		data, err := os.ReadFile(filepath.Join(root, "apps", "control-plane", "internal", "catalog", "postgres", "migrations", filename))
 		if err != nil {
 			t.Fatalf("read %s: %v", filename, err)
 		}
