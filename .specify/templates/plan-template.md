@@ -4,7 +4,9 @@
 
 **Input**: Feature specification from `/specs/[###-feature-name]/spec.md`
 
-**Note**: This template is filled in by the `/speckit-plan` command. See `.specify/templates/plan-template.md` for the execution workflow.
+**Note**: This template is used only for the final Spec 030 repository
+transition and is removed from the tracked core repository when that migration
+completes.
 
 ## Summary
 
@@ -53,8 +55,9 @@
   semantics remain distinct and parent/child identifiers propagate where used.
 - **Failure safety**: Error states remain distinguishable; no undocumented
   fallback or secret-bearing contract/log/event field is introduced.
-- **SDD traceability**: Source paths and tasks map to accepted requirements;
-  tests are planned after implementation and map to acceptance scenarios.
+- **Delivery traceability**: Source paths and tasks map to the accepted final
+  migration requirements; tests follow implementation and map to acceptance
+  scenarios. Future work uses Issues, ADRs, pull requests, and releases.
 - **Cross-runtime proof**: Features touching Agent integration identify how the
   Phase 1 multi-Runtime scenario verifies the platform boundary.
 

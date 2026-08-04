@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	semver "github.com/Masterminds/semver/v3"
-	"github.com/Nene7ko/NeKiro/apps/control-plane/internal/catalog"
-	"github.com/Nene7ko/NeKiro/contracts"
+	"github.com/NeKiro-project/NeKiro/apps/control-plane/internal/catalog"
+	"github.com/NeKiro-project/NeKiro/contracts"
 )
 
 type Service struct {

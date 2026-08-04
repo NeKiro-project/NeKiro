@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Nene7ko/NeKiro/contracts"
+	"github.com/NeKiro-project/NeKiro/contracts"
 )
 
 const validResolveResponse = `{"card":{"schemaVersion":"0.2","agentId":"agent-a","name":"Agent","description":"Agent","owner":{"id":"team","displayName":"Team"},"version":"1.0.0","protocol":{"type":"a2a","version":"0.3.0","transport":"JSONRPC","endpoint":"https://agent.example/a2a"},"skills":[{"id":"capability-a","name":"Capability","description":"Capability","inputSchema":{},"outputSchema":{},"requiredPermissions":[]}],"authentication":{"type":"none"},"permissions":[],"limits":{"timeoutMs":1000,"maxInputBytes":1024,"maxOutputBytes":1024,"streaming":true}},"installation":{"installationId":"inst-a","workspaceId":"workspace-a","agentId":"agent-a","installedVersion":"1.0.0","acceptedPermissions":[],"status":"enabled"}}`

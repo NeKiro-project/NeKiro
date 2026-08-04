@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Nene7ko/NeKiro/apps/control-plane/internal/catalog"
-	"github.com/Nene7ko/NeKiro/apps/control-plane/internal/config"
+	"github.com/NeKiro-project/NeKiro/apps/control-plane/internal/catalog"
+	"github.com/NeKiro-project/NeKiro/apps/control-plane/internal/config"
 )
 
 var ErrUnauthenticated = errors.New("authentication failed")

@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/Nene7ko/NeKiro/apps/control-plane/internal/workspace"
-	"github.com/Nene7ko/NeKiro/contracts"
+	"github.com/NeKiro-project/NeKiro/apps/control-plane/internal/workspace"
+	"github.com/NeKiro-project/NeKiro/contracts"
 )
 
 // MetadataRouter is the only downstream port used by the Control Plane read

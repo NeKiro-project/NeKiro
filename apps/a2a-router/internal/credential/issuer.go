@@ -8,7 +8,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/Nene7ko/NeKiro/contracts"
+	"github.com/NeKiro-project/NeKiro/contracts"
 	"github.com/golang-jwt/jwt/v5"
 )
 

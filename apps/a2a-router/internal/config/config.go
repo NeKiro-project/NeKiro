@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/auth"
-	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/credential"
-	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/nested"
-	"github.com/Nene7ko/NeKiro/contracts"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/auth"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/credential"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/nested"
+	"github.com/NeKiro-project/NeKiro/contracts"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

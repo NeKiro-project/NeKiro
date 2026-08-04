@@ -9,10 +9,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/ledger"
-	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/nested"
-	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/resolution"
-	"github.com/Nene7ko/NeKiro/contracts"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/ledger"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/nested"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/resolution"
+	"github.com/NeKiro-project/NeKiro/contracts"
 )
 
 // VersionResolver resolves the deterministic installed Agent Card version

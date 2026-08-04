@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Nene7ko/NeKiro/contracts"
+	"github.com/NeKiro-project/NeKiro/contracts"
 )
 
 // ReleaseStore owns immutable Agent Release facts and their state transitions.

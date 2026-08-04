@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Nene7ko/NeKiro/contracts"
+	"github.com/NeKiro-project/NeKiro/contracts"
 )
 
 type VerificationStatus string

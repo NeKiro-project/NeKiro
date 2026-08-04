@@ -6,9 +6,9 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/auth"
-	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/ledger"
-	"github.com/Nene7ko/NeKiro/contracts"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/auth"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/ledger"
+	"github.com/NeKiro-project/NeKiro/contracts"
 )
 
 type LedgerReader interface {

@@ -14,13 +14,13 @@ import (
 	"testing"
 	"time"
 
-	runtimeb "github.com/Nene7ko/NeKiro/agents/runtime-b"
-	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/auth"
-	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/credential"
-	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/resolution"
-	streammodel "github.com/Nene7ko/NeKiro/apps/a2a-router/internal/stream"
-	a2atransport "github.com/Nene7ko/NeKiro/apps/a2a-router/internal/transport/a2a"
-	"github.com/Nene7ko/NeKiro/contracts"
+	runtimeb "github.com/NeKiro-project/NeKiro/agents/runtime-b"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/auth"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/credential"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/resolution"
+	streammodel "github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/stream"
+	a2atransport "github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/transport/a2a"
+	"github.com/NeKiro-project/NeKiro/contracts"
 	"github.com/a2aproject/a2a-go/a2asrv"
 )
 

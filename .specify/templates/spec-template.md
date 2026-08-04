@@ -1,5 +1,7 @@
 # Feature Specification: [FEATURE NAME]
 
+<!-- Transitional template: Spec 030 is the final tracked Spec Kit feature. -->
+
 **Feature Branch**: `[###-feature-name]`
 
 **Created**: [DATE]

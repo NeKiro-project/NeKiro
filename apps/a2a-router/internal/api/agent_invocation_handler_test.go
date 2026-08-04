@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/auth"
-	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/ledger"
-	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/nested"
-	"github.com/Nene7ko/NeKiro/apps/a2a-router/internal/resolution"
-	streammodel "github.com/Nene7ko/NeKiro/apps/a2a-router/internal/stream"
-	"github.com/Nene7ko/NeKiro/contracts"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/auth"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/ledger"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/nested"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/resolution"
+	streammodel "github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/stream"
+	"github.com/NeKiro-project/NeKiro/contracts"
 )
 
 func agentTokenDigest(token string) string {
