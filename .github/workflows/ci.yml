@@ -1,472 +1,187 @@
 name: CI
 
 on:
-  push:
+  workflow_dispatch:
   pull_request:
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
 
-jobs:
-  go-quality:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - name: Download Go dependencies
-        run: go mod download
+      - name: Check formatting and module graph
+        shell: bash
+        run: |
+          test -z "$(gofmt -l apps contracts tests)"
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+          go mod verify
 
-      - name: Build Go
+      - name: Build Core
         run: go build ./...
 
-      - name: Test Go with coverage
-        run: go test -coverprofile coverage.txt ./...
+      - name: Test Core
+        run: go test -count=1 ./...
 
-      - name: Race test Go
+      - name: Race test Core
         run: go test -race ./...
 
-      - name: Upload Go coverage to Codecov
-        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
-        with:
-          files: coverage.txt
-          flags: go
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
-
-      - name: Vet Go
+      - name: Vet Core
         run: go vet ./...
 
-      - name: Lint Go
-        uses: golangci/golangci-lint-action@v9.3.0
-        with:
-          version: v2.12.2
-
-  workspace-integration:
+  contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Verify language-neutral contracts
+        run: go test -count=1 ./contracts/...
+
+      - name: Verify Core dependency direction
+        shell: bash
+        run: |
+          if go list -deps ./... | grep -E '^github.com/NeKiro-project/(nekiro-sdk-go|NeKiro-(Console|Samples|Stack))(/|$)'; then
+            echo 'Core imports a satellite repository.' >&2
+            exit 1
+          fi
+          if grep -E '^[[:space:]]*replace([[:space:]]|$)' go.mod; then
+            echo 'Core contains a module replacement.' >&2
+            exit 1
+          fi
+
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
-        image: postgres:17.9-bookworm
+        image: postgres:17.9-bookworm@sha256:47f917f7409eacd22fc5dfb1dee634e1b55cf0c01d1a7eb701be2227a03e0641
         env:
           POSTGRES_USER: nekiro
-          POSTGRES_PASSWORD: nekiro-integration-only
-          POSTGRES_DB: nekiro_test
+          POSTGRES_PASSWORD: nekiro-core-ci-only
+          POSTGRES_DB: nekiro_core_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready --username nekiro --dbname nekiro_test"
+          --health-cmd="pg_isready --username nekiro --dbname nekiro_core_test"
           --health-interval=5s
           --health-timeout=5s
           --health-retries=12
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - name: Download Go dependencies
-        run: go mod download
-
-      - name: Run PostgreSQL integration suites
+      - name: Run owned PostgreSQL suites
         env:
-          NEKIRO_TEST_DATABASE_URL: postgresql://nekiro:nekiro-integration-only@127.0.0.1:5432/nekiro_test?sslmode=disable
+          NEKIRO_TEST_DATABASE_URL: postgresql://nekiro:nekiro-core-ci-only@127.0.0.1:5432/nekiro_core_test?sslmode=disable
         run: |
-          go test -tags=integration -coverprofile integration-catalog-coverage.txt -count=1 ./apps/control-plane/internal/catalog/postgres
+          go test -tags=integration -count=1 ./apps/control-plane/internal/catalog/postgres
           go test -tags=integration -count=1 ./apps/control-plane/internal/workspace/postgres
           go test -tags=integration -count=1 ./apps/control-plane/internal/workspace/integration
+          go test -tags=integration -count=1 ./apps/a2a-router/internal/ledger
           go test -tags=integration -count=1 ./tests/integration/catalog
 
-      - name: Upload PostgreSQL integration coverage to Codecov
-        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
-        with:
-          files: integration-catalog-coverage.txt
-          flags: go-integration
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
-
-  frontend:
+  images:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
+    timeout-minutes: 25
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.3.0
-          run_install: false
+      - name: Build Control Plane image
+        run: docker build --file apps/control-plane/Dockerfile --tag nekiro-control-plane:ci .
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24.16.0
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
+      - name: Build A2A Router image
+        run: docker build --file apps/a2a-router/Dockerfile --tag nekiro-a2a-router:ci .
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Verify Console workspace package
-        run: >-
-          node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('apps/console/package.json','utf8')); for (const name of ['typecheck','test','build']) { if (typeof p.scripts?.[name] !== 'string' || p.scripts[name].trim() === '') throw new Error('apps/console script is missing: ' + name); }"
-
-      - name: Typecheck frontend
-        run: pnpm typecheck
-
-      - name: Test frontend
-        run: pnpm test
-
-      - name: Build frontend
-        run: pnpm build
-
-  console-browser-acceptance:
-    needs: frontend
+  security:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
-    env:
-      # Deterministic CI-only fixtures. These values are never production
-      # configuration and are not written into the imported Console source.
-      POSTGRES_USER: nekiro_console_acceptance
-      POSTGRES_PASSWORD: nekiro-console-acceptance-only
-      POSTGRES_DB: nekiro_console_acceptance
-      POSTGRES_PORT: "55432"
-      CONTROL_PLANE_PORT: "18080"
-      A2A_ROUTER_PORT: "18081"
-      NEKIRO_COMPOSE_DATABASE_URL: postgresql://nekiro_console_acceptance:nekiro-console-acceptance-only@postgres:5432/nekiro_console_acceptance?sslmode=disable
-      NEKIRO_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"root-console-provider","tokenSha256":"4def860d949646b1515e6d28096af112224f06cf6a5941ab0ac51b9a458b1252"},{"id":"root-console-owner","tokenSha256":"4162f45cb0487cc2205850cc622fbecaa976a87f7aae8a96fa1676e2a984d2ac"}]'
-      NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"root-console-router-internal","tokenSha256":"4285e7349a2517fbdbfac9c1bc072a5ff1ef702d6cfe1826d62f02d73334bdc0"}]'
-      NEKIRO_ROUTER_SERVICE_PRINCIPALS_JSON: '[{"id":"root-console-control-plane","tokenSha256":"e3a864d8b9d70000e50e42d94761cc5d5996a36f39137735dca3a830f23cf4ba"}]'
-      NEKIRO_ROUTER_AGENT_PRINCIPALS_JSON: '[{"workspaceId":"root-console-workspace","agentId":"runtime-a","tokenSha256":"fd59489764dad19b9c276a8fb0187fdb187f3de6b426467c0af9659edbe4159f"},{"workspaceId":"root-console-workspace","agentId":"runtime-b","tokenSha256":"43a0b80acc0b4436c4433b8313bc4c41cbb5534751c458f6e2cfe4af602ca34f"}]'
-      NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN: root-console-router-internal-token
-      NEKIRO_CONTROL_PLANE_SERVICE_TOKEN: root-console-control-plane-token
-      NEKIRO_CORS_ALLOWED_ORIGINS: http://127.0.0.1:4173
-      NEKIRO_PUBLIC_AGENT_ORIGIN: https://agents.nekiro.test
-      NEKIRO_ENDPOINT_CHALLENGE_TTL_SECONDS: "300"
-      NEKIRO_ENDPOINT_VERIFICATION_TIMEOUT_MS: "10000"
-      NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON: '["runtime-a","runtime-b"]'
-      NEKIRO_CONTROL_PLANE_INTERNAL_REQUEST_MAX_BYTES: "1048576"
-      NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES: "1048576"
-      NEKIRO_GATEWAY_SSE_EVENT_MAX_BYTES: "65536"
-      NEKIRO_GATEWAY_METADATA_RESPONSE_MAX_BYTES: "1048576"
-      NEKIRO_GATEWAY_INVOCATION_DEADLINE_MS: "30000"
-      NEKIRO_ROUTER_INTERNAL_REQUEST_LIMIT_BYTES: "1048576"
-      NEKIRO_ROUTER_AGENT_REQUEST_LIMIT_BYTES: "1048576"
-      NEKIRO_ROUTER_CONTROL_PLANE_RESPONSE_LIMIT_BYTES: "1048576"
-      NEKIRO_ROUTER_AGENT_RESPONSE_LIMIT_BYTES: "1048576"
-      NEKIRO_ROUTER_A2A_EVENT_LIMIT_BYTES: "1048576"
-      NEKIRO_ROUTER_SSE_EVENT_LIMIT_BYTES: "65536"
-      NEKIRO_ROUTER_RESOLUTION_DEADLINE_MS: "30000"
-      NEKIRO_ROUTER_AGENT_DEADLINE_MS: "30000"
-      NEKIRO_ROUTER_AGENT_CREDENTIAL_ISSUER: https://a2a-router.nekiro.test
-      NEKIRO_ROUTER_AGENT_CREDENTIAL_KEY_ID: root-console-browser-key-1
-      NEKIRO_ROUTER_AGENT_CREDENTIAL_PRIVATE_KEY_BASE64URL: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8DoQe_884Qvh1w3RjnS8CZZ-TWMJulDV8d3IZkElUxuA
-      NEKIRO_ROUTER_AGENT_CREDENTIAL_TTL_SECONDS: "30"
-      NEKIRO_AGENT_ROUTER_ISSUER: https://a2a-router.nekiro.test
-      NEKIRO_AGENT_ROUTER_KEY_ID: root-console-browser-key-1
-      NEKIRO_AGENT_ROUTER_PUBLIC_KEY_BASE64URL: A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg
-      RUNTIME_A_ROUTER_TOKEN: root-console-runtime-a-token
-      RUNTIME_A_RESPONSE_LIMIT_BYTES: "1048576"
-      RUNTIME_A_EVENT_LIMIT_BYTES: "65536"
-      RUNTIME_B_ROUTER_TOKEN: root-console-runtime-b-token
-      RUNTIME_B_RESPONSE_LIMIT_BYTES: "1048576"
-      RUNTIME_B_EVENT_LIMIT_BYTES: "65536"
-      NEKIRO_E2E_BASE_URL: http://127.0.0.1:4173
-      NEKIRO_E2E_COMPOSE_PROJECT: nekiro-root-console-browser
-      NEKIRO_E2E_COMPOSE_FILE: ${{ github.workspace }}/deploy/compose.yaml
-      VITE_NEKIRO_API_BASE_URL: http://gateway.nekiro.test:18080
-      VITE_NEKIRO_PROVIDER_ID: root-console-provider
-      VITE_NEKIRO_PROVIDER_NAME: Root Console Provider
-      VITE_NEKIRO_PROVIDER_TOKEN: root-console-provider-token
-      VITE_NEKIRO_OWNER_TOKEN: root-console-owner-token
-      VITE_NEKIRO_DEFAULT_WORKSPACE_ID: root-console-workspace
-      VITE_NEKIRO_PUBLIC_AGENT_ORIGIN: https://agents.nekiro.test
-
+    timeout-minutes: 10
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.3.0
-          run_install: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24.16.0
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Install frontend dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Map the Gateway to an explicit non-IP origin
-        run: echo "127.0.0.1 gateway.nekiro.test agents.nekiro.test" | sudo tee -a /etc/hosts
-
-      - name: Start fresh platform Compose
-        run: docker compose --project-name "$NEKIRO_E2E_COMPOSE_PROJECT" --file "$NEKIRO_E2E_COMPOSE_FILE" up --build --detach --wait --wait-timeout 120
-
-      - name: Install Chromium
-        run: pnpm --dir apps/console exec playwright install --with-deps chromium
-
-      - name: Build production Console with explicit browser configuration
-        run: pnpm --dir apps/console run build
-
-      - name: Run production browser acceptance
-        run: pnpm --dir apps/console run test:e2e
-
-      - name: Capture sanitized console acceptance backend logs
-        if: always()
+      - name: Verify Core-only tracked tree
         shell: bash
         run: |
-          docker compose --project-name "$NEKIRO_E2E_COMPOSE_PROJECT" --file "$NEKIRO_E2E_COMPOSE_FILE" logs --no-color 2>&1 |
-            perl -pe '
-              BEGIN {
-                @secret_names = qw(
-                  POSTGRES_PASSWORD NEKIRO_COMPOSE_DATABASE_URL
-                  NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN NEKIRO_CONTROL_PLANE_SERVICE_TOKEN
-                  NEKIRO_ROUTER_AGENT_CREDENTIAL_KEY_ID NEKIRO_ROUTER_AGENT_CREDENTIAL_PRIVATE_KEY_BASE64URL
-                  NEKIRO_AGENT_ROUTER_KEY_ID NEKIRO_AGENT_ROUTER_PUBLIC_KEY_BASE64URL
-                  RUNTIME_A_ROUTER_TOKEN RUNTIME_B_ROUTER_TOKEN
-                  VITE_NEKIRO_PROVIDER_TOKEN VITE_NEKIRO_OWNER_TOKEN
-                );
-                @secrets = grep { defined($_) && length($_) } @ENV{@secret_names};
-                @fixtures = qw(
-                  browser-json browser-sse
-                );
-              }
-              for my $value (@secrets, @fixtures) { s/\Q$value\E/[REDACTED]/g; }
-              s/\b[0-9a-f]{64}\b/[REDACTED-64-HEX]/g;
-              s{(?:[A-Za-z0-9_-]+\.){2}[A-Za-z0-9_-]+}{[REDACTED-ROUTER-CREDENTIAL]}g;
-              s/\b[A-Za-z0-9_-]{86}\b/[REDACTED-ED25519-SIGNATURE]/g;
-              s/\brtj_[A-Za-z0-9._:-]*/[REDACTED-ROUTER-JTI]/g;
-            '
+          forbidden='^(apps/console/|sdks/|agents/|deploy/|tests/e2e/|specs/|\.specify/|\.agents/|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|tsconfig\.base\.json$|vitest\.config\.ts$)'
+          if git ls-files | grep -E "$forbidden"; then
+            echo 'Satellite, Spec Kit, or frontend-only source is tracked by Core.' >&2
+            exit 1
+          fi
+          if git ls-files docs | grep -Ev '^docs/(architecture|contracts|decisions|usage)/'; then
+            echo 'Core contains a non-current documentation family.' >&2
+            exit 1
+          fi
 
-      - name: Tear down fresh platform Compose
-        if: always()
-        run: docker compose --project-name "$NEKIRO_E2E_COMPOSE_PROJECT" --file "$NEKIRO_E2E_COMPOSE_FILE" down --volumes --remove-orphans
+      - name: Verify workflow, license, and credential hygiene
+        shell: bash
+        run: |
+          test -s LICENSE
+          test -s README.md
+          test -s .github/pull_request_template.md
+          test -s .github/workflows/satellite-integration.yml
+          if git grep -nE '^[[:space:]]*uses:' -- .github/workflows | grep -Ev '@[0-9a-f]{40}([[:space:]]|$)'; then
+            echo 'GitHub Action is not pinned to a full commit SHA.' >&2
+            exit 1
+          fi
+          if git grep -nEI -- '-----BEGIN (RSA |EC |OPENSSH |DSA |)?PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}'; then
+            echo 'Credential-like material is tracked.' >&2
+            exit 1
+          fi
 
-  compose-config:
+  required:
+    if: always()
+    needs:
+      - quality
+      - contract
+      - postgres
+      - images
+      - security
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
+    timeout-minutes: 5
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Validate Compose configuration
+      - name: Require every CI gate
         env:
-          POSTGRES_USER: compose_config_check
-          POSTGRES_PASSWORD: compose-config-check-only
-          POSTGRES_DB: compose_config_check
-          POSTGRES_PORT: "55432"
-          NEKIRO_COMPOSE_DATABASE_URL: postgresql://compose_config_check:compose-config-check-only@postgres:5432/compose_config_check?sslmode=disable
-          NEKIRO_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"compose-check","tokenSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]'
-          NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"compose-router-check","tokenSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]'
-          NEKIRO_ROUTER_SERVICE_PRINCIPALS_JSON: '[{"id":"compose-control-plane","tokenSha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}]'
-          NEKIRO_ROUTER_AGENT_PRINCIPALS_JSON: '[{"workspaceId":"workspace-acceptance","agentId":"runtime-a","tokenSha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},{"workspaceId":"workspace-acceptance","agentId":"runtime-b","tokenSha256":"cc7c23956db7e7fbf8d5ee1948b5f056d62599d6fbd4af42c8a73ed9a1dff7e0"}]'
-          NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN: compose-router-token
-          NEKIRO_CONTROL_PLANE_SERVICE_TOKEN: compose-control-plane-token
-          NEKIRO_CORS_ALLOWED_ORIGINS: http://127.0.0.1:3000
-          NEKIRO_PUBLIC_AGENT_ORIGIN: https://agents.nekiro.test
-          NEKIRO_ENDPOINT_CHALLENGE_TTL_SECONDS: "300"
-          NEKIRO_ENDPOINT_VERIFICATION_TIMEOUT_MS: "10000"
-          NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON: "[]"
-          NEKIRO_CONTROL_PLANE_INTERNAL_REQUEST_MAX_BYTES: "1048576"
-          NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES: "1048576"
-          NEKIRO_GATEWAY_SSE_EVENT_MAX_BYTES: "65536"
-          NEKIRO_GATEWAY_METADATA_RESPONSE_MAX_BYTES: "1048576"
-          NEKIRO_GATEWAY_INVOCATION_DEADLINE_MS: "30000"
-          NEKIRO_ROUTER_INTERNAL_REQUEST_LIMIT_BYTES: "1048576"
-          NEKIRO_ROUTER_AGENT_REQUEST_LIMIT_BYTES: "1048576"
-          NEKIRO_ROUTER_CONTROL_PLANE_RESPONSE_LIMIT_BYTES: "1048576"
-          NEKIRO_ROUTER_AGENT_RESPONSE_LIMIT_BYTES: "1048576"
-          NEKIRO_ROUTER_A2A_EVENT_LIMIT_BYTES: "1048576"
-          NEKIRO_ROUTER_SSE_EVENT_LIMIT_BYTES: "65536"
-          NEKIRO_ROUTER_RESOLUTION_DEADLINE_MS: "30000"
-          NEKIRO_ROUTER_AGENT_DEADLINE_MS: "30000"
-          # Deterministic Ed25519 pair scoped only to Compose syntax validation.
-          NEKIRO_ROUTER_AGENT_CREDENTIAL_ISSUER: https://a2a-router.nekiro.test
-          NEKIRO_ROUTER_AGENT_CREDENTIAL_KEY_ID: ci-compose-key-1
-          NEKIRO_ROUTER_AGENT_CREDENTIAL_PRIVATE_KEY_BASE64URL: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8DoQe_884Qvh1w3RjnS8CZZ-TWMJulDV8d3IZkElUxuA
-          NEKIRO_ROUTER_AGENT_CREDENTIAL_TTL_SECONDS: "30"
-          NEKIRO_AGENT_ROUTER_ISSUER: https://a2a-router.nekiro.test
-          NEKIRO_AGENT_ROUTER_KEY_ID: ci-compose-key-1
-          NEKIRO_AGENT_ROUTER_PUBLIC_KEY_BASE64URL: A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg
-          RUNTIME_A_ROUTER_TOKEN: runtime-a-token
-          RUNTIME_A_RESPONSE_LIMIT_BYTES: "1048576"
-          RUNTIME_A_EVENT_LIMIT_BYTES: "65536"
-          RUNTIME_B_ROUTER_TOKEN: runtime-b-router-check
-          RUNTIME_B_RESPONSE_LIMIT_BYTES: "1048576"
-          RUNTIME_B_EVENT_LIMIT_BYTES: "65536"
-          CONTROL_PLANE_PORT: "18080"
-          A2A_ROUTER_PORT: "18081"
-        run: docker compose --file deploy/compose.yaml config --quiet
-
-  runtime-samples-quality:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: |
-            go.sum
-            agents/runtime-a/go.sum
-
-      - name: Test Runtime A module
-        working-directory: agents/runtime-a
-        run: go test -count=1 ./...
-
-      - name: Vet Runtime A module
-        working-directory: agents/runtime-a
-        run: go vet ./...
-
-      - name: Race test Runtime A module
-        working-directory: agents/runtime-a
-        run: go test -race ./...
-
-      - name: Test Runtime B sample
-        run: go test -count=1 ./agents/runtime-b ./agents/runtime-b/cmd/runtime-b
-
-      - name: Vet Runtime B sample
-        run: go vet ./agents/runtime-b ./agents/runtime-b/cmd/runtime-b
-
-      - name: Race test Runtime B sample
-        run: go test -race ./agents/runtime-b ./agents/runtime-b/cmd/runtime-b
-
-  backend-acceptance:
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    env:
-      POSTGRES_USER: nekiro_acceptance
-      POSTGRES_PASSWORD: acceptance-only-password
-      POSTGRES_DB: nekiro_acceptance
-      POSTGRES_PORT: "55432"
-      CONTROL_PLANE_PORT: "18080"
-      A2A_ROUTER_PORT: "18081"
-      NEKIRO_COMPOSE_DATABASE_URL: postgresql://nekiro_acceptance:acceptance-only-password@postgres:5432/nekiro_acceptance?sslmode=disable
-      NEKIRO_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"acceptance-owner","tokenSha256":"465aedffb32a2cb642cbca8fc75b806bcd33f703d70c49dcfb05e9db88df32d2"},{"id":"acceptance-user","tokenSha256":"2af4f9af4fa535905378ccee817aa532244dcf102f3d3ebeaf9a2a92abdeb42d"},{"id":"acceptance-other","tokenSha256":"7f85fe19123d4f88c475cb754dd30f422877ba3b3e2d5eed8ff8c2f9453ebeaf"}]'
-      NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON: '[{"id":"router-internal","tokenSha256":"f9232718425b5ebee721187a79703448bce513ecf0600eb161f9256ddac27c4d"}]'
-      NEKIRO_ROUTER_SERVICE_PRINCIPALS_JSON: '[{"id":"control-plane","tokenSha256":"5abfd00de27c6b2f57d45fdc90999134e4e088414ba1f39bf67ee0d1c9cec554"}]'
-      NEKIRO_ROUTER_AGENT_PRINCIPALS_JSON: '[{"workspaceId":"workspace-acceptance","agentId":"runtime-a","tokenSha256":"e304d0370532633d535824a897d5c03445b636e8d1649064aa35a8fb50fef200"},{"workspaceId":"workspace-acceptance","agentId":"runtime-b","tokenSha256":"9b990de9bb74efd4e1d26a43a01e132deb60d563d49faf6878dca4af40858a38"}]'
-      NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN: router-internal-token
-      NEKIRO_CONTROL_PLANE_SERVICE_TOKEN: control-plane-internal-token
-      NEKIRO_CORS_ALLOWED_ORIGINS: http://127.0.0.1:3000
-      NEKIRO_PUBLIC_AGENT_ORIGIN: https://agents.nekiro.test
-      # Short, explicit acceptance values exercise the real challenge-expiry
-      # boundary; the verification timeout must remain shorter than the TTL.
-      NEKIRO_ENDPOINT_CHALLENGE_TTL_SECONDS: "10"
-      NEKIRO_ENDPOINT_VERIFICATION_TIMEOUT_MS: "3000"
-      NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON: '["runtime-a","runtime-b"]'
-      NEKIRO_CONTROL_PLANE_INTERNAL_REQUEST_MAX_BYTES: "1048576"
-      NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES: "1048576"
-      NEKIRO_GATEWAY_SSE_EVENT_MAX_BYTES: "65536"
-      NEKIRO_GATEWAY_METADATA_RESPONSE_MAX_BYTES: "1048576"
-      NEKIRO_GATEWAY_INVOCATION_DEADLINE_MS: "30000"
-      NEKIRO_ROUTER_INTERNAL_REQUEST_LIMIT_BYTES: "1048576"
-      NEKIRO_ROUTER_AGENT_REQUEST_LIMIT_BYTES: "1048576"
-      NEKIRO_ROUTER_CONTROL_PLANE_RESPONSE_LIMIT_BYTES: "1048576"
-      NEKIRO_ROUTER_AGENT_RESPONSE_LIMIT_BYTES: "1048576"
-      NEKIRO_ROUTER_A2A_EVENT_LIMIT_BYTES: "1048576"
-      NEKIRO_ROUTER_SSE_EVENT_LIMIT_BYTES: "65536"
-      NEKIRO_ROUTER_RESOLUTION_DEADLINE_MS: "30000"
-      NEKIRO_ROUTER_AGENT_DEADLINE_MS: "30000"
-      # Deterministic test-only Ed25519 pair; never used outside CI acceptance.
-      NEKIRO_ROUTER_AGENT_CREDENTIAL_ISSUER: https://a2a-router.nekiro.test
-      NEKIRO_ROUTER_AGENT_CREDENTIAL_KEY_ID: ci-acceptance-key-1
-      NEKIRO_ROUTER_AGENT_CREDENTIAL_PRIVATE_KEY_BASE64URL: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8DoQe_884Qvh1w3RjnS8CZZ-TWMJulDV8d3IZkElUxuA
-      NEKIRO_ROUTER_AGENT_CREDENTIAL_TTL_SECONDS: "30"
-      NEKIRO_AGENT_ROUTER_ISSUER: https://a2a-router.nekiro.test
-      NEKIRO_AGENT_ROUTER_KEY_ID: ci-acceptance-key-1
-      NEKIRO_AGENT_ROUTER_PUBLIC_KEY_BASE64URL: A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg
-      RUNTIME_A_ROUTER_TOKEN: runtime-a-router-token
-      RUNTIME_A_RESPONSE_LIMIT_BYTES: "1048576"
-      RUNTIME_A_EVENT_LIMIT_BYTES: "65536"
-      RUNTIME_B_ROUTER_TOKEN: runtime-b-router-token
-      RUNTIME_B_RESPONSE_LIMIT_BYTES: "1048576"
-      RUNTIME_B_EVENT_LIMIT_BYTES: "65536"
-      NEKIRO_E2E_CONTROL_PLANE_URL: http://127.0.0.1:18080
-      NEKIRO_E2E_PUBLIC_AGENT_ORIGIN: https://agents.nekiro.test
-      NEKIRO_E2E_ROUTER_URL: http://127.0.0.1:18081
-      NEKIRO_E2E_ROUTER_TOKEN: router-internal-token
-      NEKIRO_E2E_OWNER_TOKEN: acceptance-owner-token
-      NEKIRO_E2E_USER_TOKEN: acceptance-user-token
-      NEKIRO_E2E_OTHER_TOKEN: acceptance-other-token
-      NEKIRO_E2E_DATABASE_URL: postgresql://nekiro_acceptance:acceptance-only-password@127.0.0.1:55432/nekiro_acceptance?sslmode=disable
-      NEKIRO_E2E_COMPOSE_FILE: ${{ github.workspace }}/deploy/compose.yaml
-      NEKIRO_E2E_COMPOSE_PROJECT: nekiro-acceptance
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
-
-      - name: Start clean backend Compose stack
-        run: docker compose --project-name "$NEKIRO_E2E_COMPOSE_PROJECT" --file deploy/compose.yaml up --build --detach --wait --wait-timeout 120
-
-      - name: Run trusted publication Invoke-to-Record acceptance
-        run: go test -tags=e2e -count=1 ./tests/e2e/invoke-record
-
-      - name: Capture sanitized backend logs
-        if: always()
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          CONTRACT_RESULT: ${{ needs.contract.result }}
+          POSTGRES_RESULT: ${{ needs.postgres.result }}
+          IMAGES_RESULT: ${{ needs.images.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
         shell: bash
         run: |
-          docker compose --project-name "$NEKIRO_E2E_COMPOSE_PROJECT" --file deploy/compose.yaml logs --no-color 2>&1 |
-            perl -pe '
-              BEGIN {
-                @secret_names = qw(
-                  POSTGRES_PASSWORD NEKIRO_COMPOSE_DATABASE_URL
-                  NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN NEKIRO_CONTROL_PLANE_SERVICE_TOKEN
-                  NEKIRO_ROUTER_AGENT_CREDENTIAL_KEY_ID NEKIRO_ROUTER_AGENT_CREDENTIAL_PRIVATE_KEY_BASE64URL
-                  NEKIRO_AGENT_ROUTER_KEY_ID NEKIRO_AGENT_ROUTER_PUBLIC_KEY_BASE64URL
-                  RUNTIME_A_ROUTER_TOKEN RUNTIME_B_ROUTER_TOKEN NEKIRO_E2E_ROUTER_TOKEN NEKIRO_E2E_OWNER_TOKEN
-                  NEKIRO_E2E_USER_TOKEN NEKIRO_E2E_OTHER_TOKEN NEKIRO_E2E_DATABASE_URL
-                );
-                @secrets = grep { defined($_) && length($_) } @ENV{@secret_names};
-                @fixtures = qw(
-                  direct-json-value direct-sse-value nested-value
-                  policy-content-secret protocol-content-secret agent-content-secret
-                  route-content-secret timeout-content-secret cancel-content-secret
-                  interrupted-content-secret dependency-content-secret dependency-raw-secret
-                  direct-agent-must-not-execute credential-forged-must-not-execute
-                  credential-expired-must-not-execute credential-wrong-audience-must-not-execute
-                  disabled-installation-must-not-execute suspended-release-must-not-execute
-                  revoked-release-must-not-execute
-                );
-              }
-              for my $value (@secrets, @fixtures) { s/\Q$value\E/[REDACTED]/g; }
-              s/\b[0-9a-f]{64}\b/[REDACTED-64-HEX]/g;
-              s{(?:[A-Za-z0-9_-]+\.){2}[A-Za-z0-9_-]+}{[REDACTED-ROUTER-CREDENTIAL]}g;
-              s/\b[A-Za-z0-9_-]{86}\b/[REDACTED-ED25519-SIGNATURE]/g;
-              s/\brtj_[A-Za-z0-9._:-]*/[REDACTED-ROUTER-JTI]/g;
-              s/\bconcurrent-[A-Za-z0-9._:-]*/[REDACTED-FIXTURE]/g;
-            '
-
-      - name: Tear down clean backend stack
-        if: always()
-        run: docker compose --project-name "$NEKIRO_E2E_COMPOSE_PROJECT" --file deploy/compose.yaml down --volumes --remove-orphans
+          for result in "$QUALITY_RESULT" "$CONTRACT_RESULT" "$POSTGRES_RESULT" "$IMAGES_RESULT" "$SECURITY_RESULT"; do
+            test "$result" = success
+          done

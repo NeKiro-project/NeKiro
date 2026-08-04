@@ -194,9 +194,11 @@ historical artifacts remain unchanged migration evidence.
 - Do not run v3/v4 Northbound Invocation or v3/v4 Router dispatch as fallback
   pairs. No deployed runtime consumer justifies a compatibility window; the v3
   dispatch route is retired while v3 metadata reads remain active.
-- Go applications may consume this active surface through `sdks/client-sdk`.
-  The Client SDK targets only the Gateway v4 Workspace invocation route and
-  does not probe v3, Router Internal, Agent Router, or provider endpoints.
+- Go applications may consume this active surface through the
+  [`client`](https://pkg.go.dev/github.com/NeKiro-project/nekiro-sdk-go/client)
+  package in `github.com/NeKiro-project/nekiro-sdk-go`. The Client SDK targets
+  only the Gateway v4 Workspace invocation route and does not probe v3, Router
+  Internal, Agent Router, or provider endpoints.
 
 ## Compatible Changes
 

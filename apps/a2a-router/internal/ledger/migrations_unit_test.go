@@ -1,8 +1,10 @@
 package ledger
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io/fs"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -33,6 +35,33 @@ func TestCheckSchemaAcceptsExactShapeAndRejectsMismatch(t *testing.T) {
 func TestMigrateRequiresConnection(t *testing.T) {
 	if err := Migrate(context.Background(), nil, "up"); err == nil {
 		t.Fatal("nil migration connection accepted")
+	}
+}
+
+func TestEmbeddedMigrationsAreCanonicalOrderedFiles(t *testing.T) {
+	migrationFiles, err := loadMigrationFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := fs.ReadDir(migrationFiles, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"001_ledger.sql", "002_release_provenance.sql"}
+	if len(entries) != len(want) {
+		t.Fatalf("embedded migration count = %d, want %d", len(entries), len(want))
+	}
+	for index, entry := range entries {
+		if entry.IsDir() || entry.Name() != want[index] {
+			t.Fatalf("embedded migration %d = %q, want %q", index, entry.Name(), want[index])
+		}
+		data, err := fs.ReadFile(migrationFiles, entry.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(data, []byte("---- create above / drop below ----")) {
+			t.Fatalf("embedded migration %s lacks the forward/backward boundary", entry.Name())
+		}
 	}
 }
 

@@ -1,18 +1,18 @@
 # ADR 0009: Core Repository and Satellite Ownership
 
-- Status: Accepted for repository extraction
+- Status: Accepted
 - Date: 2026-08-04
 - Decision owner: NeKiro project owner
 - Migration issue: [#80](https://github.com/NeKiro-project/NeKiro/issues/80)
 
 ## Context
 
-The NeKiro repository currently contains core services, canonical contracts,
-service-owned SQL migrations, a copied production Console, public SDKs, sample
-Agent Runtimes, full-stack Compose assembly, cross-product acceptance, Spec Kit
-artifacts, and delivery-history documents. This makes the core checkout a
-second source for independently maintained components and couples unrelated
-release and CI lifecycles.
+Before the repository split, NeKiro contained core services, canonical
+contracts, service-owned SQL migrations, a copied production Console, public
+SDKs, sample Agent Runtimes, full-stack Compose assembly, cross-product
+acceptance, Spec Kit artifacts, and delivery-history documents. That made the
+core checkout a second source for independently maintained components and
+coupled unrelated release and CI lifecycles.
 
 SQL is not an independent product in this repository. Catalog, Workspace, and
 Ledger migrations express the persistent-state contract owned by the services
@@ -40,6 +40,14 @@ Cross-repository production dependencies use immutable reviewed versions or
 digests. Missing or incompatible releases fail explicitly. The core repository
 does not retain source mirrors, vendored fallbacks, local production
 replacements, floating branches, or alternate component paths.
+
+Core pull-request CI remains source-independent from every satellite. A
+separate workflow triggered after each merge to Core `main` may call reusable
+workflows owned by the SDK, Samples, and Stack repositories. Every reusable
+workflow reference is pinned to a full commit SHA, receives the exact merged
+Core SHA explicitly, and keeps its checkout, commands, and success criteria in
+the owning satellite repository. This post-merge orchestration is compatibility
+evidence, not a source mirror or a fallback Core build path.
 
 The existing Spec Kit process is retired after the final repository-extraction
 feature. Future durable evidence is GitHub Issues, ADRs, pull requests, CI,
@@ -80,6 +88,8 @@ path.
   full-stack source.
 - Satellites have independent releases and focused CI.
 - Product acceptance becomes an explicit cross-repository release gate.
+- Every Core main merge produces visible SDK, sample, backend, and browser
+  compatibility evidence for the exact merged commit.
 - Cross-repository changes require upstream-before-downstream release ordering.
 - Git history and GitHub records replace tracked Spec Kit delivery directories.
 
@@ -102,13 +112,10 @@ failures.
 
 ## Fallback Delta
 
-Preliminary fallback delta: removed 0, retained 3, added 0, net 0 relative to
-the pre-split baseline.
+Fallback delta: removed 3, retained 0, added 0, net -3.
 
-The three temporary retained paths are the Runtime A local core-module
-`replace`, the Runtime A monorepo-source Docker build, and the Runtime B
-monorepo-source Docker build. Spec 030 tasks T027 and T028 require their removal
-after the official module identity and satellite history exist. They are not
-accepted final-state fallback behavior.
+The removed paths were Runtime A's local core-module `replace` and the Runtime
+A/Runtime B monorepo-source Docker builds. The satellite repositories now use
+published module identities and source-owned image builds.
 
 Added fallback evidence: none.

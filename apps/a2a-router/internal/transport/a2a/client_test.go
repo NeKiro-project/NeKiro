@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	runtimeb "github.com/NeKiro-project/NeKiro/agents/runtime-b"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/a2atest"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/credential"
 	streammodel "github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/stream"
 	"github.com/NeKiro-project/NeKiro/contracts"
@@ -20,12 +20,12 @@ import (
 	"github.com/a2aproject/a2a-go/a2asrv"
 )
 
-func TestClientSendMessageCallsRuntimeBWithPlatformContext(t *testing.T) {
+func TestClientSendMessageCallsA2AHandlerWithPlatformContext(t *testing.T) {
 	captured := make(http.Header)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		captured = request.Header.Clone()
-		a2asrv.NewJSONRPCHandler(runtimeb.NewHandler()).ServeHTTP(writer, request)
+		a2asrv.NewJSONRPCHandler(a2atest.NewHandler()).ServeHTTP(writer, request)
 	}))
 	t.Cleanup(server.Close)
 
@@ -40,7 +40,7 @@ func TestClientSendMessageCallsRuntimeBWithPlatformContext(t *testing.T) {
 	result, err := client.SendMessage(t.Context(), target, ContextHeaders{
 		TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a",
 		ParentInvocationID: "parent-a", WorkspaceID: "workspace-a",
-	}, runtimeBMessageParams("message-a", "success", map[string]any{"value": "ok"}))
+	}, fixtureMessageParams("message-a", "success", map[string]any{"value": "ok"}))
 	if err != nil {
 		t.Fatalf("SendMessage = %v", err)
 	}
@@ -101,12 +101,12 @@ func TestClassifyTransportCancellation(t *testing.T) {
 	}
 }
 
-func TestClientSendNonStreamingMapsDispatchToRuntimeB(t *testing.T) {
+func TestClientSendNonStreamingMapsDispatchToA2A(t *testing.T) {
 	captured := make(http.Header)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		captured = request.Header.Clone()
-		a2asrv.NewJSONRPCHandler(runtimeb.NewHandler()).ServeHTTP(writer, request)
+		a2asrv.NewJSONRPCHandler(a2atest.NewHandler()).ServeHTTP(writer, request)
 	}))
 	t.Cleanup(server.Close)
 
@@ -136,11 +136,11 @@ func TestClientSendNonStreamingMapsDispatchToRuntimeB(t *testing.T) {
 	assertHeader(t, captured, HeaderWorkspaceID, "workspace-a")
 }
 
-func TestClientSendStreamingMapsRuntimeBEventsAndTrustedHeaders(t *testing.T) {
+func TestClientSendStreamingMapsA2AEventsAndTrustedHeaders(t *testing.T) {
 	captured := make(http.Header)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		captured = request.Header.Clone()
-		a2asrv.NewJSONRPCHandler(runtimeb.NewHandler()).ServeHTTP(writer, request)
+		a2asrv.NewJSONRPCHandler(a2atest.NewHandler()).ServeHTTP(writer, request)
 	}))
 	t.Cleanup(server.Close)
 	client, err := newTestClient(server.Client())
@@ -219,11 +219,11 @@ func TestClientSendMessageRequiresExplicitDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient = %v", err)
 	}
-	if _, err := client.SendMessage(t.Context(), Target{}, ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, runtimeBMessageParams("message-a", "success", "ok")); err == nil {
+	if _, err := client.SendMessage(t.Context(), Target{}, ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, fixtureMessageParams("message-a", "success", "ok")); err == nil {
 		t.Fatal("SendMessage without target endpoint succeeded, want error")
 	}
 	target := testTarget("http://127.0.0.1:1")
-	if _, err := client.SendMessage(t.Context(), target, ContextHeaders{}, runtimeBMessageParams("message-a", "success", "ok")); err == nil {
+	if _, err := client.SendMessage(t.Context(), target, ContextHeaders{}, fixtureMessageParams("message-a", "success", "ok")); err == nil {
 		t.Fatal("SendMessage without context headers succeeded, want error")
 	}
 	if _, err := client.SendMessage(t.Context(), target, ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, nil); err == nil {
@@ -250,7 +250,7 @@ func TestClientClassifiesA2AJSONRPCFailureAsAgentExecutionFailed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.SendMessage(t.Context(), testTarget(server.URL), ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, runtimeBMessageParams("message-a", "success", "ok"))
+	_, err = client.SendMessage(t.Context(), testTarget(server.URL), ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, fixtureMessageParams("message-a", "success", "ok"))
 	if got := errorCode(err); got != contracts.ErrorCodeAgentExecutionFailed {
 		t.Fatalf("error code = %q, want %q, err=%v", got, contracts.ErrorCodeAgentExecutionFailed, err)
 	}
@@ -275,7 +275,7 @@ func TestClientClassifiesMalformedA2AResultAsProtocolError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.SendMessage(t.Context(), testTarget(server.URL), ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, runtimeBMessageParams("message-a", "success", "ok"))
+	_, err = client.SendMessage(t.Context(), testTarget(server.URL), ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, fixtureMessageParams("message-a", "success", "ok"))
 	if got := errorCode(err); got != contracts.ErrorCodeA2AProtocol {
 		t.Fatalf("error code = %q, want %q, err=%v", got, contracts.ErrorCodeA2AProtocol, err)
 	}
@@ -320,7 +320,7 @@ func TestClientClassifiesHTTPFailureAsAgentUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.SendMessage(t.Context(), testTarget(server.URL), ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, runtimeBMessageParams("message-a", "success", "ok"))
+	_, err = client.SendMessage(t.Context(), testTarget(server.URL), ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, fixtureMessageParams("message-a", "success", "ok"))
 	if got := errorCode(err); got != contracts.ErrorCodeAgentUnavailable {
 		t.Fatalf("error code = %q, want %q, err=%v", got, contracts.ErrorCodeAgentUnavailable, err)
 	}
@@ -349,7 +349,7 @@ func TestClientClassifiesOversizedAgentResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.SendMessage(t.Context(), testTarget(server.URL), ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, runtimeBMessageParams("message-a", "success", "ok"))
+	_, err = client.SendMessage(t.Context(), testTarget(server.URL), ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, fixtureMessageParams("message-a", "success", "ok"))
 	if got := errorCode(err); got != contracts.ErrorCodeAgentResponseTooLarge {
 		t.Fatalf("error code = %q, want %q, err=%v", got, contracts.ErrorCodeAgentResponseTooLarge, err)
 	}
@@ -400,7 +400,7 @@ func TestClientRejectsMalformedJSONRPCEnvelope(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = client.SendMessage(t.Context(), testTarget(server.URL), ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, runtimeBMessageParams("message-a", "success", "ok"))
+			_, err = client.SendMessage(t.Context(), testTarget(server.URL), ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, fixtureMessageParams("message-a", "success", "ok"))
 			if got := errorCode(err); got != contracts.ErrorCodeA2AProtocol {
 				t.Fatalf("error code = %q, want %q, err=%v", got, contracts.ErrorCodeA2AProtocol, err)
 			}
@@ -466,7 +466,7 @@ func TestClientRejectsActiveA2ANegativeCorpus(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = client.SendMessage(t.Context(), testTarget(server.URL), ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, runtimeBMessageParams("message-a", "success", "ok"))
+			_, err = client.SendMessage(t.Context(), testTarget(server.URL), ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, fixtureMessageParams("message-a", "success", "ok"))
 			if got := errorCode(err); got != contracts.ErrorCodeA2AProtocol {
 				t.Fatalf("error code = %q, want %q, err=%v", got, contracts.ErrorCodeA2AProtocol, err)
 			}
@@ -496,7 +496,7 @@ func TestClientRejectsDuplicateJSONRPCEnvelopeMember(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.SendMessage(t.Context(), testTarget(server.URL), ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, runtimeBMessageParams("message-a", "success", "ok"))
+	_, err = client.SendMessage(t.Context(), testTarget(server.URL), ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, fixtureMessageParams("message-a", "success", "ok"))
 	if got := errorCode(err); got != contracts.ErrorCodeA2AProtocol {
 		t.Fatalf("error code = %q, want %q, err=%v", got, contracts.ErrorCodeA2AProtocol, err)
 	}
@@ -521,7 +521,7 @@ func TestClientRejectsNonJSONRPCResponseMediaType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.SendMessage(t.Context(), testTarget(server.URL), ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, runtimeBMessageParams("message-a", "success", "ok"))
+	_, err = client.SendMessage(t.Context(), testTarget(server.URL), ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, fixtureMessageParams("message-a", "success", "ok"))
 	if got := errorCode(err); got != contracts.ErrorCodeA2AProtocol {
 		t.Fatalf("error code = %q, want %q, err=%v", got, contracts.ErrorCodeA2AProtocol, err)
 	}
@@ -534,7 +534,7 @@ func TestClientClassifiesDeadlineAsTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.SendMessage(t.Context(), testTarget("http://agent.example/a2a"), ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, runtimeBMessageParams("message-a", "success", "ok"))
+	_, err = client.SendMessage(t.Context(), testTarget("http://agent.example/a2a"), ContextHeaders{TraceID: "trace-a", InvocationID: "inv-a", RootTaskID: "task-a", WorkspaceID: "workspace-a"}, fixtureMessageParams("message-a", "success", "ok"))
 	if got := errorCode(err); got != contracts.ErrorCodeTimeout {
 		t.Fatalf("error code = %q, want %q, err=%v", got, contracts.ErrorCodeTimeout, err)
 	}
@@ -558,7 +558,7 @@ func testTarget(endpoint string) Target {
 	return Target{AgentID: "agent-a", Version: "1.0.0", Capability: "capability-a", Endpoint: endpoint, Audience: "http://agent.example", ReleaseID: "release-a", CardDigest: strings.Repeat("a", 64), MaxInputBytes: 4096, MaxOutputBytes: 4096}
 }
 
-func runtimeBMessageParams(messageID, kind string, value any) *a2ago.MessageSendParams {
+func fixtureMessageParams(messageID, kind string, value any) *a2ago.MessageSendParams {
 	return &a2ago.MessageSendParams{Message: &a2ago.Message{
 		ID: messageID, Role: a2ago.MessageRoleUser,
 		Parts: []a2ago.Part{a2ago.DataPart{Data: map[string]any{"fixture": kind, "value": value}}},

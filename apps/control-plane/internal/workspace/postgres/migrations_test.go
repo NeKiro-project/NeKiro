@@ -1,10 +1,9 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
-	"os"
-	"path/filepath"
-	"strings"
+	"io/fs"
 	"testing"
 )
 
@@ -16,26 +15,29 @@ func TestMigrateRejectsUnsupportedDirectionBeforeUsingConnection(t *testing.T) {
 	}
 }
 
-func TestEmbeddedMigrationMatchesOwnedSQLFile(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "migrations", "003_workspace.sql"))
+func TestEmbeddedMigrationsAreCanonicalOrderedFiles(t *testing.T) {
+	migrationFiles, err := loadMigrationFiles()
 	if err != nil {
-		t.Fatalf("read Workspace migration: %v", err)
+		t.Fatal(err)
 	}
-	want := strings.ReplaceAll(string(data), "\r\n", "\n")
-	got := strings.ReplaceAll(migration001, "\r\n", "\n")
-	if got != want {
-		t.Fatal("embedded Workspace migration differs from apps/control-plane/migrations/003_workspace.sql")
-	}
-}
-
-func TestEmbeddedReleaseMigrationMatchesOwnedSQLFile(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "migrations", "004_workspace_installation_release.sql"))
+	entries, err := fs.ReadDir(migrationFiles, ".")
 	if err != nil {
-		t.Fatalf("read Workspace release migration: %v", err)
+		t.Fatal(err)
 	}
-	want := strings.ReplaceAll(string(data), "\r\n", "\n")
-	got := strings.ReplaceAll(string(migration002), "\r\n", "\n")
-	if got != want {
-		t.Fatal("embedded Workspace release migration differs from apps/control-plane/migrations/004_workspace_installation_release.sql")
+	want := []string{"001_workspace.sql", "002_workspace_installation_release.sql"}
+	if len(entries) != len(want) {
+		t.Fatalf("embedded migration count = %d, want %d", len(entries), len(want))
+	}
+	for index, entry := range entries {
+		if entry.IsDir() || entry.Name() != want[index] {
+			t.Fatalf("embedded migration %d = %q, want %q", index, entry.Name(), want[index])
+		}
+		data, err := fs.ReadFile(migrationFiles, entry.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(data, []byte("---- create above / drop below ----")) {
+			t.Fatalf("embedded migration %s lacks the forward/backward boundary", entry.Name())
+		}
 	}
 }

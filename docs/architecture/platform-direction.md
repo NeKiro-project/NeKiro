@@ -149,7 +149,7 @@ sample Agents and clear failure semantics.
 ### Stage 2: Operational Governance
 
 Add policy, identity, quota, approval, health, and operational capabilities
-only when usage evidence and a dedicated Spec define ownership and behavior.
+only when usage evidence and an approved Issue/ADR define ownership and behavior.
 
 ### Stage 3: Ecosystem
 

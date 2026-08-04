@@ -2,10 +2,10 @@ package ledger
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 	"errors"
 	"fmt"
-	"testing/fstest"
+	"io/fs"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/tern/v2/migrate"
@@ -15,15 +15,15 @@ const ExpectedSchemaVersion int32 = 2
 
 var ErrSchemaVersionMismatch = errors.New("ledger schema version mismatch")
 
-//go:embed 001_ledger.sql
-var migration001 []byte
+//go:embed migrations/*.sql
+var embeddedMigrations embed.FS
 
-//go:embed 002_release_provenance.sql
-var migration002 []byte
-
-var migrationFiles = fstest.MapFS{
-	"001_ledger.sql":             &fstest.MapFile{Data: migration001, Mode: 0o444},
-	"002_release_provenance.sql": &fstest.MapFile{Data: migration002, Mode: 0o444},
+func loadMigrationFiles() (fs.FS, error) {
+	migrationFiles, err := fs.Sub(embeddedMigrations, "migrations")
+	if err != nil {
+		return nil, fmt.Errorf("open embedded ledger migrations: %w", err)
+	}
+	return migrationFiles, nil
 }
 
 type RowQuerier interface {
@@ -39,6 +39,10 @@ func Migrate(ctx context.Context, conn *pgx.Conn, direction string) error {
 	}
 	if _, err := conn.Exec(ctx, `CREATE SCHEMA IF NOT EXISTS ledger`); err != nil {
 		return fmt.Errorf("create ledger migration schema: %w", err)
+	}
+	migrationFiles, err := loadMigrationFiles()
+	if err != nil {
+		return err
 	}
 	migrator, err := migrate.NewMigrator(ctx, conn, "ledger.schema_version")
 	if err != nil {

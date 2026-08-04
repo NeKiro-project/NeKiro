@@ -1,174 +1,87 @@
-# NeKiro Agent Operating Platform
+# NeKiro Core
 
-NeKiro is an Agent Operating Platform with a React Console and Go Control
-Plane / A2A Router. Phase 1 proves this loop:
+NeKiro is the core of a runtime-agnostic Agent operating platform. This
+repository owns the Control Plane, A2A Router, language-neutral contracts,
+service-owned PostgreSQL migrations, and Core verification.
+
+The platform loop is:
 
 ```text
 Register -> Discover -> Install -> Invoke -> Record
 ```
 
-## Product boundary
+Managed user-to-Agent and Agent-to-Agent calls pass through the A2A Router.
+The Invocation Ledger records metadata and lineage, not Agent input or output.
 
-NeKiro operates independently built Agents from the outside. It owns versioned
-registration, capability discovery, Workspace installation and permission
-acceptance, managed routing, and cross-Agent invocation lineage. Agent Runtime
-frameworks own model calls, prompts, tools, workflows, memory, RAG, sessions,
-and runtime-internal telemetry.
-
-Frameworks such as `trpc-agent-go` are complementary Runtime integrations, not
-the implementation foundation of the Control Plane or A2A Router. The NeKiro
-Agent SDK stays thin and covers Agent Card conformance, platform context
-propagation, and nested calls through the Router.
-
-Phase 1 must prove this boundary with at least two sample Agents backed by
-different Runtime implementations. See
-[Platform direction](docs/architecture/platform-direction.md) and
-[ADR 0003](docs/decisions/0003-runtime-agnostic-platform-boundary.md).
-
-## Current status
-
-The repository has an active language-neutral contract set and its tested Go
-mappings: Agent Card `0.2`, Workspace `v1`, Installation `v2`, Control Plane
-Northbound `v3` plus the Invocation `v4` companion, Control Plane Internal API
-`v2` exact Card resolution plus `v3` nested installed-version resolution,
-Router Internal dispatch API `v4` (metadata reads `v3`), Agent Router API `v1`, Invocation Event `0.3`,
-Platform Error `v2` / `v3` / `v4` by owning surface, Invocation Result `v1`,
-Result Stream Event `v2`, and A2A Profile Schema `0.2` for protocol `0.3.0`.
-Router Invocation Credential `v1` is the active companion contract for the
-Router-to-Agent HTTP hop.
-Historical contract generations remain migration evidence; the runtime does
-not add speculative dual-read behavior for them.
-
-The first runnable Control Plane Catalog slice implements durable,
-authenticated `Register -> Publish -> Discover -> Disable` behavior with
-PostgreSQL, immutable Agent Card versions, exact reads, stable cursor
-pagination, readiness, fixed errors, container wiring, and real
-HTTP/PostgreSQL acceptance. Spec 003 now adds the durable owner-controlled
-Workspace and Installation runtime: exact published SemVer selection,
-permission snapshots, inspection pagination, lifecycle history, internal exact
-resolution, separate internal authentication, migrations, and unit/HTTP
-coverage. Invocation Dispatch now authorizes exact installations and forwards
-live JSON/SSE only through the separately deployed A2A Router. The Router
-performs controlled exact resolution, invokes the deterministic Runtime B A2A
-sample, and records metadata-only append-only Ledger events with
-Workspace-scoped Invocation/Trace reads.
-
-Every managed outbound Agent request now uses a fresh Router-signed Ed25519
-credential bound to the exact Workspace, Agent version, release/digest,
-capability, Invocation, Task, parent lineage, Trace, and endpoint origin.
-Both sample Runtimes verify the credential and reject direct execution before
-runtime logic; stream cancellation receives a separate one-time `jti`.
-
-The production Console is now imported under `apps/console` and exercises the
-Gateway-only trusted workflow: Register -> Verify -> Publish -> Discover ->
-Install -> Invoke -> Record. It preserves the four isolated comparison demo
-routes, keeps provider and Workspace-owner credentials separate and transient,
-and displays Gateway-provided Invocation/Trace lineage. Root CI run
-`30322101411` passed seven workflow jobs plus the Codecov patch check (eight
-reported checks), including the fresh Compose backend
-acceptance and production `console-browser-acceptance`. The reverse backend
-slice is tracked by [PR #63](https://github.com/NeKiro-project/NeKiro/pull/63)
-and the stacked Console/CI integration by
-[PR #64](https://github.com/NeKiro-project/NeKiro/pull/64). The standalone
-Console source and its independently reviewed UI/browser PRs remain in
-[NeKiro-Console](https://github.com/NeKiro-project/NeKiro-Console). The
-historical Slice A T005 ordering deviation remains a process record, not a
-runtime behavior gap.
-
-The Go Workspace Client SDK under `sdks/client-sdk` is the application-facing
-entry point for invoking an installed Agent through Gateway. One immutable
-Client binds an explicit HTTP client, Gateway origin, Workspace, Owner-mapped
-opaque credential, and byte limits; each call supplies only Agent ID,
-capability, and JSON input. JSON/SSE results and Platform Error v4 responses are
-strictly validated without direct Router/Agent routing or compatibility
-fallback. See [Client SDK usage](sdks/client-sdk/README.md).
-
-The clean trusted-publication acceptance links every managed Invocation to its
-immutable published Release, exercises endpoint proof, Release/Installation,
-Router-credential, direct-Agent, and unavailable-endpoint failures, and scans
-responses, persistence, and logs for secret material. See the
-[acceptance quickstart](specs/026-trusted-publication-acceptance/quickstart.md)
-and [trusted-publication operations](docs/runbooks/trusted-publication-operations.md)
-for the provider, Workspace-owner, and operator workflow.
-
-Spec 028 adds the native public Agent identity flow. Each registered Agent
-identity receives one immutable `agt_` public ID and a configured canonical URL
-such as `https://agents.nekiro.test/a/agt_<id>`. The URL is public discovery
-metadata, not an Agent endpoint, credential, invitation, or Workspace grant.
-Anonymous resolution returns only eligible published trusted Releases; B must
-choose one exact Release and explicitly accept its permissions before the
-existing Workspace Installation boundary creates a pin. See
-[Public Agent Share](specs/028-public-agent-share/quickstart.md).
-
-The first-stage architecture keeps these boundaries:
+## Repository scope
 
 ```text
-Console
-  -> Northbound API
-  -> Control Plane
-       Gateway + Catalog + Workspace + Invocation Dispatch
-  -> Internal API
-  -> A2A Router
-       Routing + Task Context + Transport + Policy Hooks + Ledger
-  -> A2A Profile
-  -> Agents
+apps/control-plane/   Gateway, Catalog, Workspace, and Invocation Dispatch
+apps/a2a-router/      Routing, transport adaptation, credentials, and Ledger
+contracts/            JSON Schema, OpenAPI, A2A profile, and Go mappings
+tests/                Core contract and service integration tests
+docs/                 Architecture, contracts, decisions, and Core usage
 ```
 
-The Control Plane is one deployment unit with internal domain boundaries. The
-A2A Router is a separate data-plane process. Cross-boundary data is defined in
-`contracts/`; PostgreSQL is the local persistence dependency.
+Catalog, Workspace, and Ledger SQL migrations stay beside the modules that own
+their schemas. They are embedded in the corresponding service binaries and are
+not maintained in a separate database repository.
 
-## Prerequisites
+## Satellite repositories
 
-- Go 1.26 or newer
-- Node.js 24 for frontend tooling (CI uses 24.16.0)
-- Corepack and pnpm 11.3.0
-- Docker Engine with Docker Compose 2.20 or newer
+- [NeKiro-Console](https://github.com/NeKiro-project/NeKiro-Console) owns the production web Console.
+- [nekiro-sdk-go](https://github.com/NeKiro-project/nekiro-sdk-go) owns the public Go Agent and application SDKs.
+- [NeKiro-Samples](https://github.com/NeKiro-project/NeKiro-Samples) owns the cross-runtime sample Agents.
+- [NeKiro-Stack](https://github.com/NeKiro-project/NeKiro-Stack) owns Compose assembly, immutable component pins, and product acceptance.
+- [nekiro-a2a-transport-go](https://github.com/NeKiro-project/nekiro-a2a-transport-go) owns reusable A2A wire transport mechanics.
 
-## Local setup
+Core PR required CI never vendors or checks out satellite source. After every
+merge to `main`, a separate Satellite Integration workflow calls immutable,
+satellite-owned reusable workflows for SDK compatibility, both sample
+Runtimes, and NeKiro-Stack backend/browser acceptance against that exact Core
+commit. Product-level source, commands, and success criteria remain owned by
+the satellite repositories.
 
-From the repository root:
+## Build and test
 
-```powershell
-corepack enable
-pnpm install --frozen-lockfile
-Copy-Item .env.example .env
-```
-
-Set every required value in `.env`: PostgreSQL bootstrap values, the explicit
-Compose database URL, public/internal development principals, service tokens,
-the Router Ed25519 signing identity and Agent verification key, Control Plane
-and Router host ports, and request/event/deadline limits. No
-required credential, identity, database, address, limit, or port has a runtime
-fallback.
-
-Validate the rendered Compose model without printing its environment, then
-start PostgreSQL and wait for its health check. The second command intentionally
-starts only the database; see the runbook for Control Plane and Router migration
-and serving commands:
+Go 1.26 or newer is required.
 
 ```powershell
-docker compose --env-file .env --file deploy/compose.yaml config --quiet
-docker compose --env-file .env --file deploy/compose.yaml up --detach --wait postgres
-```
-
-Run the monorepo checks:
-
-```powershell
+go mod download
+go build ./...
 go test ./...
+go test -race ./...
 go vet ./...
-pnpm typecheck
-pnpm test
-pnpm build
 ```
 
-Stop the local dependency without deleting its persistent volume:
+PostgreSQL integration suites require an explicit dedicated database whose
+name ends in `_test`:
 
 ```powershell
-docker compose --env-file .env --file deploy/compose.yaml down
+$env:NEKIRO_TEST_DATABASE_URL = 'postgresql://user:password@127.0.0.1:5432/nekiro_core_test?sslmode=disable'
+go test -tags=integration -count=1 ./apps/control-plane/internal/catalog/postgres
+go test -tags=integration -count=1 ./apps/control-plane/internal/workspace/postgres
+go test -tags=integration -count=1 ./apps/control-plane/internal/workspace/integration
+go test -tags=integration -count=1 ./apps/a2a-router/internal/ledger
+go test -tags=integration -count=1 ./tests/integration/catalog
 ```
 
-See [Local development](docs/runbooks/local-development.md) for health,
-persistence, migration, dedicated integration-database safeguards, and reset
-procedures. The clean trusted-publication acceptance uses its own Compose
-project and volumes; do not run it against the ordinary local stack.
+Build the two Core images from the repository root:
+
+```powershell
+docker build --file apps/control-plane/Dockerfile --tag nekiro-control-plane:local .
+docker build --file apps/a2a-router/Dockerfile --tag nekiro-a2a-router:local .
+```
+
+See [Core development](docs/usage/core-development.md) for service commands and
+[trusted publication operations](docs/usage/trusted-publication-operations.md)
+for the publication lifecycle. The complete architecture is documented in
+[Phase 1 Architecture](docs/architecture/phase-1-spec.md).
+
+## History
+
+The annotated tag `pre-repository-split-2026-08-04` preserves the accepted
+monorepo tree and tracked Spec Kit history. Repository ownership and migration
+rationale are recorded in [ADR 0009](docs/decisions/0009-core-repository-boundary.md).
+
+NeKiro is licensed under the Apache License 2.0.
