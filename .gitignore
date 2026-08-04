@@ -1,22 +1,31 @@
-# Dependencies
-node_modules/
-.pnpm-store/
-
-# Build and test output
-dist/
+# Go build and test output
 coverage/
 coverage.txt
+*.test
+
+# Frontend caches left by pre-split checkouts
+node_modules/
+.pnpm-store/
+dist/
 .vite/
 *.tsbuildinfo
 
-# Local environment files
+# Local environment and logs
 .env
 .env.*
-!.env.example
-
-# Logs
 *.log
-pnpm-debug.log*
+
+# Local planning and agent state
+.agents/
+.specify/
+specs/
+
+# Satellite source roots are maintained in their canonical repositories
+apps/console/
+sdks/
+agents/
+deploy/
+tests/e2e/
 
 # Editors and operating systems
 .idea/
@@ -24,12 +33,7 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 
-# Agent-local state; project Spec Kit skills remain versioned
-.agents/*
-!.agents/skills/
-!.agents/skills/**
-
-# Qoder generated repository wiki
+# Generated repository metadata
 .qoder/repowiki/
 
 # Linked worktrees

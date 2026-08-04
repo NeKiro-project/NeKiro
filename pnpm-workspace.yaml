@@ -1,8 +1,0 @@
-packages:
-  - "apps/*"
-  - "sdks/*"
-  - "agents/*"
-  - "tests/*"
-
-allowBuilds:
-  esbuild: true

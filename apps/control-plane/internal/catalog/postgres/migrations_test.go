@@ -1,10 +1,9 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
-	"os"
-	"path/filepath"
-	"strings"
+	"io/fs"
 	"testing"
 )
 
@@ -16,29 +15,29 @@ func TestMigrateRejectsUnsupportedDirectionBeforeUsingConnection(t *testing.T) {
 	}
 }
 
-func TestEmbeddedMigrationsMatchOwnedSQLFiles(t *testing.T) {
-	tests := []struct {
-		name     string
-		filename string
-		embedded string
-	}{
-		{name: "schema v1", filename: "001_catalog.sql", embedded: migration001},
-		{name: "schema v2", filename: "002_card_text.sql", embedded: migration002},
-		{name: "schema v3", filename: "003_trusted_publication.sql", embedded: migration003},
-		{name: "schema v4", filename: "004_agent_release.sql", embedded: string(migration004)},
-		{name: "schema v5", filename: "005_public_agent_share.sql", embedded: string(migration005)},
+func TestEmbeddedMigrationsAreCanonicalOrderedFiles(t *testing.T) {
+	migrationFiles, err := loadMigrationFiles()
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			data, err := os.ReadFile(filepath.Join("..", "..", "..", "migrations", test.filename))
-			if err != nil {
-				t.Fatalf("read owned migration: %v", err)
-			}
-			want := strings.ReplaceAll(string(data), "\r\n", "\n")
-			got := strings.ReplaceAll(test.embedded, "\r\n", "\n")
-			if got != want {
-				t.Fatalf("embedded migration differs from apps/control-plane/migrations/%s", test.filename)
-			}
-		})
+	entries, err := fs.ReadDir(migrationFiles, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"001_catalog.sql", "002_card_text.sql", "003_trusted_publication.sql", "004_agent_release.sql", "005_public_agent_share.sql"}
+	if len(entries) != len(want) {
+		t.Fatalf("embedded migration count = %d, want %d", len(entries), len(want))
+	}
+	for index, entry := range entries {
+		if entry.IsDir() || entry.Name() != want[index] {
+			t.Fatalf("embedded migration %d = %q, want %q", index, entry.Name(), want[index])
+		}
+		data, err := fs.ReadFile(migrationFiles, entry.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(data, []byte("---- create above / drop below ----")) {
+			t.Fatalf("embedded migration %s lacks the forward/backward boundary", entry.Name())
+		}
 	}
 }

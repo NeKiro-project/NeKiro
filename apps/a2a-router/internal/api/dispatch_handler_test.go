@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	runtimeb "github.com/NeKiro-project/NeKiro/agents/runtime-b"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/a2atest"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/auth"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/credential"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/resolution"
@@ -653,8 +653,8 @@ func TestDispatchStreamingUsesStreamingTargetValidation(t *testing.T) {
 	assertLedgerLifecycle(t, ledger.events, []string{"created", "routing", "failed"})
 }
 
-func TestDispatchStreamingRuntimeBEndToEnd(t *testing.T) {
-	server := httptest.NewServer(a2asrv.NewJSONRPCHandler(runtimeb.NewHandler()))
+func TestDispatchStreamingA2AEndToEnd(t *testing.T) {
+	server := httptest.NewServer(a2asrv.NewJSONRPCHandler(a2atest.NewHandler()))
 	t.Cleanup(server.Close)
 	issuer, err := credential.NewIssuer(credential.Config{Issuer: "https://a2a-router.nekiro.test", KeyID: "router-key-1", PrivateKey: ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)), TTL: 30 * time.Second}, time.Now, rand.Reader)
 	if err != nil {

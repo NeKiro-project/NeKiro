@@ -32,10 +32,10 @@ Console -> Control Plane -> A2A Router -> Agents
                       \------ Ledger
 ```
 
-- `apps/console` is the only user interface.
+- [NeKiro-Console](https://github.com/NeKiro-project/NeKiro-Console) is the production user interface.
 - `apps/control-plane` is one Go process containing Gateway, Catalog, Workspace, and Invocation Dispatch modules.
 - `apps/a2a-router` is an independent Go data-plane process.
-- Sample agents are independent A2A servers.
+- [NeKiro-Samples](https://github.com/NeKiro-project/NeKiro-Samples) owns the independent sample A2A servers.
 - PostgreSQL is the target persistent store. Logical module ownership applies even when modules share one database instance.
 
 ## Ownership
@@ -206,6 +206,10 @@ Phase 1 targets A2A `0.3.0` over JSON-RPC using `github.com/a2aproject/a2a-go` `
 Platform trace and workspace context uses the headers declared in `contracts/a2a-profile`. Authentication credentials are resolved at the Router boundary and must never be persisted in Agent Card or Ledger payloads.
 
 ## Acceptance
+
+Cross-component acceptance is owned by
+[NeKiro-Stack](https://github.com/NeKiro-project/NeKiro-Stack), which pins exact
+Core, Console, SDK, Samples, and transport revisions before running the suite.
 
 The final E2E suite must prove:
 

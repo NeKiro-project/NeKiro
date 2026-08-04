@@ -1,18 +1,18 @@
 # ADR 0009: Core Repository and Satellite Ownership
 
-- Status: Accepted for repository extraction
+- Status: Accepted
 - Date: 2026-08-04
 - Decision owner: NeKiro project owner
 - Migration issue: [#80](https://github.com/NeKiro-project/NeKiro/issues/80)
 
 ## Context
 
-The NeKiro repository currently contains core services, canonical contracts,
-service-owned SQL migrations, a copied production Console, public SDKs, sample
-Agent Runtimes, full-stack Compose assembly, cross-product acceptance, Spec Kit
-artifacts, and delivery-history documents. This makes the core checkout a
-second source for independently maintained components and couples unrelated
-release and CI lifecycles.
+Before the repository split, NeKiro contained core services, canonical
+contracts, service-owned SQL migrations, a copied production Console, public
+SDKs, sample Agent Runtimes, full-stack Compose assembly, cross-product
+acceptance, Spec Kit artifacts, and delivery-history documents. That made the
+core checkout a second source for independently maintained components and
+coupled unrelated release and CI lifecycles.
 
 SQL is not an independent product in this repository. Catalog, Workspace, and
 Ledger migrations express the persistent-state contract owned by the services
@@ -102,13 +102,10 @@ failures.
 
 ## Fallback Delta
 
-Preliminary fallback delta: removed 0, retained 3, added 0, net 0 relative to
-the pre-split baseline.
+Fallback delta: removed 3, retained 0, added 0, net -3.
 
-The three temporary retained paths are the Runtime A local core-module
-`replace`, the Runtime A monorepo-source Docker build, and the Runtime B
-monorepo-source Docker build. Spec 030 tasks T027 and T028 require their removal
-after the official module identity and satellite history exist. They are not
-accepted final-state fallback behavior.
+The removed paths were Runtime A's local core-module `replace` and the Runtime
+A/Runtime B monorepo-source Docker builds. The satellite repositories now use
+published module identities and source-owned image builds.
 
 Added fallback evidence: none.
