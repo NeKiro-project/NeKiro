@@ -41,6 +41,7 @@ var (
 	ErrReleaseSuspended   = errors.New("agent release is suspended")
 	ErrReleaseRevoked     = errors.New("agent release is revoked")
 	safeIdentifierRE      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+	publicAgentIDRE       = regexp.MustCompile(`^agt_[0-9a-f]{32}$`)
 )
 
 type AgentRelease struct {
@@ -64,6 +65,7 @@ type AgentRelease struct {
 }
 
 type AgentVersion struct {
+	PublicAgentID       string
 	Card                contracts.AgentCard
 	CardJSON            []byte
 	CardDigest          [32]byte
@@ -77,12 +79,16 @@ type AgentVersion struct {
 }
 
 func (version AgentVersion) CatalogEntry() contracts.CatalogEntry {
-	return contracts.CatalogEntry{
+	entry := contracts.CatalogEntry{
 		Card:              version.Card,
 		PublicationStatus: string(version.Status),
 		RegisteredAt:      version.RegisteredAt,
 		PublishedAt:       version.PublishedAt,
 	}
+	if version.PublicAgentID != "" {
+		entry.PublicAgentID = version.PublicAgentID
+	}
+	return entry
 }
 
 type DiscoveryFilter struct {
@@ -121,4 +127,8 @@ type AuthenticatedCaller struct {
 
 func ValidIdentifier(value string) bool {
 	return safeIdentifierRE.MatchString(value)
+}
+
+func ValidPublicAgentID(value string) bool {
+	return publicAgentIDRE.MatchString(value)
 }

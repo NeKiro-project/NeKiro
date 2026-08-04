@@ -19,6 +19,8 @@ export interface Agent {
   permissions: AgentPermissionSummary[];
   registeredAt: string;
   publishedAt?: string;
+  publicAgentId?: string;
+  publicUrl?: string;
 }
 
 export interface Workspace {

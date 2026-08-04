@@ -40,17 +40,17 @@ func (store *Store) Register(ctx context.Context, version catalog.AgentVersion) 
 	}()
 
 	if _, err := tx.Exec(ctx, `
-INSERT INTO catalog.agent_identities (agent_id, owner_id, created_at)
-VALUES ($1, $2, $3)
-ON CONFLICT (agent_id) DO NOTHING`, version.Card.AgentID, version.Card.Owner.ID, version.RegisteredAt); err != nil {
+	INSERT INTO catalog.agent_identities (agent_id, owner_id, created_at, public_agent_id)
+VALUES ($1, $2, $3, $4)
+	ON CONFLICT (agent_id) DO NOTHING`, version.Card.AgentID, version.Card.Owner.ID, version.RegisteredAt, version.PublicAgentID); err != nil {
 		return catalog.AgentVersion{}, dependencyError("claim Agent identity", err)
 	}
-	var ownerID string
+	var ownerID, publicAgentID string
 	if err := tx.QueryRow(ctx, `
-SELECT owner_id
+SELECT owner_id, public_agent_id
 FROM catalog.agent_identities
 WHERE agent_id = $1
-FOR UPDATE`, version.Card.AgentID).Scan(&ownerID); err != nil {
+FOR UPDATE`, version.Card.AgentID).Scan(&ownerID, &publicAgentID); err != nil {
 		return catalog.AgentVersion{}, dependencyError("read Agent owner", err)
 	}
 	var exactVersionExists bool
@@ -103,6 +103,7 @@ VALUES ($1, $2, $3)`, version.Card.AgentID, version.Card.Version, skill.ID); err
 		return catalog.AgentVersion{}, dependencyError("commit registration", err)
 	}
 	version.RegisteredAt = storedRegisteredAt
+	version.PublicAgentID = publicAgentID
 	return version, nil
 }
 
@@ -466,6 +467,83 @@ func (store *Store) Check(ctx context.Context) error {
 	return CheckSchema(ctx, store.pool)
 }
 
+func (store *Store) GetPublicShare(ctx context.Context, publicAgentID string) (catalog.PublicAgentView, error) {
+	rows, err := store.pool.Query(ctx, `
+SELECT i.public_agent_id, i.created_at,
+       v.card, v.card_digest, v.publication_status,
+       r.release_id, r.agent_id, r.agent_card_version, r.card_digest, r.published_at
+FROM catalog.agent_identities i
+LEFT JOIN catalog.agent_versions v ON v.agent_id = i.agent_id
+LEFT JOIN catalog.agent_releases r
+  ON r.agent_id = v.agent_id
+ AND r.agent_card_version = v.version
+ AND r.state = 'published'
+ AND v.publication_status = 'published'
+WHERE i.public_agent_id = $1
+ORDER BY r.published_at DESC NULLS LAST, r.release_id COLLATE "C" ASC
+LIMIT 101`, publicAgentID)
+	if err != nil {
+		return catalog.PublicAgentView{}, dependencyError("query public Agent share", err)
+	}
+	defer rows.Close()
+	var result catalog.PublicAgentView
+	rowCount := 0
+	for rows.Next() {
+		var identityID string
+		var registeredAt time.Time
+		var cardJSON []byte
+		var cardDigest []byte
+		var publicationStatus string
+		var releaseID, releaseAgentID, releaseVersion sql.NullString
+		var releaseDigest []byte
+		var releasePublishedAt sql.NullTime
+		if err := rows.Scan(&identityID, &registeredAt, &cardJSON, &cardDigest, &publicationStatus, &releaseID, &releaseAgentID, &releaseVersion, &releaseDigest, &releasePublishedAt); err != nil {
+			return catalog.PublicAgentView{}, dependencyError("scan public Agent share", err)
+		}
+		if rowCount == 0 {
+			result.PublicAgentID, result.RegisteredAt = identityID, registeredAt
+		} else if result.PublicAgentID != identityID || !result.RegisteredAt.Equal(registeredAt) {
+			return catalog.PublicAgentView{}, fmt.Errorf("public identity rows disagree: %w", catalog.ErrDependency)
+		}
+		if !releaseID.Valid {
+			continue
+		}
+		rowCount++
+		if publicationStatus != string(catalog.PublicationPublished) || !releasePublishedAt.Valid || len(cardDigest) != sha256Size || len(releaseDigest) != sha256Size {
+			return catalog.PublicAgentView{}, fmt.Errorf("published public Release has invalid source facts: %w", catalog.ErrDependency)
+		}
+		card, err := decodeStoredCard(cardJSON)
+		if err != nil {
+			return catalog.PublicAgentView{}, dependencyError("decode public Agent Card", err)
+		}
+		if card.AgentID != releaseAgentID.String || card.Version != releaseVersion.String {
+			return catalog.PublicAgentView{}, fmt.Errorf("public Release Card identity mismatch: %w", catalog.ErrDependency)
+		}
+		var fixedCardDigest, fixedReleaseDigest [sha256Size]byte
+		copy(fixedCardDigest[:], cardDigest)
+		copy(fixedReleaseDigest[:], releaseDigest)
+		if fixedCardDigest != fixedReleaseDigest {
+			return catalog.PublicAgentView{}, fmt.Errorf("public Release digest mismatch: %w", catalog.ErrDependency)
+		}
+		result.Releases = append(result.Releases, catalog.PublicAgentRelease{
+			ReleaseID: releaseID.String, AgentID: card.AgentID, Name: card.Name, Description: card.Description,
+			Owner: card.Owner, AgentCardVersion: card.Version, CardDigest: fixedReleaseDigest,
+			PublishedAt: releasePublishedAt.Time, AuthenticationType: card.Authentication.Type,
+			Skills: card.Skills, Permissions: card.Permissions, Limits: card.Limits,
+		})
+		if len(result.Releases) > 100 {
+			return catalog.PublicAgentView{}, fmt.Errorf("public Agent Release count exceeds bound: %w", catalog.ErrDependency)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return catalog.PublicAgentView{}, dependencyError("read public Agent share", err)
+	}
+	if result.PublicAgentID == "" {
+		return catalog.PublicAgentView{}, catalog.ErrNotFound
+	}
+	return result, nil
+}
+
 const selectVersionSQL = `
 SELECT v.card,
        v.card_digest,
@@ -475,6 +553,7 @@ SELECT v.card,
        v.publication_sequence,
        v.disabled_at,
        v.legacy_unverified,
+       i.public_agent_id,
        r.release_id,
        r.provider_id,
        r.agent_id,
@@ -511,6 +590,7 @@ func scanVersion(row scanner) (catalog.AgentVersion, string, error) {
 	var publicationSequence *int64
 	var disabledAt *time.Time
 	var legacyUnverified bool
+	var publicAgentID string
 	var releaseID, releaseProviderID, releaseAgentID, releaseCardVersion sql.NullString
 	var releaseBindingID, releaseOrigin, releasePath, releaseMethod, releaseState sql.NullString
 	var releaseCardDigest, releaseEvidenceDigest []byte
@@ -525,6 +605,7 @@ func scanVersion(row scanner) (catalog.AgentVersion, string, error) {
 		&publicationSequence,
 		&disabledAt,
 		&legacyUnverified,
+		&publicAgentID,
 		&releaseID,
 		&releaseProviderID,
 		&releaseAgentID,
@@ -556,6 +637,7 @@ func scanVersion(row scanner) (catalog.AgentVersion, string, error) {
 	var fixedDigest [sha256Size]byte
 	copy(fixedDigest[:], digest)
 	version := catalog.AgentVersion{
+		PublicAgentID:       publicAgentID,
 		Card:                card,
 		CardJSON:            cardJSON,
 		CardDigest:          fixedDigest,

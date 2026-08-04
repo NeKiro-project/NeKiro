@@ -1,0 +1,83 @@
+openapi: 3.1.0
+info:
+  title: NeKiro Public Agent Share API
+  version: 1.0.0
+  description: Anonymous, read-only resolution of one stable NeKiro public Agent identity.
+servers:
+  - url: https://api.nekiro.dev
+paths:
+  /v4/public/agents/{publicAgentId}:
+    get:
+      operationId: resolvePublicAgent
+      summary: Resolve one public Agent identity and its eligible trusted Releases
+      description: >-
+        Returns no Card-derived fields when the identity has no eligible published
+        trusted Release. This operation never installs or invokes an Agent.
+      security: []
+      parameters:
+        - name: publicAgentId
+          in: path
+          required: true
+          schema:
+            $ref: ../schemas/public-agent-share.v1.schema.json#/$defs/publicAgentId
+      responses:
+        "200":
+          description: Public Agent identity projection
+          headers:
+            x-nek-trace-id:
+              $ref: "#/components/headers/TraceID"
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/public-agent-share.v1.schema.json
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/DependencyError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  headers:
+    TraceID:
+      required: true
+      schema:
+        $ref: ../schemas/common.v1.schema.json#/$defs/traceId
+  responses:
+    ValidationError:
+      description: The public Agent ID or route syntax is invalid.
+      headers:
+        x-nek-trace-id:
+          $ref: "#/components/headers/TraceID"
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v4.schema.json#/$defs/preCorrelation
+    NotFound:
+      description: The syntactically valid public Agent identity does not exist.
+      headers:
+        x-nek-trace-id:
+          $ref: "#/components/headers/TraceID"
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v4.schema.json#/$defs/preCorrelation
+    DependencyError:
+      description: Catalog could not read its authoritative facts.
+      headers:
+        x-nek-trace-id:
+          $ref: "#/components/headers/TraceID"
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v4.schema.json#/$defs/preCorrelation
+    InternalError:
+      description: The platform could not complete public resolution.
+      headers:
+        x-nek-trace-id:
+          $ref: "#/components/headers/TraceID"
+      content:
+        application/json:
+          schema:
+            $ref: ../schemas/platform-error.v4.schema.json#/$defs/preCorrelation

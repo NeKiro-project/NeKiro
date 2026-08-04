@@ -11,6 +11,7 @@ const (
 	AgentCardSchemaVersion              = "0.2"
 	WorkspaceSchemaVersion              = "1"
 	InstallationSchemaVersion           = "2"
+	PublicAgentShareSchemaVersion       = "1"
 	InvocationEventSchemaVersion        = InvocationEventV02SchemaVersion
 	PlatformErrorSchemaVersion          = "2"
 	WorkspacePlatformErrorSchemaVersion = "3"
@@ -97,6 +98,8 @@ type CatalogEntry struct {
 	PublicationStatus string     `json:"publicationStatus"`
 	RegisteredAt      time.Time  `json:"registeredAt"`
 	PublishedAt       *time.Time `json:"publishedAt,omitempty"`
+	PublicAgentID     string     `json:"publicAgentId,omitempty"`
+	PublicURL         string     `json:"publicUrl,omitempty"`
 }
 
 type RegisterAgentRequest struct {

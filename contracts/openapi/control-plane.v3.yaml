@@ -942,6 +942,9 @@ components:
       type: object
       additionalProperties: false
       required: [card, publicationStatus, registeredAt]
+      dependentRequired:
+        publicAgentId: [publicUrl]
+        publicUrl: [publicAgentId]
       properties:
         card:
           $ref: ../schemas/agent-card.v0.2.schema.json
@@ -951,6 +954,12 @@ components:
           $ref: ../schemas/common.v1.schema.json#/$defs/dateTime
         publishedAt:
           $ref: ../schemas/common.v1.schema.json#/$defs/dateTime
+        publicAgentId:
+          type: string
+          pattern: "^agt_[0-9a-f]{32}$"
+        publicUrl:
+          type: string
+          format: uri
     InvokeAgentRequest:
       type: object
       additionalProperties: false

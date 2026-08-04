@@ -225,6 +225,11 @@ export default function RegistryTab(props: RegistryTabProps) {
                 <Fact label="Registered" value={selectedAgent.registeredAt || 'n/a'} />
                 <Fact label="Published" value={selectedAgent.publishedAt || 'not published'} />
               </div>
+              {selectedAgent.publicUrl && <div className="p-4 border-b border-brand-outline-variant/40">
+                <div className="text-xs font-bold text-brand-on-surface mb-2">Public NeKiro share URL</div>
+                <a href={selectedAgent.publicUrl} className="font-mono-code text-xs text-brand-primary underline break-all">{selectedAgent.publicUrl}</a>
+                <div className="text-[11px] text-brand-on-surface-variant mt-2">Stable Agent identity. Release selection and permission acceptance still happen at install time.</div>
+              </div>}
               <div className="p-4 border-b border-brand-outline-variant/40">
                 <div className="flex items-center gap-2 text-xs font-bold text-brand-on-surface mb-2"><CheckCircle2 size={14} className="text-green-400" />Declared permissions</div>
                 {selectedAgent.permissions.length === 0 ? (

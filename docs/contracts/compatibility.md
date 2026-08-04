@@ -26,6 +26,7 @@ consumers and must not redefine their semantics.
 | Platform Error | `v1` | `v2` / `v3` | v2 remains active for Catalog/Invocation; v3 adds Workspace `INSTALLATION_DISABLED` |
 | Invocation Result | none | `v1` | New transient JSON and SSE result contracts |
 | A2A Profile Schema | `0.1` | `0.2` | Breaking profile metadata and conformance requirements |
+| Public Agent Share | none | `v1` | New anonymous, secrecy-safe public identity and exact published Release projection |
 | Router Invocation Credential | none | `v1` | New companion contract: exact Ed25519 Router-to-Agent request authentication |
 | A2A protocol | `0.3.0` | `0.3.0` | Unchanged wire protocol |
 
