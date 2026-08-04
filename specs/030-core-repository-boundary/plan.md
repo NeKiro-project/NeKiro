@@ -37,7 +37,7 @@ the full platform.
 
 **Performance Goals**: No runtime performance change; repository-local CI avoids unrelated toolchains and cancels superseded runs
 
-**Constraints**: Preserve public contracts, database upgrade paths, authorization, errors, cancellation, and Ledger lineage; no source mirrors, local production replacements, floating dependencies, alternate components, or fallback paths
+**Constraints**: Preserve wire contracts, database upgrade paths, authorization, errors, cancellation, and Ledger lineage; intentionally migrate the Go import identity without a compatibility shim; no final-state source mirrors, local production replacements, floating dependencies, alternate components, or fallback paths
 
 **Scale/Scope**: Approximately 690 tracked files split across six canonical repositories; three new repositories plus updates to three existing repositories
 

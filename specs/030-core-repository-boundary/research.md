@@ -52,6 +52,10 @@ SDK module is `github.com/NeKiro-project/nekiro-sdk-go`.
 canonical repository and has no published tag compatibility to preserve. New
 repositories must not depend on a personal namespace or local `replace`.
 
+**Migration impact**: Existing Go source consumers must change their module
+requirements and imports to `github.com/NeKiro-project/NeKiro`. No legacy
+module, forwarding package, or compatibility replacement is published.
+
 **Rejected**: Retaining the personal path indefinitely or masking it with Go
 module replacements. Both make the published dependency identity ambiguous.
 
@@ -126,6 +130,9 @@ narrative rather than current core behavior.
 
 ## Fallback Assessment
 
-No new fallback is authorized. Copied source, local module replacements,
+No new fallback is authorized. The preliminary phase temporarily retains three
+existing paths: Runtime A's local core-module replacement and the two sample
+Docker builds that consume monorepo source. They are explicitly removed by
+T027/T028 after history export. Copied source, local module replacements,
 floating refs, alternate components, and stale component substitution are all
-removed or rejected.
+absent from the final state.

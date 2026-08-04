@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/http"
 
-	a2atransport "github.com/NeKiro-project/nekiro-a2a-transport-go"
 	"github.com/NeKiro-project/NeKiro/contracts"
+	a2atransport "github.com/NeKiro-project/nekiro-a2a-transport-go"
 	a2ago "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2aclient"
 )

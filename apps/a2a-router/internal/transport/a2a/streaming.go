@@ -7,9 +7,9 @@ import (
 	"iter"
 	"time"
 
-	a2atransport "github.com/NeKiro-project/nekiro-a2a-transport-go"
 	streammodel "github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/stream"
 	"github.com/NeKiro-project/NeKiro/contracts"
+	a2atransport "github.com/NeKiro-project/nekiro-a2a-transport-go"
 	a2ago "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2aclient"
 )

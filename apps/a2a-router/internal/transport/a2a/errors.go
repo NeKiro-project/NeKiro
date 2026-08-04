@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	a2atransport "github.com/NeKiro-project/nekiro-a2a-transport-go"
 	"github.com/NeKiro-project/NeKiro/contracts"
+	a2atransport "github.com/NeKiro-project/nekiro-a2a-transport-go"
 )
 
 // classifiedError carries the platform classification across the transport

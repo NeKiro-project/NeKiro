@@ -61,10 +61,18 @@ the Wiki.
 
 ## Compatibility
 
-This decision changes repository ownership and CI placement only. It does not
-change public APIs, schema semantics, authentication, authorization, routing,
-streaming, cancellation, errors, or Ledger lineage. Historical migrations stay
-available for every supported upgrade path.
+This decision changes repository ownership, CI placement, and the published Go
+source identity. The core module moves from
+`github.com/Nene7ko/NeKiro` to `github.com/NeKiro-project/NeKiro`; Go consumers
+must update their `go.mod` and imports. This is an intentional source-level
+breaking change. No compatibility shim or legacy module is provided because the
+core had no SemVer tag or Release to preserve and a second module identity would
+be an unsupported fallback authority.
+
+Wire APIs, language-neutral contracts, schema semantics, authentication,
+authorization, routing, streaming, cancellation, errors, and Ledger lineage do
+not change. Historical migrations stay available for every supported upgrade
+path.
 
 ## Consequences
 
@@ -94,6 +102,13 @@ failures.
 
 ## Fallback Delta
 
-Fallback delta: removed 0, retained 0, added 0, net 0 at decision time.
+Preliminary fallback delta: removed 0, retained 3, added 0, net 0 relative to
+the pre-split baseline.
+
+The three temporary retained paths are the Runtime A local core-module
+`replace`, the Runtime A monorepo-source Docker build, and the Runtime B
+monorepo-source Docker build. Spec 030 tasks T027 and T028 require their removal
+after the official module identity and satellite history exist. They are not
+accepted final-state fallback behavior.
 
 Added fallback evidence: none.
