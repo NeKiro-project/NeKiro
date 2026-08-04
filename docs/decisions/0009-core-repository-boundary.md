@@ -41,6 +41,14 @@ digests. Missing or incompatible releases fail explicitly. The core repository
 does not retain source mirrors, vendored fallbacks, local production
 replacements, floating branches, or alternate component paths.
 
+Core pull-request CI remains source-independent from every satellite. A
+separate workflow triggered after each merge to Core `main` may call reusable
+workflows owned by the SDK, Samples, and Stack repositories. Every reusable
+workflow reference is pinned to a full commit SHA, receives the exact merged
+Core SHA explicitly, and keeps its checkout, commands, and success criteria in
+the owning satellite repository. This post-merge orchestration is compatibility
+evidence, not a source mirror or a fallback Core build path.
+
 The existing Spec Kit process is retired after the final repository-extraction
 feature. Future durable evidence is GitHub Issues, ADRs, pull requests, CI,
 independent review, and releases. The core documentation tree retains only
@@ -80,6 +88,8 @@ path.
   full-stack source.
 - Satellites have independent releases and focused CI.
 - Product acceptance becomes an explicit cross-repository release gate.
+- Every Core main merge produces visible SDK, sample, backend, and browser
+  compatibility evidence for the exact merged commit.
 - Cross-repository changes require upstream-before-downstream release ordering.
 - Git history and GitHub records replace tracked Spec Kit delivery directories.
 

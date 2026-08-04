@@ -42,7 +42,10 @@ Register -> Discover -> Install -> Invoke -> Record
 7. 模块只能写入自己拥有的数据；共享数据库实例不改变数据所有权。
 8. 跨进程数据必须使用 `contracts/` 中的版本化契约，不共享内部实现类型。
 9. Control Plane 与 Router 是独立部署边界；Router 不导入 Control Plane 的 internal package。
-10. Core CI 不 checkout、构建或测试卫星仓源码。
+10. Core 的 PR required CI 不 checkout、构建或测试卫星仓源码。独立的
+    post-merge 编排 workflow 可以调用由卫星仓拥有、并固定到完整 commit
+    SHA 的 reusable workflow；源码解析、测试命令和成功判据仍由对应 owner
+    仓定义，且该编排不得成为 Core 本地构建的备用路径。
 
 ## 3. 技术约束
 
@@ -78,7 +81,7 @@ go test -race ./...
 go vet ./...
 ```
 
-数据库变更必须运行 Catalog、Workspace 和 Ledger 对应的 PostgreSQL integration suite。跨仓产品行为由 NeKiro-Stack 使用精确 revisions 验收。
+数据库变更必须运行 Catalog、Workspace 和 Ledger 对应的 PostgreSQL integration suite。跨仓产品行为由 NeKiro-Stack 使用精确 revisions 验收。每次 Core `main` 合并后，独立的 Satellite Integration workflow 必须用该完整 Core commit SHA 调用 SDK compatibility、Samples compatibility 和 Stack backend/browser acceptance；失败必须保持为可见的跨仓失败，不得回退到旧 Core revision。
 
 ## 6. 失败与 fallback
 

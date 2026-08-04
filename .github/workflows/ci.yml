@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches:
@@ -150,6 +151,8 @@ jobs:
         run: |
           test -s LICENSE
           test -s README.md
+          test -s .github/pull_request_template.md
+          test -s .github/workflows/satellite-integration.yml
           if git grep -nE '^[[:space:]]*uses:' -- .github/workflows | grep -Ev '@[0-9a-f]{40}([[:space:]]|$)'; then
             echo 'GitHub Action is not pinned to a full commit SHA.' >&2
             exit 1

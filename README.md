@@ -35,8 +35,12 @@ not maintained in a separate database repository.
 - [NeKiro-Stack](https://github.com/NeKiro-project/NeKiro-Stack) owns Compose assembly, immutable component pins, and product acceptance.
 - [nekiro-a2a-transport-go](https://github.com/NeKiro-project/nekiro-a2a-transport-go) owns reusable A2A wire transport mechanics.
 
-Core never vendors or checks out satellite source during CI. Product-level
-acceptance runs in NeKiro-Stack against exact component revisions.
+Core PR required CI never vendors or checks out satellite source. After every
+merge to `main`, a separate Satellite Integration workflow calls immutable,
+satellite-owned reusable workflows for SDK compatibility, both sample
+Runtimes, and NeKiro-Stack backend/browser acceptance against that exact Core
+commit. Product-level source, commands, and success criteria remain owned by
+the satellite repositories.
 
 ## Build and test
 

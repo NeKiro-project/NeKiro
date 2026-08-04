@@ -1,0 +1,91 @@
+name: Satellite Integration
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      core_sha:
+        description: Full NeKiro Core commit SHA to verify
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: satellite-integration-${{ github.event_name == 'workflow_dispatch' && inputs.core_sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      core_sha: ${{ steps.revision.outputs.core_sha }}
+    steps:
+      - name: Resolve exact Core revision
+        id: revision
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          REQUESTED_SHA: ${{ inputs.core_sha }}
+        run: |
+          if [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
+            core_sha=$REQUESTED_SHA
+          else
+            core_sha=$EVENT_SHA
+          fi
+          if [[ ! "$core_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'Core revision must be one full lowercase commit SHA.' >&2
+            exit 1
+          fi
+          printf 'core_sha=%s\n' "$core_sha" >>"$GITHUB_OUTPUT"
+
+  sdk:
+    needs: resolve
+    uses: NeKiro-project/nekiro-sdk-go/.github/workflows/core-compatibility.yml@fa740a4d1ca5fe54fb4bc83bb321c167df225c84
+    with:
+      core_sha: ${{ needs.resolve.outputs.core_sha }}
+    permissions:
+      contents: read
+
+  samples:
+    needs: resolve
+    uses: NeKiro-project/NeKiro-Samples/.github/workflows/core-compatibility.yml@38826c2def61e76edae2d9fd787bac43e55f7fdc
+    with:
+      core_sha: ${{ needs.resolve.outputs.core_sha }}
+    permissions:
+      contents: read
+
+  stack:
+    needs: resolve
+    uses: NeKiro-project/NeKiro-Stack/.github/workflows/core-integration.yml@ab4bc5248da41f6f752fc50cbf27414e947b2ef4
+    with:
+      core_sha: ${{ needs.resolve.outputs.core_sha }}
+    permissions:
+      contents: read
+
+  required:
+    if: always()
+    needs:
+      - resolve
+      - sdk
+      - samples
+      - stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every satellite gate
+        env:
+          RESOLVE_RESULT: ${{ needs.resolve.result }}
+          SDK_RESULT: ${{ needs.sdk.result }}
+          SAMPLES_RESULT: ${{ needs.samples.result }}
+          STACK_RESULT: ${{ needs.stack.result }}
+        run: |
+          test "$RESOLVE_RESULT" = success
+          test "$SDK_RESULT" = success
+          test "$SAMPLES_RESULT" = success
+          test "$STACK_RESULT" = success
