@@ -27,6 +27,13 @@ agents/
 deploy/
 tests/e2e/
 
+# Root frontend workspace files are owned by the Console repository
+package.json
+pnpm-lock.yaml
+pnpm-workspace.yaml
+tsconfig.base.json
+vitest.config.ts
+
 # Editors and operating systems
 .idea/
 .vscode/
