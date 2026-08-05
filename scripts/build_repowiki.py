@@ -33,6 +33,7 @@ EXPECTED_CURATED = (
     "operations/index.md",
     "decisions/index.md",
     "repositories.md",
+    "satellites/index.md",
 )
 
 
@@ -176,14 +177,29 @@ def copy_tracked_wiki(output: Path) -> None:
         if path.is_dir():
             continue
         relative = path.relative_to(WIKI_ROOT)
+        if relative.parts[0] == "zh":
+            continue
         if relative.parts[0] == "assets":
             destination = output / relative
-        elif relative.parts[0] == "zh":
-            destination = output / relative
+        elif relative.parts[0] == "satellites":
+            for language in ("en", "zh"):
+                destination = output / language / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, destination)
+            continue
         elif path.suffix == ".md":
             destination = output / "en" / relative
         else:
             fail(f"unsupported tracked RepoWiki file: {relative}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, destination)
+
+    translated_root = WIKI_ROOT / "zh"
+    for path in translated_root.rglob("*"):
+        if path.is_dir():
+            continue
+        relative = path.relative_to(WIKI_ROOT)
+        destination = output / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, destination)
 

@@ -14,6 +14,7 @@ nav:
   - Operations: operations/index.md
   - Decisions: decisions/index.md
   - Repository map: repositories.md
+  - Satellite documentation: satellites/index.md
   - Source documents:
       - Index: source-docs/index.md
       - Architecture:
@@ -59,6 +60,7 @@ plugins:
             - 运维: operations/index.md
             - 决策记录: decisions/index.md
             - 仓库地图: repositories.md
+            - 卫星仓库文档: satellites/index.md
             - 源文档:
                 - 索引: source-docs/index.md
                 - Architecture:

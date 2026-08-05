@@ -18,6 +18,7 @@ Register -> Discover -> Install -> Invoke -> Record
 - [Operations](operations/index.md) — local verification and trusted-publication procedures.
 - [Decision record](decisions/index.md) — accepted ADRs that explain why the boundaries exist.
 - [Repository map](repositories.md) — one entry point for every NeKiro repository.
+- [Satellite documentation](satellites/index.md) — read-only snapshots from each satellite repository.
 - [Source documents](source-docs/index.md) — the original `docs/` files rendered into the Wiki at build time.
 
 ## The platform in one view

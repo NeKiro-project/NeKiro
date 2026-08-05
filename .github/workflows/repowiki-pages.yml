@@ -8,6 +8,7 @@ on:
       - 'repowiki/**'
       - 'repowiki-requirements.txt'
       - 'scripts/build_repowiki.py'
+      - 'scripts/sync_repowiki_satellites.py'
       - '.github/workflows/repowiki-pages.yml'
   push:
     branches:
@@ -18,6 +19,7 @@ on:
       - 'repowiki/**'
       - 'repowiki-requirements.txt'
       - 'scripts/build_repowiki.py'
+      - 'scripts/sync_repowiki_satellites.py'
       - '.github/workflows/repowiki-pages.yml'
   workflow_dispatch:
 
@@ -54,7 +56,7 @@ jobs:
         run: |
           python scripts/build_repowiki.py --check
           python scripts/build_repowiki.py --output .repowiki-site
-          python -m py_compile scripts/build_repowiki.py
+          python -m py_compile scripts/build_repowiki.py scripts/sync_repowiki_satellites.py
 
       - name: Build both locales
         run: |
