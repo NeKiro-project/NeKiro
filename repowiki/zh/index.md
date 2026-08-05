@@ -17,6 +17,7 @@ Register -> Discover -> Install -> Invoke -> Record
 - [运维](operations/index.md)：本地验证和受信发布流程。
 - [决策记录](decisions/index.md)：解释平台边界为何如此设计的 ADR。
 - [仓库地图](repositories.md)：所有 NeKiro 仓库的统一入口。
+- [卫星仓库文档](satellites/index.md)：各卫星仓库的只读文档快照。
 - [源文档](source-docs/index.md)：从 docs/ 自动生成的规范页面。
 
 ## 一图理解平台

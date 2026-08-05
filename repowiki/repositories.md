@@ -6,11 +6,11 @@ page gives one entry point without copying their source into Core.
 | Repository | Canonical responsibility | Repository | Wiki |
 | --- | --- | --- | --- |
 | **NeKiro Core** | Control Plane, A2A Router, contracts, service-owned migrations, Core tests, architecture, and Core usage | [NeKiro-project/NeKiro](https://github.com/NeKiro-project/NeKiro) | [This RepoWiki](https://nekiro-project.github.io/NeKiro/) |
-| **NeKiro Console** | Production Console and browser behavior | [NeKiro-project/NeKiro-Console](https://github.com/NeKiro-project/NeKiro-Console) | [Wiki](https://github.com/NeKiro-project/NeKiro-Console/wiki) |
-| **nekiro-sdk-go** | Public Go Agent and application SDKs | [NeKiro-project/nekiro-sdk-go](https://github.com/NeKiro-project/nekiro-sdk-go) | [Wiki](https://github.com/NeKiro-project/nekiro-sdk-go/wiki) |
-| **NeKiro Samples** | Independent sample Agent Runtimes, Cards, and sample-specific tests | [NeKiro-project/NeKiro-Samples](https://github.com/NeKiro-project/NeKiro-Samples) | [Wiki](https://github.com/NeKiro-project/NeKiro-Samples/wiki) |
-| **NeKiro Stack** | Multi-component assembly, immutable release pins, and product acceptance | [NeKiro-project/NeKiro-Stack](https://github.com/NeKiro-project/NeKiro-Stack) | [Wiki](https://github.com/NeKiro-project/NeKiro-Stack/wiki) |
-| **nekiro-a2a-transport-go** | Reusable A2A HTTP, JSON-RPC, and SSE transport mechanics | [NeKiro-project/nekiro-a2a-transport-go](https://github.com/NeKiro-project/nekiro-a2a-transport-go) | [Wiki](https://github.com/NeKiro-project/nekiro-a2a-transport-go/wiki) |
+| **NeKiro Console** | Production Console and browser behavior | [NeKiro-project/NeKiro-Console](https://github.com/NeKiro-project/NeKiro-Console) | [Central RepoWiki](https://nekiro-project.github.io/NeKiro/satellites/console/) |
+| **nekiro-sdk-go** | Public Go Agent and application SDKs | [NeKiro-project/nekiro-sdk-go](https://github.com/NeKiro-project/nekiro-sdk-go) | [Central RepoWiki](https://nekiro-project.github.io/NeKiro/satellites/sdk-go/) |
+| **NeKiro Samples** | Independent sample Agent Runtimes, Cards, and sample-specific tests | [NeKiro-project/NeKiro-Samples](https://github.com/NeKiro-project/NeKiro-Samples) | [Central RepoWiki](https://nekiro-project.github.io/NeKiro/satellites/samples/) |
+| **NeKiro Stack** | Multi-component assembly, immutable release pins, and product acceptance | [NeKiro-project/NeKiro-Stack](https://github.com/NeKiro-project/NeKiro-Stack) | [Central RepoWiki](https://nekiro-project.github.io/NeKiro/satellites/stack/) |
+| **nekiro-a2a-transport-go** | Reusable A2A HTTP, JSON-RPC, and SSE transport mechanics | [NeKiro-project/nekiro-a2a-transport-go](https://github.com/NeKiro-project/nekiro-a2a-transport-go) | [Central RepoWiki](https://nekiro-project.github.io/NeKiro/satellites/a2a-transport-go/) |
 
 ## Release and verification order
 

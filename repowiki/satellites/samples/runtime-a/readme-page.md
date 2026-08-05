@@ -1,0 +1,71 @@
+<div class="satellite-source-note">Read-only mirror of <a href="https://github.com/NeKiro-project/NeKiro-Samples/blob/89bf743604ddafb77688b22f4fb6e20577a85f3a/runtime-a/README.md"><code>NeKiro-project/NeKiro-Samples/runtime-a/README.md</code></a> at <code>89bf743604ddafb77688b22f4fb6e20577a85f3a</code>. The canonical document remains in the satellite repository; edit it there and refresh this snapshot.</div>
+
+# Runtime A (`trpc-agent-go`)
+
+Runtime A demonstrates a framework-backed Agent without making the framework
+part of NeKiro Core. `trpc-agent-go` is confined to Runtime A execution;
+platform calls use the public NeKiro SDK and every managed nested invocation
+returns through the A2A Router.
+
+The sample has no platform database access, no Runtime B imports, no direct
+target URL, no retry/cache/alternate route, and no configuration defaults.
+
+## Required configuration
+
+```text
+RUNTIME_A_LISTEN_ADDR
+RUNTIME_A_AGENT_ID
+RUNTIME_A_ROUTER_URL
+RUNTIME_A_ROUTER_TOKEN
+RUNTIME_A_TARGET_AGENT_ID
+RUNTIME_A_TARGET_CAPABILITY
+RUNTIME_A_RESPONSE_LIMIT_BYTES
+RUNTIME_A_EVENT_LIMIT_BYTES
+NEKIRO_AGENT_CHALLENGE_DIRECTORY
+NEKIRO_AGENT_ROUTER_ISSUER
+NEKIRO_AGENT_ROUTER_AUDIENCE
+NEKIRO_AGENT_ROUTER_KEY_ID
+NEKIRO_AGENT_ROUTER_PUBLIC_KEY_BASE64URL
+```
+
+`NEKIRO_AGENT_CHALLENGE_DIRECTORY` is an absolute, explicitly configured
+directory used only to serve provider-owned one-time HTTP ownership proofs at
+`/.well-known/nekiro/challenges/{challengeId}`. It has no default and is not a
+platform secret store.
+
+The Runtime accepts the active A2A JSON-RPC profile and exposes `GET /readyz`
+without starting nested work. Test fixtures cover a deterministic echo path and
+a managed nested call through the Router.
+
+## Test Runtime A
+
+From the Samples repository root:
+
+```text
+go test -count=1 ./runtime-a/... ./internal/challengeproof/...
+go test -race ./runtime-a/... ./internal/challengeproof/...
+go vet ./runtime-a/... ./internal/challengeproof/...
+docker build -f runtime-a/Dockerfile -t nekiro-runtime-a:test .
+```
+
+Success means all Runtime A and challenge-proof packages print `ok`, the race
+detector and vet exit with code `0`, and the Docker image builds. In
+particular, the named tests must prove one Router-only nested call, stable
+lineage, concurrent-call isolation, no credential copying, deterministic
+result mapping, and a side-effect-free readiness endpoint.
+
+## Run Runtime A
+
+Build the binary with:
+
+```text
+go build -o bin/runtime-a ./runtime-a/cmd/runtime-a
+```
+
+Start it only with an explicitly configured NeKiro-Stack environment. HTTP
+`200` from `/readyz` proves process readiness; complete sample success also
+requires a Stack invocation and queryable Ledger lineage. Process startup by
+itself is not end-to-end success.
+
+`RUNTIME_A_ROUTER_TOKEN` is an exact credential. It must not be logged,
+trimmed, copied into A2A data, or placed in platform facts.

@@ -21,6 +21,22 @@
   font-size: 0.85rem;
 }
 
+.md-typeset .satellite-source-note {
+  margin: 0 0 1.5rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #d8c99d;
+  border-radius: 0.4rem;
+  background: #fff8df;
+  color: #5b4a1f;
+  font-size: 0.85rem;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .satellite-source-note {
+  border-color: #806f37;
+  background: #3d351b;
+  color: #f5e7ae;
+}
+
 [data-md-color-scheme="slate"] .md-typeset .source-note {
   border-color: #415a9c;
   background: #1d2a4b;
