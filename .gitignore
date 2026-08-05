@@ -43,5 +43,11 @@ Thumbs.db
 # Generated repository metadata
 .qoder/repowiki/
 
+# GitHub Pages RepoWiki build output
+.repowiki-site/
+_site/
+__pycache__/
+*.py[cod]
+
 # Linked worktrees
 .worktrees/

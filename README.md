@@ -78,6 +78,13 @@ See [Core development](docs/usage/core-development.md) for service commands and
 for the publication lifecycle. The complete architecture is documented in
 [Phase 1 Architecture](docs/architecture/phase-1-spec.md).
 
+## RepoWiki
+
+The central [NeKiro RepoWiki](https://nekiro-project.github.io/NeKiro/) unifies
+the Core documentation and provides canonical entry points for the Console,
+SDK, Samples, Stack, and A2A transport repositories. Satellite source and
+ownership remain in their respective repositories.
+
 ## History
 
 The annotated tag `pre-repository-split-2026-08-04` preserves the accepted
