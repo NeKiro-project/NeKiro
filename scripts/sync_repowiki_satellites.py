@@ -23,6 +23,16 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = REPO_ROOT / "repowiki" / "satellites"
 MARKDOWN_LINK = re.compile(r"(?<!!)(\[[^\]]+\])\(([^)]+)\)")
 
+# Go module zip paths reject Unicode punctuation such as full-width parentheses
+# and colons. Keep the canonical satellite filenames unchanged, but publish
+# these two mirrored documents under stable ASCII-only target paths.
+CONSOLE_KNOWLEDGE_SAFE_NAMES = {
+    "前端依赖管理（npm + Vite）": "frontend-dependency-management-npm-vite",
+    "前端错误处理：NekiroApiError 与 PlatformErrorView 统一模型": (
+        "frontend-error-handling-nekiro-api-error-platform-error-view"
+    ),
+}
+
 
 @dataclass(frozen=True)
 class Satellite:
@@ -122,9 +132,11 @@ def target_path(satellite: Satellite, source: str) -> Path:
                 ".qoder/repowiki/zh/content"
             )
         if source.startswith(".qoder/repowiki/knowledge/zh/"):
-            return Path("knowledge") / source_path.relative_to(
-                ".qoder/repowiki/knowledge/zh"
-            )
+            relative = source_path.relative_to(".qoder/repowiki/knowledge/zh")
+            safe_name = CONSOLE_KNOWLEDGE_SAFE_NAMES.get(relative.parts[0])
+            if safe_name is not None:
+                return Path("knowledge") / safe_name / f"{safe_name}{source_path.suffix}"
+            return Path("knowledge") / relative
     return source_path
 
 
