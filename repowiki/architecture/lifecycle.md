@@ -1,11 +1,3 @@
----
-layout: default
-title: Platform lifecycle
-description: The Register to Record loop and its cross-boundary semantics.
-permalink: /architecture/lifecycle/
-nav_order: 3
----
-
 # Platform lifecycle
 
 The five verbs describe one governed flow. Each step produces a fact owned by
@@ -55,7 +47,7 @@ exact component revisions.
 
 ## Canonical source
 
-- [Phase 1 Architecture Specification]({{ '/source-docs/architecture/phase-1-spec/' | relative_url }})
-- [Invocation result and internal API ADR]({{ '/source-docs/decisions/0002-invocation-result-transport-and-internal-api-direction/' | relative_url }})
-- [Invocation runtime trust and failure policy ADR]({{ '/source-docs/decisions/0006-invocation-runtime-trust-and-failure-policy/' | relative_url }})
-- [Router signed credential ADR]({{ '/source-docs/decisions/0007-router-agent-signed-credential/' | relative_url }})
+- [Phase 1 Architecture Specification](../source-docs/architecture/phase-1-spec.md)
+- [Invocation result and internal API ADR](../source-docs/decisions/0002-invocation-result-transport-and-internal-api-direction.md)
+- [Invocation runtime trust and failure policy ADR](../source-docs/decisions/0006-invocation-runtime-trust-and-failure-policy.md)
+- [Router signed credential ADR](../source-docs/decisions/0007-router-agent-signed-credential.md)

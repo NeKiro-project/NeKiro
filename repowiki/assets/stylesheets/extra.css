@@ -1,0 +1,48 @@
+:root {
+  --md-primary-fg-color: #172033;
+  --md-primary-fg-color--light: #2357d6;
+  --md-primary-fg-color--dark: #101828;
+  --md-accent-fg-color: #2357d6;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #101828;
+  --md-primary-fg-color--light: #7ea3ff;
+  --md-accent-fg-color: #9ab7ff;
+}
+
+.md-typeset .source-note {
+  margin: 0 0 1.5rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #c8d6ff;
+  border-radius: 0.4rem;
+  background: #eaf0ff;
+  color: #2b3e75;
+  font-size: 0.85rem;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .source-note {
+  border-color: #415a9c;
+  background: #1d2a4b;
+  color: #d6e1ff;
+}
+
+.md-typeset table {
+  display: table;
+}
+
+.md-typeset .repo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+}
+
+.md-typeset .repo-card {
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.45rem;
+}
+
+.md-typeset .repo-card > :last-child {
+  margin-bottom: 0;
+}

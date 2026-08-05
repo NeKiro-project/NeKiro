@@ -1,11 +1,3 @@
----
-layout: default
-title: Architecture and ownership
-description: NeKiro Core boundaries, deployment units, and data ownership.
-permalink: /architecture/
-nav_order: 2
----
-
 # Architecture and ownership
 
 NeKiro is a runtime-agnostic Agent operating platform. Its durable
@@ -55,7 +47,7 @@ Console -> Control Plane -> A2A Router -> Agent
 
 ## Canonical source
 
-- [Phase 1 Architecture Specification]({{ '/source-docs/architecture/phase-1-spec/' | relative_url }})
-- [NeKiro Platform Direction]({{ '/source-docs/architecture/platform-direction/' | relative_url }})
-- [Core repository boundary ADR]({{ '/source-docs/decisions/0009-core-repository-boundary/' | relative_url }})
-- [Repository map]({{ '/repositories/' | relative_url }})
+- [Phase 1 Architecture Specification](../source-docs/architecture/phase-1-spec.md)
+- [NeKiro Platform Direction](../source-docs/architecture/platform-direction.md)
+- [Core repository boundary ADR](../source-docs/decisions/0009-core-repository-boundary.md)
+- [Repository map](../repositories.md)

@@ -1,11 +1,3 @@
----
-layout: default
-title: Repository map
-description: Canonical ownership and Wiki entry points for every NeKiro repository.
-permalink: /repositories/
-nav_order: 7
----
-
 # Repository map
 
 NeKiro is maintained as a set of independently released repositories. This
@@ -28,4 +20,5 @@ page gives one entry point without copying their source into Core.
 4. Compatibility evidence remains visible for the exact Core commit.
 
 The central Wiki documents this order; it does not become an alternate release
-authority. See [ADR 0009]({{ '/source-docs/decisions/0009-core-repository-boundary/' | relative_url }}) for the accepted ownership decision.
+authority. See [ADR 0009](source-docs/decisions/0009-core-repository-boundary.md)
+for the accepted ownership decision.
