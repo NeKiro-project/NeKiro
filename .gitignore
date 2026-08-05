@@ -46,6 +46,8 @@ Thumbs.db
 # GitHub Pages RepoWiki build output
 .repowiki-site/
 _site/
+site/
+.mkdocs-venv/
 __pycache__/
 *.py[cod]
 

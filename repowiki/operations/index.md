@@ -1,16 +1,8 @@
----
-layout: default
-title: Operations
-description: Core development checks and trusted publication operations.
-permalink: /operations/
-nav_order: 5
----
-
 # Operations
 
 This section is the operational entry point for the Core repository. The
 Console, sample Agents, Compose stack, and product acceptance remain owned by
-the satellite repositories in the [repository map]({{ '/repositories/' | relative_url }}).
+the satellite repositories in the [repository map](../repositories.md).
 
 ## Local Core checks
 
@@ -58,6 +50,6 @@ contract, ADR, runbook, or SLO provides evidence for a different policy.
 
 ## Canonical source
 
-- [Core development]({{ '/source-docs/usage/core-development/' | relative_url }})
-- [Trusted publication operations]({{ '/source-docs/usage/trusted-publication-operations/' | relative_url }})
-- [Trusted Publication v1]({{ '/source-docs/contracts/trusted-publication-v1/' | relative_url }})
+- [Core development](../source-docs/usage/core-development.md)
+- [Trusted publication operations](../source-docs/usage/trusted-publication-operations.md)
+- [Trusted Publication v1](../source-docs/contracts/trusted-publication-v1.md)

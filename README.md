@@ -81,9 +81,9 @@ for the publication lifecycle. The complete architecture is documented in
 ## RepoWiki
 
 The central [NeKiro RepoWiki](https://nekiro-project.github.io/NeKiro/) unifies
-the Core documentation and provides canonical entry points for the Console,
-SDK, Samples, Stack, and A2A transport repositories. Satellite source and
-ownership remain in their respective repositories.
+the Core documentation in English and Chinese and provides canonical entry
+points for the Console, SDK, Samples, Stack, and A2A transport repositories.
+Satellite source and ownership remain in their respective repositories.
 
 ## History
 

@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""Build the Jekyll source tree for the central NeKiro RepoWiki.
+"""Build the MkDocs source tree for the central NeKiro RepoWiki.
 
-The tracked repowiki/ directory contains curated navigation pages and the
-site shell. Canonical Core Markdown files under docs/ are copied into the
-generated tree at build time, so the Wiki cannot silently drift from the
-source documents. Satellite repositories are represented by links only; their
-source remains owned by those repositories.
+Tracked English and Chinese navigation pages live under repowiki/. Canonical
+Core Markdown files under docs/ are copied into both locale trees at build
+time. The Chinese source-document pages remain explicitly linked to the
+English canonical text until an approved translation exists.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
+import posixpath
 import re
 import shutil
 import sys
@@ -26,6 +25,15 @@ DOC_SECTIONS = ("architecture", "contracts", "decisions", "usage")
 SOURCE_URL_PREFIX = "https://github.com/NeKiro-project/NeKiro/blob/main/"
 MARKDOWN_LINK = re.compile(r"(?<!!)\[([^\]]+)\]\(([^)]+)\)")
 H1 = re.compile(r"^#\s+(.+?)\s*$")
+EXPECTED_CURATED = (
+    "index.md",
+    "architecture/index.md",
+    "architecture/lifecycle.md",
+    "contracts/index.md",
+    "operations/index.md",
+    "decisions/index.md",
+    "repositories.md",
+)
 
 
 def fail(message: str) -> NoReturn:
@@ -52,13 +60,17 @@ def document_title(path: Path) -> str:
     fail(f"source document has no level-one heading: {path.relative_to(REPO_ROOT)}")
 
 
-def site_slug(path: Path) -> str:
-    relative = path.relative_to(DOCS_ROOT).with_suffix("")
-    return f"/source-docs/{relative.as_posix()}/"
+def source_site_path(path: Path) -> Path:
+    return Path("source-docs") / path.relative_to(DOCS_ROOT)
 
 
-def liquid_link(path: str, fragment: str = "") -> str:
-    return "{{ '%s' | relative_url }}%s" % (path, fragment)
+def relative_source_link(source_path: Path, target_path: Path) -> str:
+    source_site = source_site_path(source_path)
+    target_site = source_site_path(target_path)
+    return posixpath.relpath(
+        target_site.as_posix(),
+        start=source_site.parent.as_posix(),
+    )
 
 
 def rewrite_links(text: str, source_path: Path) -> str:
@@ -88,7 +100,8 @@ def rewrite_links(text: str, source_path: Path) -> str:
             fail(
                 f"internal link target does not exist: {source_path.relative_to(REPO_ROOT)} -> {target}"
             )
-        return f"[{match.group(1)}]({liquid_link(site_slug(resolved), fragment)}{suffix})"
+        link = relative_source_link(source_path, resolved)
+        return f"[{match.group(1)}]({link}{fragment}{suffix})"
 
     return MARKDOWN_LINK.sub(replace, text)
 
@@ -107,45 +120,44 @@ def without_title(text: str) -> str:
     return text
 
 
-def page_front_matter(title: str, source_path: Path) -> str:
-    relative = source_path.relative_to(REPO_ROOT).as_posix()
-    title_value = json.dumps(title, ensure_ascii=False)
-    return "\n".join(
-        [
-            "---",
-            "layout: default",
-            f"title: {title_value}",
-            f"source_path: {relative}",
-            f"permalink: {site_slug(source_path)}",
-            "---",
-            "",
+def source_page(document: Path, language: str) -> str:
+    relative = document.relative_to(REPO_ROOT).as_posix()
+    title = document_title(document)
+    if language == "zh":
+        banner = (
+            '<div class="source-note">英文 canonical source：'
+            f'<a href="{SOURCE_URL_PREFIX}{relative}"><code>{relative}</code></a>。'
+            "本页保留英文规范正文，中文导航和摘要页已提供双语入口。</div>"
+        )
+        heading = f"# {title}（英文规范）"
+    else:
+        banner = (
             '<div class="source-note">Canonical source: '
             f'<a href="{SOURCE_URL_PREFIX}{relative}"><code>{relative}</code></a>. '
-            "This page is rendered from the source document during the Pages build.</div>",
+            "This page is rendered from the source document during the MkDocs build.</div>"
+        )
+        heading = f"# {title}"
+    body = rewrite_links(without_title(document.read_text(encoding="utf-8")), document)
+    return f"{banner}\n\n{heading}\n\n{body}"
+
+
+def source_index(documents: list[Path], language: str) -> str:
+    if language == "zh":
+        lines = [
+            "# 源文档",
             "",
-            "",
-            f"# {title}",
+            "以下页面由 docs/ 中的 Core canonical Markdown 文件生成。",
+            "中文页面保留英文规范正文，避免在未审阅的机器翻译中改变契约语义。",
             "",
         ]
-    )
-
-
-def source_index(documents: list[Path]) -> str:
-    lines = [
-        "---",
-        "layout: default",
-        "title: Source documents",
-        "description: Core source documents rendered into the central RepoWiki.",
-        "permalink: /source-docs/",
-        "nav_order: 8",
-        "---",
-        "",
-        "# Source documents",
-        "",
-        "These pages are generated from the canonical Markdown files under docs/.",
-        "The generated pages are a reading surface; edits belong in the source files.",
-        "",
-    ]
+    else:
+        lines = [
+            "# Source documents",
+            "",
+            "These pages are generated from the canonical Markdown files under docs/.",
+            "Edits belong in the source documents, not in the generated MkDocs tree.",
+            "",
+        ]
     for section in DOC_SECTIONS:
         lines.extend([f"## {section.title()}", ""])
         for document in documents:
@@ -153,27 +165,37 @@ def source_index(documents: list[Path]) -> str:
             if relative.parts[0] != section:
                 continue
             title = document_title(document)
-            lines.append(f"- [{title}]({{{{ '{site_slug(document)}' | relative_url }}}})")
+            link = relative.as_posix()
+            lines.append(f"- [{title}]({link})")
         lines.append("")
     return "\n".join(lines)
 
 
+def copy_tracked_wiki(output: Path) -> None:
+    for path in WIKI_ROOT.rglob("*"):
+        if path.is_dir():
+            continue
+        relative = path.relative_to(WIKI_ROOT)
+        if relative.parts[0] == "assets":
+            destination = output / relative
+        elif relative.parts[0] == "zh":
+            destination = output / relative
+        elif path.suffix == ".md":
+            destination = output / "en" / relative
+        else:
+            fail(f"unsupported tracked RepoWiki file: {relative}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, destination)
+
+
 def validate(documents: list[Path]) -> None:
-    expected = {
-        "_config.yml",
-        "_layouts/default.html",
-        "assets/style.css",
-        "index.md",
-        "architecture/index.md",
-        "architecture/lifecycle.md",
-        "contracts/index.md",
-        "operations/index.md",
-        "decisions/index.md",
-        "repositories.md",
-    }
-    missing = sorted(path for path in expected if not (WIKI_ROOT / path).is_file())
-    if missing:
-        fail("missing tracked RepoWiki files: " + ", ".join(missing))
+    for relative in EXPECTED_CURATED:
+        if not (WIKI_ROOT / relative).is_file():
+            fail(f"missing English RepoWiki page: repowiki/{relative}")
+        if not (WIKI_ROOT / "zh" / relative).is_file():
+            fail(f"missing Chinese RepoWiki page: repowiki/zh/{relative}")
+    if not (WIKI_ROOT / "assets/stylesheets/extra.css").is_file():
+        fail("missing shared MkDocs stylesheet: repowiki/assets/stylesheets/extra.css")
 
     titles: set[str] = set()
     for document in documents:
@@ -183,6 +205,11 @@ def validate(documents: list[Path]) -> None:
         titles.add(title)
         rewrite_links(document.read_text(encoding="utf-8"), document)
 
+    for path in WIKI_ROOT.rglob("*.md"):
+        text = path.read_text(encoding="utf-8")
+        if "{{" in text or "relative_url" in text:
+            fail(f"Jekyll/Liquid link remains in MkDocs source: {path.relative_to(REPO_ROOT)}")
+
 
 def build(output: Path, documents: list[Path]) -> None:
     if output.exists():
@@ -190,22 +217,20 @@ def build(output: Path, documents: list[Path]) -> None:
             shutil.rmtree(output)
         else:
             output.unlink()
-    shutil.copytree(WIKI_ROOT, output)
+    output.mkdir(parents=True, exist_ok=True)
+    copy_tracked_wiki(output)
 
-    generated_root = output / "source-docs"
-    generated_root.mkdir(parents=True, exist_ok=True)
-    (generated_root / "index.md").write_text(source_index(documents), encoding="utf-8")
-
-    for document in documents:
-        destination = generated_root / document.relative_to(DOCS_ROOT)
-        destination = destination.with_suffix(".md")
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        source = document.read_text(encoding="utf-8")
-        body = rewrite_links(without_title(source), document)
-        destination.write_text(
-            page_front_matter(document_title(document), document) + body,
+    for language in ("en", "zh"):
+        generated_root = output / language / "source-docs"
+        generated_root.mkdir(parents=True, exist_ok=True)
+        (generated_root / "index.md").write_text(
+            source_index(documents, language),
             encoding="utf-8",
         )
+        for document in documents:
+            destination = generated_root / document.relative_to(DOCS_ROOT)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(source_page(document, language), encoding="utf-8")
 
 
 def parse_args() -> argparse.Namespace:
@@ -214,7 +239,7 @@ def parse_args() -> argparse.Namespace:
         "--output",
         type=Path,
         default=REPO_ROOT / ".repowiki-site",
-        help="generated Jekyll source directory (default: .repowiki-site)",
+        help="generated MkDocs docs directory (default: .repowiki-site)",
     )
     parser.add_argument(
         "--check",
@@ -230,11 +255,11 @@ def main() -> int:
         documents = source_documents()
         validate(documents)
         if args.check:
-            print(f"RepoWiki check passed: {len(documents)} Core source documents")
+            print(f"RepoWiki check passed: {len(documents)} Core source documents, 2 locales")
         else:
             output = args.output if args.output.is_absolute() else REPO_ROOT / args.output
             build(output, documents)
-            print(f"RepoWiki source generated: {output}")
+            print(f"MkDocs source generated: {output}")
     except ValueError as error:
         print(f"RepoWiki build failed: {error}", file=sys.stderr)
         return 1

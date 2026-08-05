@@ -1,11 +1,3 @@
----
-layout: default
-title: Contracts and compatibility
-description: Active NeKiro contract versions, compatibility rules, and failure semantics.
-permalink: /contracts/
-nav_order: 4
----
-
 # Contracts and compatibility
 
 Contracts are versioned before cross-boundary implementation. Language-neutral
@@ -61,7 +53,7 @@ stack data do not cross into Cards, events, logs, or Ledger facts.
 
 ## Canonical source
 
-- [Contract Compatibility Policy]({{ '/source-docs/contracts/compatibility/' | relative_url }})
-- [Trusted Publication v1]({{ '/source-docs/contracts/trusted-publication-v1/' | relative_url }})
-- [Phase 1 contract sources]({{ '/source-docs/architecture/phase-1-spec/' | relative_url }})
-- [Source documents]({{ '/source-docs/' | relative_url }})
+- [Contract Compatibility Policy](../source-docs/contracts/compatibility.md)
+- [Trusted Publication v1](../source-docs/contracts/trusted-publication-v1.md)
+- [Phase 1 contract sources](../source-docs/architecture/phase-1-spec.md)
+- [Source documents](../source-docs/index.md)
