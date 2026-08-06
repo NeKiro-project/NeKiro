@@ -150,6 +150,11 @@ sample Agents and clear failure semantics.
 
 Add policy, identity, quota, approval, health, and operational capabilities
 only when usage evidence and an approved Issue/ADR define ownership and behavior.
+ADR 0008 accepts the runtime-neutral Config Center core and deterministic File
+provider as a bounded prerequisite: it owns opaque source read/observe semantics,
+not service schemas, loader injection, readiness, authorization, release selection,
+or governance application. Nacos and runtime integration remain separate Issues
+after their failure policy and owner are defined.
 
 ### Stage 3: Ecosystem
 

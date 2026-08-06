@@ -8,6 +8,7 @@ Core 只维护以下内容：
 
 - `apps/control-plane`：Gateway、Catalog、Workspace、Invocation Dispatch。
 - `apps/a2a-router`：A2A 路由、上下文传播、凭证、策略扩展点和 Invocation Ledger。
+- `config_center/`：provider-neutral 的配置源读取、观察和显式发布边界。
 - `contracts`：语言无关的 JSON Schema、OpenAPI、A2A Profile 及其 Go 映射。
 - Catalog、Workspace、Ledger 各自拥有的 PostgreSQL migrations。
 - Core 单元、契约和服务集成测试。
@@ -46,6 +47,19 @@ Register -> Discover -> Install -> Invoke -> Record
     post-merge 编排 workflow 可以调用由卫星仓拥有、并固定到完整 commit
     SHA 的 reusable workflow；源码解析、测试命令和成功判据仍由对应 owner
     仓定义，且该编排不得成为 Core 本地构建的备用路径。
+
+### Config Center ownership
+
+根级 `config_center/` 只拥有 provider-neutral 的不透明字节源语义：严格
+Key、不可变快照、当前读取、原子 initial/watch handoff、局部 revision、
+typed outcome，以及读能力和显式发布能力的边界。它不拥有 Control Plane 或
+A2A Router 的 typed configuration document、Agent Card/Release、Catalog
+Registry、Workspace、Secret 分发或任何运行时治理策略。
+
+Control Plane 和 A2A Router 继续各自拥有服务配置 schema、业务验证、readiness、
+动态字段接受范围和 policy 决策。File provider 是本地/受控部署适配器；Nacos、
+loader 注入和 dynamic governance 必须由独立 Issue/ADR 明确数据所有权、失败语义
+与 readiness 策略，不能把 `config_center/` 变成隐式 source precedence 或 fallback。
 
 ## 3. 技术约束
 
