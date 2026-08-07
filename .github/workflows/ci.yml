@@ -163,7 +163,7 @@ jobs:
           fi
 
   config_center:
-    name: Config Center (${{ matrix.os }})
+    name: Test / Config Center (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
