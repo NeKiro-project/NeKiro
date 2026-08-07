@@ -50,6 +50,10 @@ subscription registration, and root-event processing share one synchronization
 boundary: a concurrent state change is initial state or next event, never
 silently between them.
 
+On Windows, `FileMode` is limited to the exact projections supported by
+`os.Chmod`: writable `0666` or read-only `0444`. POSIX-granular modes such as
+`0640` are invalid rather than silently accepted with weaker semantics.
+
 Missing and present-empty are distinct. Delete is explicit, including typed
 missing for delete of an absent key. Snapshot bytes are copied at every
 ownership/return boundary. `Get` returns an unscoped, non-comparable snapshot

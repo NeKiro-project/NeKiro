@@ -7,6 +7,8 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
+	"runtime"
 	"sync"
 
 	configcenter "github.com/NeKiro-project/NeKiro/config_center"
@@ -210,6 +212,19 @@ func (reader *Reader) readStateLocked(key configcenter.Key, operation configcent
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) || os.IsNotExist(err) {
 			return fileState{}, nil
+		}
+		if runtime.GOOS == "windows" {
+			// Windows can report a sharing violation while Lstat opens a
+			// reparse-point leaf through os.Root. Recheck the pinned pathname
+			// only to preserve the unsafe-state classification; reads still use
+			// the confined root handle below.
+			if code := rootIdentityCode(reader.rootPath, reader.root, reader.rootIdentity, reader.operations); code != "" {
+				return fileState{}, fileError(code, key, operation)
+			}
+			if fallback, fallbackErr := os.Lstat(filepath.Join(reader.rootPath, leaf)); fallbackErr == nil &&
+				(fallback.Mode()&os.ModeSymlink != 0 || !fallback.Mode().IsRegular()) {
+				return fileState{}, fileError(configcenter.CodeUnsafeState, key, operation)
+			}
 		}
 		return fileState{}, mapLeafFilesystemError(key, operation, err)
 	}

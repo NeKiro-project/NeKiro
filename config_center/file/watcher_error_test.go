@@ -66,6 +66,7 @@ func TestHandleWatcherErrorNotExistWithLostOrReplacedRootInterrupts(t *testing.T
 		{name: "replaced", mutate: replaceConfiguredRoot},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			skipWindowsRootPathMutation(t)
 			root, reader := newManualWatcherReader(t)
 			defer func() { _ = reader.Close() }()
 			key := watcherErrorTestKey(t)

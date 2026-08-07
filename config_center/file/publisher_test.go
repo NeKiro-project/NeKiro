@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	configcenter "github.com/NeKiro-project/NeKiro/config_center"
@@ -13,7 +14,7 @@ import (
 
 func TestPublisherCopiesInputUsesExplicitModeAndTemporaryMappingIsolation(t *testing.T) {
 	root := t.TempDir()
-	publisher, err := OpenPublisher(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: 0o640})
+	publisher, err := OpenPublisher(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: testPublisherMode()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,8 +40,8 @@ func TestPublisherCopiesInputUsesExplicitModeAndTemporaryMappingIsolation(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := info.Mode().Perm(); got != 0o640 {
-		t.Fatalf("published mode = %#o, want %#o", got, os.FileMode(0o640))
+	if got := info.Mode().Perm(); got != testPublisherMode() {
+		t.Fatalf("published mode = %#o, want %#o", got, testPublisherMode())
 	}
 	temporary, err := publisher.temporaryLeaf()
 	if err != nil {
@@ -58,7 +59,7 @@ func TestPublisherAtomicReplacementDeliversCompleteReaderState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = reader.Close() }()
-	publisher, err := OpenPublisher(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: 0o600})
+	publisher, err := OpenPublisher(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: testWritablePublisherMode()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +90,7 @@ func TestPublisherAtomicReplacementDeliversCompleteReaderState(t *testing.T) {
 
 func TestPublisherMapsMissingUnsafeBoundsCancellationAndClose(t *testing.T) {
 	root := t.TempDir()
-	publisher, err := OpenPublisher(PublisherConfig{Root: root, MaxPayloadBytes: 3, FileMode: 0o600})
+	publisher, err := OpenPublisher(PublisherConfig{Root: root, MaxPayloadBytes: 3, FileMode: testWritablePublisherMode()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,8 +163,9 @@ func TestPublisherRejectsRootLossAndUnsafeSubstitutionAtOperationStart(t *testin
 	}
 
 	t.Run("missing root is unavailable", func(t *testing.T) {
+		skipWindowsRootPathMutation(t)
 		root := configuredRoot(t)
-		publisher, err := OpenPublisher(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: 0o600})
+		publisher, err := OpenPublisher(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: testWritablePublisherMode()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -182,8 +184,9 @@ func TestPublisherRejectsRootLossAndUnsafeSubstitutionAtOperationStart(t *testin
 	})
 
 	t.Run("replacement root is unsafe", func(t *testing.T) {
+		skipWindowsRootPathMutation(t)
 		root := configuredRoot(t)
-		publisher, err := OpenPublisher(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: 0o600})
+		publisher, err := OpenPublisher(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: testWritablePublisherMode()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -200,8 +203,9 @@ func TestPublisherRejectsRootLossAndUnsafeSubstitutionAtOperationStart(t *testin
 	})
 
 	t.Run("non-directory root is unsafe", func(t *testing.T) {
+		skipWindowsRootPathMutation(t)
 		root := configuredRoot(t)
-		publisher, err := OpenPublisher(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: 0o600})
+		publisher, err := OpenPublisher(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: testWritablePublisherMode()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -218,8 +222,9 @@ func TestPublisherRejectsRootLossAndUnsafeSubstitutionAtOperationStart(t *testin
 	})
 
 	t.Run("symlink root is unsafe", func(t *testing.T) {
+		skipWindowsRootPathMutation(t)
 		root := configuredRoot(t)
-		publisher, err := OpenPublisher(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: 0o600})
+		publisher, err := OpenPublisher(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: testWritablePublisherMode()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -246,7 +251,7 @@ func TestPublisherRejectsRootLossAndUnsafeSubstitutionAtOperationStart(t *testin
 			}
 			return platformLstat(path)
 		}
-		publisher, err := openPublisherWithOperations(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: 0o600}, operations)
+		publisher, err := openPublisherWithOperations(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: testWritablePublisherMode()}, operations)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -274,10 +279,11 @@ func TestPublisherRejectsRootReplacementBeforeFinalCommit(t *testing.T) {
 	}
 
 	t.Run("publish", func(t *testing.T) {
+		skipWindowsRootPathMutation(t)
 		root := configuredRoot(t)
 		operations := productionFileOperations()
 		operations.beforePublisherCommit = func() { replaceConfiguredRoot(t, root) }
-		publisher, err := openPublisherWithOperations(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: 0o600}, operations)
+		publisher, err := openPublisherWithOperations(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: testWritablePublisherMode()}, operations)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -290,13 +296,14 @@ func TestPublisherRejectsRootReplacementBeforeFinalCommit(t *testing.T) {
 	})
 
 	t.Run("delete", func(t *testing.T) {
+		skipWindowsRootPathMutation(t)
 		root := configuredRoot(t)
 		if err := os.WriteFile(filepath.Join(root, leaf), []byte("value"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		operations := productionFileOperations()
 		operations.beforePublisherCommit = func() { replaceConfiguredRoot(t, root) }
-		publisher, err := openPublisherWithOperations(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: 0o600}, operations)
+		publisher, err := openPublisherWithOperations(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: testWritablePublisherMode()}, operations)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -321,10 +328,11 @@ func TestPublisherReturnsTypedFailureWhenRootChangesAfterCommit(t *testing.T) {
 	}
 
 	t.Run("publish", func(t *testing.T) {
+		skipWindowsRootPathMutation(t)
 		root := configuredRoot(t)
 		operations := productionFileOperations()
 		operations.beforePublisherSuccess = func() { replaceConfiguredRoot(t, root) }
-		publisher, err := openPublisherWithOperations(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: 0o600}, operations)
+		publisher, err := openPublisherWithOperations(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: testWritablePublisherMode()}, operations)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -340,13 +348,14 @@ func TestPublisherReturnsTypedFailureWhenRootChangesAfterCommit(t *testing.T) {
 	})
 
 	t.Run("delete", func(t *testing.T) {
+		skipWindowsRootPathMutation(t)
 		root := configuredRoot(t)
 		if err := os.WriteFile(filepath.Join(root, leaf), []byte("value"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		operations := productionFileOperations()
 		operations.beforePublisherSuccess = func() { replaceConfiguredRoot(t, root) }
-		publisher, err := openPublisherWithOperations(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: 0o600}, operations)
+		publisher, err := openPublisherWithOperations(PublisherConfig{Root: root, MaxPayloadBytes: 1024, FileMode: testWritablePublisherMode()}, operations)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -369,6 +378,13 @@ func replaceConfiguredRootWithSymlink(t *testing.T, root string) {
 			t.Skip("test account cannot create a symlink")
 		}
 		t.Fatal(err)
+	}
+}
+
+func skipWindowsRootPathMutation(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows directory handles prevent this pathname mutation")
 	}
 }
 

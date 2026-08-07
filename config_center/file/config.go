@@ -96,7 +96,15 @@ func validRootPath(path string) bool {
 }
 
 func validFileMode(mode fs.FileMode) bool {
-	return mode != 0 && mode.Perm() == mode
+	if mode == 0 || mode.Perm() != mode {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		// Windows exposes only the read-only attribute through os.Chmod. These
+		// are the only exact permission projections the File provider promises.
+		return mode == 0o666 || mode == 0o444
+	}
+	return true
 }
 
 func openPinnedRoot(path string, operation configcenter.Operation) (*os.Root, fs.FileInfo, error) {
@@ -107,7 +115,7 @@ func openPinnedRootWithOperations(path string, operation configcenter.Operation,
 	before, err := operations.lstat(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) || os.IsNotExist(err) {
-			return nil, nil, configcenter.NewError(configcenter.CodeInvalid, configcenter.ErrorDetails{
+			return nil, nil, configcenter.NewError(configcenter.CodeUnavailable, configcenter.ErrorDetails{
 				Provider:  fileProvider,
 				Operation: operation,
 			})
@@ -120,6 +128,10 @@ func openPinnedRootWithOperations(path string, operation configcenter.Operation,
 			Operation: operation,
 		})
 	}
+	// Windows FileInfo loads its file ID lazily from the saved pathname when
+	// os.SameFile is first called. Materialize it before any pathname
+	// substitution window so the identity cannot follow a replacement.
+	_ = os.SameFile(before, before)
 	invokeFileHook(operations.afterInitialRootLstat)
 	root, err := operations.openRoot(path)
 	if err != nil {

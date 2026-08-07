@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	configcenter "github.com/NeKiro-project/NeKiro/config_center"
@@ -31,7 +32,7 @@ func TestReaderConfigRequiresEveryExplicitBound(t *testing.T) {
 
 func TestPublisherConfigRequiresExplicitRegularMode(t *testing.T) {
 	root := t.TempDir()
-	if err := validatePublisherConfig(PublisherConfig{Root: root, MaxPayloadBytes: 1, FileMode: 0o640}); err != nil {
+	if err := validatePublisherConfig(PublisherConfig{Root: root, MaxPayloadBytes: 1, FileMode: testPublisherMode()}); err != nil {
 		t.Fatalf("valid publisher config rejected: %v", err)
 	}
 	for _, mode := range []fs.FileMode{0, os.ModeDir | 0o755, os.ModeSetuid | 0o600} {
@@ -52,8 +53,8 @@ func TestOpenPinnedRootRejectsInvalidRootState(t *testing.T) {
 	}
 
 	missing := filepath.Join(root, "missing")
-	if _, _, err := openPinnedRoot(missing, configcenter.OperationObserve); err == nil || !errors.Is(err, configcenter.ErrInvalid) {
-		t.Fatalf("missing root error = %v, want invalid", err)
+	if _, _, err := openPinnedRoot(missing, configcenter.OperationObserve); err == nil || !errors.Is(err, configcenter.ErrUnavailable) {
+		t.Fatalf("missing root error = %v, want unavailable", err)
 	}
 	filePath := filepath.Join(root, "not-a-directory")
 	if err := os.WriteFile(filePath, []byte("x"), 0o600); err != nil {
@@ -115,19 +116,57 @@ func TestRootIdentityCodeDistinguishesReplacementAndAbsence(t *testing.T) {
 	}
 	defer func() { _ = pinned.Close() }()
 
-	if code := rootIdentityCode(root, pinned, identity, productionFileOperations()); code != "" {
+	operations := productionFileOperations()
+	if code := rootIdentityCode(root, pinned, identity, operations); code != "" {
 		t.Fatalf("original root identity code = %q, want success", code)
 	}
-	replaceConfiguredRoot(t, root)
-	if code := rootIdentityCode(root, pinned, identity, productionFileOperations()); code != configcenter.CodeUnsafeState {
-		t.Fatalf("replacement root identity code = %q, want unsafe_state", code)
-	}
-	if err := os.RemoveAll(root); err != nil {
+	baseLstat := operations.lstat
+	replacement := filepath.Join(filepath.Dir(root), "replacement")
+	if err := os.Mkdir(replacement, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if code := rootIdentityCode(root, pinned, identity, productionFileOperations()); code != configcenter.CodeUnavailable {
+	lost := false
+	replaced := false
+	operations.lstat = func(path string) (fs.FileInfo, error) {
+		if path == root && lost {
+			return nil, fs.ErrNotExist
+		}
+		if path == root && replaced {
+			return baseLstat(replacement)
+		}
+		return baseLstat(path)
+	}
+	if runtime.GOOS == "windows" {
+		replaced = true
+	} else {
+		replaceConfiguredRoot(t, root)
+	}
+	if code := rootIdentityCode(root, pinned, identity, operations); code != configcenter.CodeUnsafeState {
+		t.Fatalf("replacement root identity code = %q, want unsafe_state", code)
+	}
+	if runtime.GOOS == "windows" {
+		replaced = false
+		lost = true
+	} else if err := os.RemoveAll(root); err != nil {
+		t.Fatal(err)
+	}
+	if code := rootIdentityCode(root, pinned, identity, operations); code != configcenter.CodeUnavailable {
 		t.Fatalf("missing root identity code = %q, want unavailable", code)
 	}
+}
+
+func testPublisherMode() fs.FileMode {
+	if runtime.GOOS == "windows" {
+		return 0o666
+	}
+	return 0o640
+}
+
+func testWritablePublisherMode() fs.FileMode {
+	if runtime.GOOS == "windows" {
+		return 0o666
+	}
+	return 0o600
 }
 
 func configuredRoot(t *testing.T) string {

@@ -26,6 +26,7 @@ func TestOpenReaderUsesOneExplicitRootWatch(t *testing.T) {
 }
 
 func TestOpenReaderRejectsRootSubstitutionAfterWatchRegistration(t *testing.T) {
+	skipWindowsRootPathMutation(t)
 	root := configuredRoot(t)
 	operations := productionFileOperations()
 	operations.afterWatcherAdd = func() {
@@ -351,6 +352,7 @@ func TestSubscriptionCancelCloseReaderCloseAndInterruptionStayDistinct(t *testin
 }
 
 func TestWatchIgnoresUnrelatedChildrenAndRootRenameInterrupts(t *testing.T) {
+	skipWindowsRootPathMutation(t)
 	root := t.TempDir()
 	reader, err := OpenReader(ReaderConfig{Root: root, MaxPayloadBytes: 1024, SubscriptionBuffer: 2})
 	if err != nil {

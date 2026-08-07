@@ -66,7 +66,7 @@ func newPublisherHarness(t *testing.T) testkit.Harness {
 	publisher, err := OpenPublisher(PublisherConfig{
 		Root:            root,
 		MaxPayloadBytes: 1024,
-		FileMode:        0o640,
+		FileMode:        testPublisherMode(),
 	})
 	if err != nil {
 		_ = reader.Close()
