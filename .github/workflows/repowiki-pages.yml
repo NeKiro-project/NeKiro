@@ -65,7 +65,6 @@ jobs:
           test -s .mkdocs-check/zh/index.html
 
   build:
-    if: github.event_name != 'pull_request'
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 15
