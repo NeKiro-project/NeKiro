@@ -281,6 +281,115 @@ func TestFakeDirectoryCloseUnblocksEveryWatch(t *testing.T) {
 	}
 }
 
+func TestFakeDirectoryConstructorsAliasesAndWatchClose(t *testing.T) {
+	capabilities, err := registry.NewCapabilities(registry.CapabilitySnapshot, registry.CapabilityObserve)
+	if err != nil {
+		t.Fatalf("NewCapabilities: %v", err)
+	}
+	if _, err := NewFakeDirectory(FakeConfig{Capabilities: capabilities}); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("zero queue capacity error = %v, want invalid", err)
+	}
+	snapshotOnly, err := registry.NewCapabilities(registry.CapabilitySnapshot)
+	if err != nil {
+		t.Fatalf("NewCapabilities snapshot: %v", err)
+	}
+	if _, err := NewFakeDirectory(FakeConfig{Capabilities: snapshotOnly, QueueCapacity: 1}); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("missing observe capability error = %v, want invalid", err)
+	}
+	directory, err := NewFake(FakeConfig{Capabilities: capabilities, QueueCapacity: 2})
+	if err != nil {
+		t.Fatalf("NewFake: %v", err)
+	}
+	target := fakeTarget(t, "agent-a", "release-a")
+	initial := fakeSnapshot(t, target, 0, registry.SnapshotStateEmpty, nil)
+	if err := directory.SetSnapshot(target, initial); err != nil {
+		t.Fatalf("SetSnapshot: %v", err)
+	}
+	if directory.Directory() != directory {
+		t.Fatal("Directory alias did not return the fake")
+	}
+	observation, err := directory.Observe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+	if err := observation.Watch().Close(); err != nil {
+		t.Fatalf("watch Close: %v", err)
+	}
+	if _, err := observation.Watch().Next(context.Background()); !errors.Is(err, registry.ErrClosed) {
+		t.Fatalf("Next after Close = %v, want closed", err)
+	}
+	if err := directory.Bind(target, initial); err != nil {
+		t.Fatalf("Bind after detached watch: %v", err)
+	}
+}
+
+func TestFakeDirectoryOperationFailureOutcomes(t *testing.T) {
+	fixture := fakeFixture(t)
+	directory := newFakeDirectory(t)
+	if err := directory.Bind(fixture.Target, fixture.Initial); err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+	if err := directory.Bind(registry.ReleaseTarget{}, fixture.Initial); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("invalid target Bind error = %v", err)
+	}
+	if err := directory.Bind(fixture.UnboundTarget, fixture.Initial); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("mismatched target Bind error = %v", err)
+	}
+	if err := directory.Bind(fixture.Target, registry.InstanceSnapshot{}); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("invalid snapshot Bind error = %v", err)
+	}
+	if _, err := directory.Snapshot(nil, fixture.Target); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("nil Snapshot context error = %v", err)
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := directory.Observe(canceled, fixture.Target); !errors.Is(err, registry.ErrCanceled) {
+		t.Fatalf("canceled Observe error = %v", err)
+	}
+	if err := directory.Terminate(fixture.Target, errors.New("plain")); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("untyped terminal error = %v, want invalid", err)
+	}
+	if err := directory.Terminate(fixture.UnboundTarget, registry.ErrStale); !errors.Is(err, registry.ErrMissing) {
+		t.Fatalf("unbound terminal error = %v, want missing", err)
+	}
+	unboundInstance := fakeInstance(t, "uid-b", false, true, true)
+	unboundSnapshot := fakeSnapshot(t, fixture.UnboundTarget, 1, registry.SnapshotStatePopulated, []registry.Instance{unboundInstance})
+	unboundChange, err := registry.NewInstanceChange(registry.InstanceChangeInput{
+		Kind:     registry.InstanceChangeInstancesChanged,
+		Revision: unboundSnapshot.Revision(),
+		Upserts:  []registry.Instance{unboundInstance},
+		Snapshot: unboundSnapshot,
+	})
+	if err != nil {
+		t.Fatalf("NewInstanceChange unbound: %v", err)
+	}
+	if err := directory.Emit(fixture.UnboundTarget, unboundChange); !errors.Is(err, registry.ErrMissing) {
+		t.Fatalf("unbound Emit error = %v, want missing", err)
+	}
+	if err := directory.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	for name, operation := range map[string]func() error{
+		"Bind": func() error { return directory.Bind(fixture.Target, fixture.Initial) },
+		"Snapshot": func() error {
+			_, err := directory.Snapshot(context.Background(), fixture.Target)
+			return err
+		},
+		"Observe": func() error {
+			_, err := directory.Observe(context.Background(), fixture.Target)
+			return err
+		},
+		"Emit":      func() error { return directory.Emit(fixture.Target, fixture.Change) },
+		"Terminate": func() error { return directory.Terminate(fixture.Target, registry.ErrStale) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := operation(); !errors.Is(err, registry.ErrClosed) {
+				t.Fatalf("operation error = %v, want closed", err)
+			}
+		})
+	}
+}
+
 func newFakeDirectory(t testing.TB) *FakeDirectory {
 	t.Helper()
 	capabilities, err := registry.NewCapabilities(registry.CapabilitySnapshot, registry.CapabilityObserve)

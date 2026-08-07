@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -588,6 +589,217 @@ func TestKubernetesDirectoryRunsProviderNeutralConformance(t *testing.T) {
 		Change:        change,
 		Terminal:      registry.NewOutcomeError(registry.OutcomeStale, registry.CauseResourceVersionExpired),
 	})
+}
+
+func TestBindingAliasesAccessorsAndImmutableLabels(t *testing.T) {
+	input := validBindingInput(t)
+	binding, err := NewBindingV1(input)
+	if err != nil {
+		t.Fatalf("NewBindingV1: %v", err)
+	}
+	if err := binding.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if binding.Version() != input.Version || binding.APIOrigin() != input.APIOrigin ||
+		binding.EndpointSliceManagedBy() != input.EndpointSliceManagedBy || binding.Bounds() != input.Bounds {
+		t.Fatal("binding accessors changed exact configuration")
+	}
+	serviceLabels := binding.ServiceOwnerLabels()
+	sliceLabels := binding.EndpointSliceLabels()
+	serviceLabels["owner.example/name"] = "changed"
+	sliceLabels["owner.example/name"] = "changed"
+	if binding.ServiceOwnerLabels()["owner.example/name"] != "agent-a" ||
+		binding.EndpointSliceLabels()["owner.example/name"] != "agent-a" {
+		t.Fatal("binding label accessors exposed retained maps")
+	}
+	if got, err := TargetKeyV1(input.Target); err != nil || got != binding.TargetKey() {
+		t.Fatalf("TargetKeyV1 = %q/%v, want %q", got, err, binding.TargetKey())
+	}
+	if _, err := TargetKeyV1(registry.ReleaseTarget{}); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("invalid TargetKeyV1 error = %v, want invalid", err)
+	}
+}
+
+func TestBindingValidationRejectsMalformedProviderConfiguration(t *testing.T) {
+	for name, mutate := range map[string]func(*BindingInput){
+		"version":      func(input *BindingInput) { input.Version = "v2" },
+		"api origin":   func(input *BindingInput) { input.APIOrigin = "https://KUBE.example" },
+		"namespace":    func(input *BindingInput) { input.Namespace = "Bad.Namespace" },
+		"service name": func(input *BindingInput) { input.ServiceName = "1service" },
+		"service uid":  func(input *BindingInput) { input.ServiceUID = " bad" },
+		"managed by":   func(input *BindingInput) { input.EndpointSliceManagedBy = "bad,value" },
+		"address type": func(input *BindingInput) { input.AddressType = "FQDN" },
+		"port name":    func(input *BindingInput) { input.PortName = "Bad" },
+		"protocol":     func(input *BindingInput) { input.Protocol = "UDP" },
+		"empty labels": func(input *BindingInput) { input.ServiceOwnerLabels = nil },
+		"reserved label": func(input *BindingInput) {
+			input.EndpointSliceLabels = map[string]string{LabelManagedBy: "other"}
+		},
+		"release id label": func(input *BindingInput) {
+			input.EndpointSliceLabels = map[string]string{"owner.example/name": input.Target.ReleaseID()}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			input := validBindingInput(t)
+			mutate(&input)
+			if _, err := NewBinding(input); !errors.Is(err, registry.ErrInvalid) {
+				t.Fatalf("NewBinding error = %v, want invalid", err)
+			}
+		})
+	}
+	for name, bounds := range map[string]ResourceBounds{
+		"list bytes":     {WatchEnvelopeBytes: 1, EndpointSliceCount: 1, EndpointCount: 1, PendingChanges: 1},
+		"watch bytes":    {ListResponseBytes: 1, EndpointSliceCount: 1, EndpointCount: 1, PendingChanges: 1},
+		"slice count":    {ListResponseBytes: 1, WatchEnvelopeBytes: 1, EndpointCount: 1, PendingChanges: 1},
+		"endpoint count": {ListResponseBytes: 1, WatchEnvelopeBytes: 1, EndpointSliceCount: 1, PendingChanges: 1},
+		"pending":        {ListResponseBytes: 1, WatchEnvelopeBytes: 1, EndpointSliceCount: 1, EndpointCount: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := bounds.Validate(); !errors.Is(err, registry.ErrInvalid) {
+				t.Fatalf("bounds error = %v, want invalid", err)
+			}
+		})
+	}
+}
+
+func TestKubernetesRequestCopiesHeaders(t *testing.T) {
+	headers := map[string][]string{"Accept": {"application/json", "application/problem+json"}}
+	request := newKubernetesRequest("GET", "https://kube.example/api", headers)
+	headers["Accept"][0] = "changed"
+	returned := request.Headers()
+	returned["Accept"][0] = "changed-again"
+	if request.Method() != "GET" || request.URL() != "https://kube.example/api" {
+		t.Fatal("request accessors changed method or URL")
+	}
+	if got := request.Header("accept"); !reflect.DeepEqual(got, []string{"application/json", "application/problem+json"}) {
+		t.Fatalf("Header = %v", got)
+	}
+	if got := request.Header("missing"); got != nil {
+		t.Fatalf("missing Header = %v, want nil", got)
+	}
+	if cloneHeaders(nil) != nil {
+		t.Fatal("cloneHeaders(nil) returned a non-nil map")
+	}
+}
+
+func TestDirectoryConstructionAliasesAndValidation(t *testing.T) {
+	binding := mustTestBinding(t)
+	executor := newFixtureExecutor()
+	directory, err := NewEndpointSliceDirectory(DirectoryConfig{Bindings: []Binding{binding}, Executor: executor})
+	if err != nil {
+		t.Fatalf("NewEndpointSliceDirectory: %v", err)
+	}
+	if !directory.Capabilities().Supports(registry.CapabilitySnapshot) || !directory.Capabilities().Supports(registry.CapabilityObserve) {
+		t.Fatal("directory did not advertise snapshot and observe")
+	}
+	if err := directory.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := NewDirectory(DirectoryConfig{}); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("nil executor error = %v, want invalid", err)
+	}
+	var typedNil *fixtureExecutor
+	if _, err := NewDirectory(DirectoryConfig{Executor: typedNil}); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("typed nil executor error = %v, want invalid", err)
+	}
+	if _, err := NewDirectory(DirectoryConfig{Bindings: []Binding{binding, binding}, Executor: executor}); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("duplicate binding error = %v, want invalid", err)
+	}
+	if _, err := NewDirectory(DirectoryConfig{Bindings: []Binding{{}}, Executor: executor}); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("invalid binding error = %v, want invalid", err)
+	}
+	if _, err := NewDirectory(DirectoryConfig{Executor: invalidGuaranteeExecutor{}}); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("invalid guarantees error = %v, want invalid", err)
+	}
+}
+
+func TestDirectoryListAndWatchFailureClassification(t *testing.T) {
+	binding := mustTestBinding(t)
+	for name, testCase := range map[string]struct {
+		response fixtureResponse
+		want     error
+	}{
+		"transport":      {response: fixtureResponse{err: errors.New("network detail")}, want: registry.ErrUnavailable},
+		"unauthorized":   {response: fixtureResponse{status: 401, body: io.NopCloser(strings.NewReader("{}"))}, want: registry.ErrUnauthorized},
+		"rate limited":   {response: fixtureResponse{status: 429, body: io.NopCloser(strings.NewReader("{}"))}, want: registry.ErrUnavailable},
+		"invalid status": {response: fixtureResponse{status: 404, body: io.NopCloser(strings.NewReader("{}"))}, want: registry.ErrInvalid},
+		"nil body":       {response: fixtureResponse{status: 200}, want: registry.ErrInvalid},
+	} {
+		t.Run("list "+name, func(t *testing.T) {
+			directory := mustTestDirectory(t, newFixtureExecutor(testCase.response), binding)
+			if _, err := directory.executeList(context.Background(), binding, watchService); !errors.Is(err, testCase.want) {
+				t.Fatalf("executeList error = %v, want %v", err, testCase.want)
+			}
+		})
+		t.Run("watch "+name, func(t *testing.T) {
+			directory := mustTestDirectory(t, newFixtureExecutor(testCase.response), binding)
+			if _, err := directory.openWatch(context.Background(), binding, watchService, "rv-1"); !errors.Is(err, testCase.want) {
+				t.Fatalf("openWatch error = %v, want %v", err, testCase.want)
+			}
+		})
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	directory := mustTestDirectory(t, newFixtureExecutor(), binding)
+	if _, err := directory.executeList(canceled, binding, watchService); !errors.Is(err, registry.ErrCanceled) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled list error = %v", err)
+	}
+	if _, err := directory.openWatch(canceled, binding, watchService, "rv-1"); !errors.Is(err, registry.ErrCanceled) {
+		t.Fatalf("canceled watch error = %v", err)
+	}
+	if _, err := directory.openWatch(context.Background(), binding, watchService, " bad"); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("invalid resourceVersion error = %v", err)
+	}
+	if _, err := directory.Snapshot(nil, binding.Target()); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("nil Snapshot context error = %v", err)
+	}
+	if _, err := directory.Observe(nil, binding.Target()); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("nil Observe context error = %v", err)
+	}
+}
+
+func TestWireDecodersRejectMalformedAndDecodeDeletes(t *testing.T) {
+	binding := mustTestBinding(t)
+	deleted := endpointSliceObject(binding, "slice-uid-a", "slice-rv-2", nil)
+	payload, err := json.Marshal(deleted)
+	if err != nil {
+		t.Fatalf("Marshal delete: %v", err)
+	}
+	uid, resourceVersion, err := decodeEndpointSliceDelete(payload, binding, true)
+	if err != nil || uid != "slice-uid-a" || resourceVersion != "slice-rv-2" {
+		t.Fatalf("decodeEndpointSliceDelete = %q/%q/%v", uid, resourceVersion, err)
+	}
+	for name, payload := range map[string][]byte{
+		"invalid json":    []byte("{"),
+		"missing object":  []byte(`{"type":"ADDED"}`),
+		"unknown type":    []byte(`{"type":"BOOKMARK","object":{}}`),
+		"multiple values": []byte(`{"type":"ADDED","object":{}} {}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := decodeWatchEvent(payload); err == nil {
+				t.Fatal("decodeWatchEvent accepted malformed payload")
+			}
+		})
+	}
+	if _, _, err := decodeEndpointSliceDelete([]byte("{"), binding, true); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("malformed delete error = %v, want invalid", err)
+	}
+	wrong := endpointSliceObject(binding, "slice-uid-a", "slice-rv-2", nil)
+	wrong["metadata"].(map[string]any)["namespace"] = "other"
+	wrongPayload, _ := json.Marshal(wrong)
+	if _, _, err := decodeEndpointSliceDelete(wrongPayload, binding, true); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("wrong delete identity error = %v, want invalid", err)
+	}
+}
+
+type invalidGuaranteeExecutor struct{}
+
+func (invalidGuaranteeExecutor) Guarantees() KubernetesRequestExecutorGuarantees {
+	return KubernetesRequestExecutorGuarantees{}
+}
+
+func (invalidGuaranteeExecutor) Execute(context.Context, KubernetesRequest) (KubernetesResponse, error) {
+	return KubernetesResponse{}, errors.New("must not execute")
 }
 
 type fixtureResponse struct {
