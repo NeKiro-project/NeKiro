@@ -199,3 +199,120 @@ func TestInstanceRevisionSnapshotAndChangeAccessors(t *testing.T) {
 		t.Fatal("change accessors changed the transition")
 	}
 }
+
+func TestInstanceValidateRejectsCorruptedRetainedState(t *testing.T) {
+	first := mustEndpoint(t, NetworkEndpointInput{AddressType: AddressTypeIPv4, Address: "10.0.0.1", PortName: "a2a", Port: 8080, Protocol: TransportProtocolTCP})
+	second := mustEndpoint(t, NetworkEndpointInput{AddressType: AddressTypeIPv4, Address: "10.0.0.2", PortName: "a2a", Port: 8080, Protocol: TransportProtocolTCP})
+	valid := mustInstance(t, "uid-a", true, true, false)
+	badZone := " bad"
+	for name, mutate := range map[string]func(*Instance){
+		"id":        func(instance *Instance) { instance.id = "" },
+		"endpoints": func(instance *Instance) { instance.endpoints = nil },
+		"invalid endpoint": func(instance *Instance) {
+			instance.endpoints = []NetworkEndpoint{{}}
+		},
+		"unsorted endpoints": func(instance *Instance) {
+			instance.endpoints = []NetworkEndpoint{second, first}
+		},
+		"duplicate endpoints": func(instance *Instance) {
+			instance.endpoints = []NetworkEndpoint{first, first}
+		},
+		"derived state": func(instance *Instance) { instance.state = LifecycleStateDraining },
+		"zone":          func(instance *Instance) { instance.zone = &badZone },
+		"metadata key":  func(instance *Instance) { instance.metadata = map[string]string{" bad": "value"} },
+		"metadata value": func(instance *Instance) {
+			instance.metadata = map[string]string{"key": " bad"}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			corrupted := cloneInstances([]Instance{valid})[0]
+			mutate(&corrupted)
+			if err := corrupted.Validate(); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("Validate error = %v, want invalid", err)
+			}
+		})
+	}
+	if _, err := NewInstance(InstanceInput{ID: "uid-a", Endpoints: []NetworkEndpoint{{}}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("NewInstance invalid endpoint error = %v", err)
+	}
+	if _, err := NewInstance(InstanceInput{ID: "uid-a", Endpoints: []NetworkEndpoint{first}, Ready: true, Serving: true, State: LifecycleStateDraining}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("NewInstance mismatched state error = %v", err)
+	}
+}
+
+func TestSnapshotValidateRejectsCorruptedRetainedState(t *testing.T) {
+	target := mustTarget(t, validTargetInput())
+	revision := mustRevision(t, []string{"service-rv", "slice-rv"}, 0)
+	instanceA := mustInstance(t, "uid-a", true, true, false)
+	instanceB := mustInstance(t, "uid-b", true, true, false)
+	valid := mustSnapshot(t, target, revision, SnapshotStatePopulated, []Instance{instanceA})
+	for name, mutate := range map[string]func(*InstanceSnapshot){
+		"target":   func(snapshot *InstanceSnapshot) { snapshot.target = ReleaseTarget{} },
+		"revision": func(snapshot *InstanceSnapshot) { snapshot.revision = Revision{} },
+		"invalid instance": func(snapshot *InstanceSnapshot) {
+			snapshot.instances = []Instance{{}}
+		},
+		"unsorted instances": func(snapshot *InstanceSnapshot) {
+			snapshot.instances = []Instance{instanceB, instanceA}
+		},
+		"duplicate instances": func(snapshot *InstanceSnapshot) {
+			snapshot.instances = []Instance{instanceA, instanceA}
+		},
+		"unknown state": func(snapshot *InstanceSnapshot) { snapshot.state = "unknown" },
+		"missing with instances": func(snapshot *InstanceSnapshot) {
+			snapshot.state = SnapshotStateMissing
+		},
+		"populated without instances": func(snapshot *InstanceSnapshot) {
+			snapshot.instances = nil
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			corrupted := cloneSnapshot(valid)
+			mutate(&corrupted)
+			if err := corrupted.Validate(); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("Validate error = %v, want invalid", err)
+			}
+		})
+	}
+	if _, err := NewInstanceSnapshot(InstanceSnapshotInput{Target: target, Revision: revision, State: SnapshotStatePopulated, Instances: []Instance{{}}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("NewInstanceSnapshot invalid instance error = %v", err)
+	}
+}
+
+func TestChangeValidateRejectsCorruptedRetainedState(t *testing.T) {
+	target := mustTarget(t, validTargetInput())
+	instance := mustInstance(t, "uid-a", true, true, false)
+	revision := mustRevision(t, []string{"service-rv", "slice-rv"}, 1)
+	snapshot := mustSnapshot(t, target, revision, SnapshotStatePopulated, []Instance{instance})
+	valid, err := NewInstanceChange(InstanceChangeInput{Kind: InstanceChangeInstancesChanged, Revision: revision, Upserts: []Instance{instance}, Snapshot: snapshot})
+	if err != nil {
+		t.Fatalf("NewInstanceChange: %v", err)
+	}
+	for name, mutate := range map[string]func(*InstanceChange){
+		"revision":    func(change *InstanceChange) { change.revision = Revision{} },
+		"local order": func(change *InstanceChange) { change.revision.localOrder = 0 },
+		"snapshot":    func(change *InstanceChange) { change.snapshot = InstanceSnapshot{} },
+		"revision mismatch": func(change *InstanceChange) {
+			change.snapshot.revision.localOrder = 2
+		},
+		"invalid upsert": func(change *InstanceChange) { change.upserts = []Instance{{}} },
+		"duplicate upsert": func(change *InstanceChange) {
+			change.upserts = []Instance{instance, instance}
+		},
+		"invalid deletion": func(change *InstanceChange) { change.deletedInstanceIDs = []string{" bad"} },
+		"duplicate deletion": func(change *InstanceChange) {
+			change.deletedInstanceIDs = []string{"uid-z", "uid-z"}
+		},
+		"empty delta":    func(change *InstanceChange) { change.upserts = nil },
+		"previous state": func(change *InstanceChange) { change.previousState = SnapshotStateEmpty },
+		"unknown kind":   func(change *InstanceChange) { change.kind = "unknown" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			corrupted := cloneChange(valid)
+			mutate(&corrupted)
+			if err := corrupted.Validate(); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("Validate error = %v, want invalid", err)
+			}
+		})
+	}
+}

@@ -792,6 +792,104 @@ func TestWireDecodersRejectMalformedAndDecodeDeletes(t *testing.T) {
 	}
 }
 
+func TestBindingValidateRejectsCorruptedRetainedState(t *testing.T) {
+	valid := mustTestBinding(t)
+	for name, mutate := range map[string]func(*Binding){
+		"version":        func(binding *Binding) { binding.version = "v2" },
+		"target":         func(binding *Binding) { binding.target = registry.ReleaseTarget{} },
+		"origin":         func(binding *Binding) { binding.apiOrigin = "http://" },
+		"bounds":         func(binding *Binding) { binding.bounds.PendingChanges = 0 },
+		"service labels": func(binding *Binding) { binding.serviceOwnerLabels = nil },
+		"slice labels":   func(binding *Binding) { binding.endpointSliceLabels = nil },
+		"reserved service label": func(binding *Binding) {
+			binding.serviceOwnerLabels = map[string]string{LabelManagedBy: "owner"}
+		},
+		"reserved slice label": func(binding *Binding) {
+			binding.endpointSliceLabels = map[string]string{LabelManagedBy: "owner"}
+		},
+		"release service label": func(binding *Binding) {
+			binding.serviceOwnerLabels = map[string]string{"owner.example/name": binding.target.ReleaseID()}
+		},
+		"release slice label": func(binding *Binding) {
+			binding.endpointSliceLabels = map[string]string{"owner.example/name": binding.target.ReleaseID()}
+		},
+		"target key": func(binding *Binding) { binding.targetKey = "changed" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			corrupted := valid
+			corrupted.serviceOwnerLabels = cloneStringMap(valid.serviceOwnerLabels)
+			corrupted.endpointSliceLabels = cloneStringMap(valid.endpointSliceLabels)
+			mutate(&corrupted)
+			if err := corrupted.Validate(); !errors.Is(err, registry.ErrInvalid) {
+				t.Fatalf("Validate error = %v, want invalid", err)
+			}
+		})
+	}
+}
+
+func TestProviderValueValidatorsCoverCanonicalBoundaries(t *testing.T) {
+	for value, want := range map[string]bool{
+		"https://kube.example":       true,
+		"https://kube.example:8443":  true,
+		"https://[2001:db8::1]":      true,
+		"":                           false,
+		"ftp://kube.example":         false,
+		"https://KUBE.example":       false,
+		"https://kube.example/":      false,
+		"https://kube.example:":      false,
+		"https://kube.example:443":   false,
+		"https://kube.example:65536": false,
+		"https://bad_host.example":   false,
+		"https://2001:0db8::1":       false,
+	} {
+		if got := validAPIOrigin(value); got != want {
+			t.Errorf("validAPIOrigin(%q) = %v, want %v", value, got, want)
+		}
+	}
+	for value, want := range map[string]bool{
+		"owner.example/name": true,
+		"name":               true,
+		"":                   false,
+		"a/b/c":              false,
+		"bad_host/name":      false,
+		"owner.example/":     false,
+	} {
+		if got := validLabelKey(value); got != want {
+			t.Errorf("validLabelKey(%q) = %v, want %v", value, got, want)
+		}
+	}
+}
+
+func TestObserveRejectsWatchOpenFailures(t *testing.T) {
+	binding := mustTestBinding(t)
+	service := serviceObject(binding, "service-rv-item")
+	listResponses := func() []fixtureResponse {
+		return []fixtureResponse{
+			{status: 200, body: jsonReadCloser(map[string]any{"metadata": map[string]any{"resourceVersion": "service-rv"}, "items": []any{service}})},
+			{status: 200, body: jsonReadCloser(map[string]any{"metadata": map[string]any{"resourceVersion": "slice-rv"}, "items": []any{}})},
+		}
+	}
+	t.Run("first watch", func(t *testing.T) {
+		responses := append(listResponses(), fixtureResponse{status: 503, body: io.NopCloser(strings.NewReader("{}"))})
+		directory := mustTestDirectory(t, newFixtureExecutor(responses...), binding)
+		if _, err := directory.Observe(context.Background(), binding.Target()); !errors.Is(err, registry.ErrUnavailable) {
+			t.Fatalf("Observe error = %v, want unavailable", err)
+		}
+	})
+	t.Run("second watch", func(t *testing.T) {
+		serviceReader, serviceWriter := io.Pipe()
+		t.Cleanup(func() { _ = serviceWriter.Close() })
+		responses := append(listResponses(),
+			fixtureResponse{status: 200, body: serviceReader},
+			fixtureResponse{status: 410, body: io.NopCloser(strings.NewReader("{}"))},
+		)
+		directory := mustTestDirectory(t, newFixtureExecutor(responses...), binding)
+		if _, err := directory.Observe(context.Background(), binding.Target()); !errors.Is(err, registry.ErrStale) {
+			t.Fatalf("Observe error = %v, want stale", err)
+		}
+	})
+}
+
 type invalidGuaranteeExecutor struct{}
 
 func (invalidGuaranteeExecutor) Guarantees() KubernetesRequestExecutorGuarantees {
