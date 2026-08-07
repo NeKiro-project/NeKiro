@@ -69,6 +69,19 @@ func TestRouteSpecPreservesExplicitRouterOwnedDiscovery(t *testing.T) {
 	}
 }
 
+func TestBackendRefRejectsURIForms(t *testing.T) {
+	for _, value := range []string{"https:opaque", "urn:gateway:route", "https://gateway.example/route"} {
+		t.Run(value, func(t *testing.T) {
+			if _, err := NewBackendRef(value); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("NewBackendRef(%q) error = %v, want invalid", value, err)
+			}
+		})
+	}
+	if _, err := NewBackendRef("backend/a"); err != nil {
+		t.Fatalf("NewBackendRef relative opaque value: %v", err)
+	}
+}
+
 func TestRouteStatusRequiresDistinctObservedRevisionForStale(t *testing.T) {
 	key := mustRouteKey(t, "route-a")
 	desired := mustRouteRevision(t, "desired-1")

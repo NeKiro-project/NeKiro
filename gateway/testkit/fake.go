@@ -25,6 +25,9 @@ type FakeProvider struct {
 	caps   gateway.Capabilities
 	closed bool
 	routes map[gateway.RouteKey]fakeRoute
+	// provenance retains every accepted desired revision for each route key so
+	// a later revision cannot make an earlier revision reusable with new facts.
+	provenance map[gateway.RouteKey]map[gateway.RouteRevision]gateway.RouteSpec
 }
 
 type fakeRoute struct {
@@ -44,9 +47,10 @@ func NewFakeProvider(config FakeConfig) (*FakeProvider, error) {
 		return nil, err
 	}
 	return &FakeProvider{
-		name:   config.Name,
-		caps:   caps,
-		routes: make(map[gateway.RouteKey]fakeRoute),
+		name:       config.Name,
+		caps:       caps,
+		routes:     make(map[gateway.RouteKey]fakeRoute),
+		provenance: make(map[gateway.RouteKey]map[gateway.RouteRevision]gateway.RouteSpec),
 	}, nil
 }
 
@@ -88,6 +92,9 @@ func (f *FakeProvider) Reconcile(ctx context.Context, spec gateway.RouteSpec) (g
 	if missing := f.caps.Missing(spec.RequiredCapabilities()); len(missing) != 0 {
 		return gateway.ReconcileResult{}, gateway.NewOutcomeError(gateway.OutcomeUnsupported, gateway.CauseRequiredCapability)
 	}
+	if prior, found := f.provenance[spec.Key()][spec.Revision()]; found && !prior.Equal(spec) {
+		return gateway.ReconcileResult{}, gateway.NewOutcomeError(gateway.OutcomeInvalid, gateway.CauseRevisionReused)
+	}
 
 	if current, found := f.routes[spec.Key()]; found {
 		if current.spec.Revision().Equal(spec.Revision()) && !current.spec.Equal(spec) {
@@ -110,6 +117,10 @@ func (f *FakeProvider) Reconcile(ctx context.Context, spec gateway.RouteSpec) (g
 	if err != nil {
 		return gateway.ReconcileResult{}, err
 	}
+	if f.provenance[spec.Key()] == nil {
+		f.provenance[spec.Key()] = make(map[gateway.RouteRevision]gateway.RouteSpec)
+	}
+	f.provenance[spec.Key()][spec.Revision()] = spec
 	f.routes[spec.Key()] = fakeRoute{spec: spec, status: status}
 	return gateway.NewReconcileResult(status)
 }

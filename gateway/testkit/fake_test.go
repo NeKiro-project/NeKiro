@@ -155,3 +155,34 @@ func TestFakeProviderRejectsRevisionReuseAndHonorsContextAndClose(t *testing.T) 
 		t.Fatalf("status after close = %v, want closed", err)
 	}
 }
+
+func TestFakeProviderRetainsRevisionProvenanceAcrossUpdates(t *testing.T) {
+	provider, err := NewFakeProvider(FakeConfig{Name: mustProviderName(t, "fake")})
+	if err != nil {
+		t.Fatalf("NewFakeProvider: %v", err)
+	}
+	first := mustSpec(t, "rev-1", strings.Repeat("a", 64))
+	if _, err := provider.Reconcile(context.Background(), first); err != nil {
+		t.Fatalf("first reconcile: %v", err)
+	}
+	second := mustSpec(t, "rev-2", strings.Repeat("b", 64))
+	if _, err := provider.Reconcile(context.Background(), second); err != nil {
+		t.Fatalf("second reconcile: %v", err)
+	}
+	changedHistorical := mustSpec(t, "rev-1", strings.Repeat("c", 64))
+	if _, err := provider.Reconcile(context.Background(), changedHistorical); !errors.Is(err, gateway.ErrInvalid) {
+		t.Fatalf("historical revision reuse error = %v, want invalid", err)
+	} else {
+		var outcome *gateway.OutcomeError
+		if !errors.As(err, &outcome) || outcome.Cause() != gateway.CauseRevisionReused {
+			t.Fatalf("historical revision reuse cause = %v, want revision_reused", err)
+		}
+	}
+	status, err := provider.Status(context.Background(), first.Key())
+	if err != nil {
+		t.Fatalf("status after rejected historical reuse: %v", err)
+	}
+	if !status.DesiredRevision().Equal(second.Revision()) {
+		t.Fatalf("desired revision after rejected historical reuse = %q, want %q", status.DesiredRevision(), second.Revision())
+	}
+}

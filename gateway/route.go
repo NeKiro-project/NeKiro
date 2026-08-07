@@ -114,7 +114,12 @@ func NewBackendRef(value string) (BackendRef, error) {
 
 // Validate verifies that a backend reference is safe for this contract.
 func (r BackendRef) Validate() error {
-	if !backendRefRE.MatchString(string(r)) || strings.Contains(string(r), "://") {
+	value := string(r)
+	if !backendRefRE.MatchString(value) || strings.Contains(value, "://") {
+		return newInvalidError("backend_ref")
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme != "" || parsed.Opaque != "" || parsed.Host != "" || parsed.User != nil {
 		return newInvalidError("backend_ref")
 	}
 	return nil

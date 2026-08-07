@@ -17,12 +17,15 @@ type ProviderConformanceDriver interface {
 	SetObservedStatus(gateway.RouteStatus) error
 }
 
-// ProviderConformanceFixture contains the exact desired route and the two
-// provider observations needed to exercise asynchronous lifecycle behavior.
-// Observed must be a programmed status for the route's desired revision, and
-// Deleted must be the same route/revision with state deleted.
+// ProviderConformanceFixture contains the exact desired route, one route with
+// a capability the provider does not support, and the two provider observations
+// needed to exercise asynchronous lifecycle behavior. Unsupported must use a
+// distinct desired revision and require at least one unadvertised capability.
+// Observed must be a programmed status for Spec's desired revision, and Deleted
+// must be the same route/revision with state deleted.
 type ProviderConformanceFixture struct {
 	Spec          gateway.RouteSpec
+	Unsupported   gateway.RouteSpec
 	StaleRevision gateway.RouteRevision
 	UnknownKey    gateway.RouteKey
 	Observed      gateway.RouteStatus
@@ -45,6 +48,12 @@ func RunProviderConformance(t testing.TB, driver ProviderConformanceDriver, fixt
 	}
 	if err := fixture.Spec.Validate(); err != nil {
 		t.Fatalf("fixture spec: %v", err)
+	}
+	if err := fixture.Unsupported.Validate(); err != nil {
+		t.Fatalf("fixture unsupported spec: %v", err)
+	}
+	if fixture.Unsupported.Revision().Equal(fixture.Spec.Revision()) {
+		t.Fatal("fixture unsupported spec must use a distinct desired revision")
 	}
 	if err := fixture.StaleRevision.Validate(); err != nil {
 		t.Fatalf("fixture stale revision: %v", err)
@@ -85,15 +94,42 @@ func RunProviderConformance(t testing.TB, driver ProviderConformanceDriver, fixt
 	if missing := capabilities.Missing(fixture.Spec.RequiredCapabilities()); len(missing) != 0 {
 		t.Fatalf("provider is missing fixture requirements: %v", missing)
 	}
+	if missing := capabilities.Missing(fixture.Unsupported.RequiredCapabilities()); len(missing) == 0 {
+		t.Fatal("provider supports every fixture unsupported requirement")
+	}
+
+	drainRequest, err := gateway.NewDrainRequest(fixture.Spec.Revision())
+	if err != nil {
+		t.Fatalf("drain request: %v", err)
+	}
+	deleteRequest, err := gateway.NewDeleteRequest(fixture.Spec.Revision())
+	if err != nil {
+		t.Fatalf("delete request: %v", err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
+	if _, err := provider.Reconcile(ctx, fixture.Spec); !errors.Is(err, gateway.ErrCanceled) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled reconcile error = %v, want canceled/context.Canceled", err)
+	}
 	if _, err := provider.Status(ctx, fixture.Spec.Key()); !errors.Is(err, gateway.ErrCanceled) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled status error = %v, want canceled/context.Canceled", err)
+	}
+	if _, err := provider.BeginDrain(ctx, fixture.Spec.Key(), drainRequest); !errors.Is(err, gateway.ErrCanceled) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled drain error = %v, want canceled/context.Canceled", err)
+	}
+	if _, err := provider.Delete(ctx, fixture.Spec.Key(), deleteRequest); !errors.Is(err, gateway.ErrCanceled) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled delete error = %v, want canceled/context.Canceled", err)
 	}
 
 	if _, err := provider.Status(context.Background(), fixture.UnknownKey); !errors.Is(err, gateway.ErrNotFound) {
 		t.Fatalf("unknown status error = %v, want not_found", err)
+	}
+	if _, err := provider.Reconcile(context.Background(), fixture.Unsupported); !errors.Is(err, gateway.ErrUnsupported) {
+		t.Fatalf("unsupported reconcile error = %v, want unsupported", err)
+	}
+	if _, err := provider.Status(context.Background(), fixture.Unsupported.Key()); !errors.Is(err, gateway.ErrNotFound) {
+		t.Fatalf("status after unsupported reconcile = %v, want not_found", err)
 	}
 
 	first, err := provider.Reconcile(context.Background(), fixture.Spec)
@@ -127,10 +163,6 @@ func RunProviderConformance(t testing.TB, driver ProviderConformanceDriver, fixt
 		t.Fatalf("stale delete error = %v, want stale", err)
 	}
 
-	drainRequest, err := gateway.NewDrainRequest(fixture.Spec.Revision())
-	if err != nil {
-		t.Fatalf("drain request: %v", err)
-	}
 	if capabilities.Supports(gateway.CapabilityDrain) {
 		drained, drainErr := provider.BeginDrain(context.Background(), fixture.Spec.Key(), drainRequest)
 		if drainErr != nil {
@@ -146,10 +178,6 @@ func RunProviderConformance(t testing.TB, driver ProviderConformanceDriver, fixt
 		}
 	}
 
-	deleteRequest, err := gateway.NewDeleteRequest(fixture.Spec.Revision())
-	if err != nil {
-		t.Fatalf("delete request: %v", err)
-	}
 	deleting, err := provider.Delete(context.Background(), fixture.Spec.Key(), deleteRequest)
 	if err != nil {
 		t.Fatalf("delete: %v", err)
@@ -178,6 +206,15 @@ func RunProviderConformance(t testing.TB, driver ProviderConformanceDriver, fixt
 	}
 	if _, err := provider.Status(context.Background(), fixture.Spec.Key()); !errors.Is(err, gateway.ErrClosed) {
 		t.Fatalf("status after close = %v, want closed", err)
+	}
+	if _, err := provider.Reconcile(context.Background(), fixture.Spec); !errors.Is(err, gateway.ErrClosed) {
+		t.Fatalf("reconcile after close = %v, want closed", err)
+	}
+	if _, err := provider.BeginDrain(context.Background(), fixture.Spec.Key(), drainRequest); !errors.Is(err, gateway.ErrClosed) {
+		t.Fatalf("drain after close = %v, want closed", err)
+	}
+	if _, err := provider.Delete(context.Background(), fixture.Spec.Key(), deleteRequest); !errors.Is(err, gateway.ErrClosed) {
+		t.Fatalf("delete after close = %v, want closed", err)
 	}
 }
 

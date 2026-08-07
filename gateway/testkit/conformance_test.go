@@ -15,6 +15,7 @@ func TestFakeProviderSatisfiesProviderConformance(t *testing.T) {
 	spec := mustSpec(t, "rev-1", strings.Repeat("a", 64))
 	fixture := ProviderConformanceFixture{
 		Spec:          spec,
+		Unsupported:   mustSpec(t, "rev-unsupported", strings.Repeat("b", 64), gateway.CapabilityForwarding),
 		StaleRevision: mustRevision(t, "rev-stale"),
 		UnknownKey:    mustKey(t, "unknown-route"),
 		Observed:      mustStatus(t, spec, gateway.RouteStateProgrammed, "provider-rev-1"),
@@ -31,6 +32,7 @@ func TestFakeProviderConformanceReportsUnsupportedOptionalDrain(t *testing.T) {
 	spec := mustSpec(t, "rev-1", strings.Repeat("a", 64))
 	fixture := ProviderConformanceFixture{
 		Spec:          spec,
+		Unsupported:   mustSpec(t, "rev-unsupported", strings.Repeat("b", 64), gateway.CapabilityForwarding),
 		StaleRevision: mustRevision(t, "rev-stale"),
 		UnknownKey:    mustKey(t, "unknown-route"),
 		Observed:      mustStatus(t, spec, gateway.RouteStateProgrammed, "provider-rev-1"),
