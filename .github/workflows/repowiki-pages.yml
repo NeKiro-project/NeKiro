@@ -65,13 +65,11 @@ jobs:
           test -s .mkdocs-check/zh/index.html
 
   build:
-    if: github.event_name != 'pull_request'
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
-      pages: write
     steps:
       - name: Check out repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -91,13 +89,11 @@ jobs:
       - name: Generate RepoWiki source
         run: python scripts/build_repowiki.py --output .repowiki-site
 
-      - name: Configure Pages
-        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
-
       - name: Build MkDocs site
         run: mkdocs build --strict --verbose --site-dir ./site -f mkdocs.yml
 
       - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
         with:
           path: ./site

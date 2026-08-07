@@ -6,12 +6,14 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/NeKiro-project/nekiro-a2a-transport-go v0.1.1
 	github.com/a2aproject/a2a-go v0.3.15
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/getkin/kin-openapi v0.142.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jackc/tern/v2 v2.4.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	golang.org/x/mod v0.34.0
+	golang.org/x/sys v0.43.0
 )
 
 require (
@@ -34,7 +36,6 @@ require (
 	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250715232539-7130f93afb79 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250715232539-7130f93afb79 // indirect
