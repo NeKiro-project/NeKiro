@@ -39,12 +39,25 @@ func TestRouteSpecPreservesExactFactsAndCopiesRequirements(t *testing.T) {
 
 func TestRouteSpecRejectsNoncanonicalOrMismatchedEndpointFacts(t *testing.T) {
 	cases := map[string]func(*RouteSpecInput){
+		"missing key":         func(input *RouteSpecInput) { input.Key = RouteKey{} },
+		"missing revision":    func(input *RouteSpecInput) { input.Revision = RouteRevision{} },
+		"invalid release":     func(input *RouteSpecInput) { input.ReleaseID = "release/a" },
+		"invalid digest":      func(input *RouteSpecInput) { input.CardDigest = "abc" },
+		"invalid agent id":    func(input *RouteSpecInput) { input.AgentID = "agent/a" },
+		"invalid version":     func(input *RouteSpecInput) { input.AgentVersion = "v1" },
 		"mismatched audience": func(input *RouteSpecInput) { input.Audience = "https://other.example" },
 		"uppercase origin":    func(input *RouteSpecInput) { input.EndpointOrigin = "https://AGENT.example" },
 		"default origin port": func(input *RouteSpecInput) { input.EndpointOrigin = "https://agent.example:443" },
+		"origin credentials":  func(input *RouteSpecInput) { input.EndpointOrigin = "https://user@agent.example" },
+		"origin path":         func(input *RouteSpecInput) { input.EndpointOrigin = "https://agent.example/base" },
+		"relative path":       func(input *RouteSpecInput) { input.EndpointPath = "a2a" },
+		"dot path":            func(input *RouteSpecInput) { input.EndpointPath = "/a/../a2a" },
 		"path query":          func(input *RouteSpecInput) { input.EndpointPath = "/a2a?x=1" },
 		"escaped path":        func(input *RouteSpecInput) { input.EndpointPath = "/a%32a" },
 		"oversized endpoint":  func(input *RouteSpecInput) { input.EndpointPath = "/" + strings.Repeat("a", 2048) },
+		"invalid backend":     func(input *RouteSpecInput) { input.BackendRef = BackendRef("https://backend") },
+		"unknown owner":       func(input *RouteSpecInput) { input.DiscoveryOwner = DiscoveryOwner("automatic") },
+		"invalid capability":  func(input *RouteSpecInput) { input.RequiredCapabilities = []Capability{"automatic"} },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {

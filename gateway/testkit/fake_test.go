@@ -186,3 +186,46 @@ func TestFakeProviderRetainsRevisionProvenanceAcrossUpdates(t *testing.T) {
 		t.Fatalf("desired revision after rejected historical reuse = %q, want %q", status.DesiredRevision(), second.Revision())
 	}
 }
+
+func TestFakeProviderValidatesInputsAndCopiesObservedStatus(t *testing.T) {
+	if _, err := NewFakeProvider(FakeConfig{}); !errors.Is(err, gateway.ErrInvalid) {
+		t.Fatalf("empty provider name = %v, want invalid", err)
+	}
+	provider, err := NewFake(FakeConfig{Name: mustProviderName(t, "fake")})
+	if err != nil {
+		t.Fatalf("NewFake: %v", err)
+	}
+	spec := mustSpec(t, "rev-1", strings.Repeat("a", 64))
+	if _, err := provider.Status(context.Background(), gateway.RouteKey{}); !errors.Is(err, gateway.ErrInvalid) {
+		t.Fatalf("empty status key = %v, want invalid", err)
+	}
+	request, err := gateway.NewDrainRequest(spec.Revision())
+	if err != nil {
+		t.Fatalf("drain request: %v", err)
+	}
+	if _, err := provider.BeginDrain(context.Background(), spec.Key(), request); !errors.Is(err, gateway.ErrNotFound) {
+		t.Fatalf("drain before reconcile = %v, want not found", err)
+	}
+	if _, err := provider.Reconcile(context.Background(), spec); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	observed := mustStatus(t, spec, gateway.RouteStateProgrammed, "provider-1")
+	if err := provider.SetStatus(observed); err != nil {
+		t.Fatalf("SetStatus: %v", err)
+	}
+	got, err := provider.Status(context.Background(), spec.Key())
+	if err != nil || !got.Equal(observed) {
+		t.Fatalf("observed status = %#v, %v", got, err)
+	}
+	badKey := mustKey(t, "other")
+	badStatus, err := gateway.NewRouteStatus(gateway.RouteStatusInput{Key: badKey, State: gateway.RouteStateProgrammed, DesiredRevision: spec.Revision()})
+	if err != nil {
+		t.Fatalf("bad status: %v", err)
+	}
+	if err := provider.SetObservedStatus(badStatus); !errors.Is(err, gateway.ErrNotFound) {
+		t.Fatalf("unknown observed status = %v, want not found", err)
+	}
+	if _, err := provider.Reconcile(context.Background(), spec); err != nil {
+		t.Fatalf("idempotent reconcile: %v", err)
+	}
+}
