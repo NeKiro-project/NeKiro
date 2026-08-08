@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.nekiro.dev/router-instance-directory/v1",
+  "title": "NeKiro Router Instance Directory v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "revision", "targets"],
+  "properties": {
+    "schemaVersion": { "const": "1" },
+    "revision": { "$ref": "#/$defs/identifier" },
+    "targets": {
+      "type": "array",
+      "maxItems": 1024,
+      "items": { "$ref": "#/$defs/target" }
+    }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agentId", "agentCardVersion", "releaseId", "cardDigest", "canonicalEndpoint", "audience", "instances"],
+      "properties": {
+        "agentId": { "$ref": "#/$defs/identifier" },
+        "agentCardVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "releaseId": { "$ref": "#/$defs/identifier" },
+        "cardDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "canonicalEndpoint": { "type": "string", "format": "uri", "pattern": "^https?://", "maxLength": 2048 },
+        "audience": { "type": "string", "format": "uri", "pattern": "^https?://", "maxLength": 2048 },
+        "instances": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/instance" } }
+      }
+    },
+    "instance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["instanceId", "ready", "serving", "terminating", "endpoints"],
+      "properties": {
+        "instanceId": { "$ref": "#/$defs/identifier" },
+        "ready": { "type": "boolean" },
+        "serving": { "type": "boolean" },
+        "terminating": { "type": "boolean" },
+        "endpoints": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/endpoint" } }
+      }
+    },
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["addressType", "address", "portName", "port", "protocol"],
+      "properties": {
+        "addressType": { "enum": ["IPv4", "IPv6", "DNS"] },
+        "address": { "type": "string", "minLength": 1, "maxLength": 253 },
+        "portName": { "$ref": "#/$defs/identifier" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "protocol": { "const": "TCP" }
+      }
+    }
+  }
+}

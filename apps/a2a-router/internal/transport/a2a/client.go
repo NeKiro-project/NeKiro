@@ -22,9 +22,14 @@ const (
 type Client struct {
 	transportClient    *a2atransport.Client
 	credentialIssuer   CredentialIssuer
+	targetSelector     TargetSelector
 	inputLimitBytes    int64
 	responseLimitBytes int64
 	a2aEventLimitBytes int64
+}
+
+type TargetSelector interface {
+	Select(context.Context, Target, ContextHeaders) (Target, error)
 }
 
 type CredentialIssuer interface {
@@ -40,6 +45,17 @@ type ContextHeaders struct {
 }
 
 func NewClient(httpClient *http.Client, credentialIssuer CredentialIssuer, inputLimitBytes, responseLimitBytes, a2aEventLimitBytes, sseEventLimitBytes int64) (*Client, error) {
+	return newClient(httpClient, credentialIssuer, nil, inputLimitBytes, responseLimitBytes, a2aEventLimitBytes, sseEventLimitBytes)
+}
+
+func NewClientWithTargetSelector(httpClient *http.Client, credentialIssuer CredentialIssuer, targetSelector TargetSelector, inputLimitBytes, responseLimitBytes, a2aEventLimitBytes, sseEventLimitBytes int64) (*Client, error) {
+	if targetSelector == nil {
+		return nil, errors.New("A2A target selector is required")
+	}
+	return newClient(httpClient, credentialIssuer, targetSelector, inputLimitBytes, responseLimitBytes, a2aEventLimitBytes, sseEventLimitBytes)
+}
+
+func newClient(httpClient *http.Client, credentialIssuer CredentialIssuer, targetSelector TargetSelector, inputLimitBytes, responseLimitBytes, a2aEventLimitBytes, sseEventLimitBytes int64) (*Client, error) {
 	if httpClient == nil {
 		return nil, errors.New("A2A transport HTTP client is required")
 	}
@@ -62,7 +78,24 @@ func NewClient(httpClient *http.Client, credentialIssuer CredentialIssuer, input
 	if err != nil {
 		return nil, err
 	}
-	return &Client{transportClient: transportClient, credentialIssuer: credentialIssuer, inputLimitBytes: inputLimitBytes, responseLimitBytes: responseLimitBytes, a2aEventLimitBytes: a2aEventLimitBytes}, nil
+	return &Client{transportClient: transportClient, credentialIssuer: credentialIssuer, targetSelector: targetSelector, inputLimitBytes: inputLimitBytes, responseLimitBytes: responseLimitBytes, a2aEventLimitBytes: a2aEventLimitBytes}, nil
+}
+
+func (client *Client) selectTarget(ctx context.Context, target Target, headers ContextHeaders) (Target, error) {
+	if client.targetSelector == nil {
+		return target, nil
+	}
+	selected, err := client.targetSelector.Select(ctx, target, headers)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return Target{}, err
+		}
+		return Target{}, classify(contracts.ErrorCodeDependency, errors.New("instance directory selection failed"))
+	}
+	if selected.Audience != target.Audience || selected.ReleaseID != target.ReleaseID || selected.CardDigest != target.CardDigest || selected.AgentID != target.AgentID || selected.Version != target.Version {
+		return Target{}, classify(contracts.ErrorCodeA2AProtocol, errors.New("instance selector changed authorized target identity"))
+	}
+	return selected, nil
 }
 
 func (client *Client) SendMessage(ctx context.Context, target Target, headers ContextHeaders, params *a2ago.MessageSendParams) (a2ago.SendMessageResult, error) {

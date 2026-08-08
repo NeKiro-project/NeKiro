@@ -23,6 +23,12 @@ func (client *Client) SendStreaming(ctx context.Context, dispatch contracts.Disp
 			yield(streammodel.Event{}, err)
 			return
 		}
+		contextHeaders := ContextHeaders{TraceID: dispatch.TraceID, InvocationID: dispatch.InvocationID, RootTaskID: dispatch.RootTaskID, ParentInvocationID: dispatch.ParentInvocationID, WorkspaceID: dispatch.WorkspaceID}
+		target, err = client.selectTarget(ctx, target, contextHeaders)
+		if err != nil {
+			yield(streammodel.Event{}, err)
+			return
+		}
 		if !target.Streaming {
 			yield(streammodel.Event{}, classify(contracts.ErrorCodeRouteNotFound, errors.New("resolved Agent Card does not enable streaming")))
 			return
@@ -49,7 +55,6 @@ func (client *Client) SendStreaming(ctx context.Context, dispatch contracts.Disp
 		if target.MaxOutputBytes < responseLimit {
 			responseLimit = target.MaxOutputBytes
 		}
-		contextHeaders := ContextHeaders{TraceID: dispatch.TraceID, InvocationID: dispatch.InvocationID, RootTaskID: dispatch.RootTaskID, ParentInvocationID: dispatch.ParentInvocationID, WorkspaceID: dispatch.WorkspaceID}
 		invocationContext := credentialContext(target, contextHeaders)
 		interceptors := []a2aclient.CallInterceptor{newCredentialInterceptor(client.credentialIssuer, invocationContext)}
 		callOptions := a2atransport.CallOptions{Endpoint: target.Endpoint, MaxResponseBytes: responseLimit, MaxEventBytes: eventLimit, Interceptors: interceptors}

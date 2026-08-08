@@ -16,8 +16,14 @@ import (
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/auth"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/credential"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/nested"
+	configcenter "github.com/NeKiro-project/NeKiro/config_center"
 	"github.com/NeKiro-project/NeKiro/contracts"
 	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+const (
+	InstanceRoutingDirect           = "direct"
+	InstanceRoutingConfigCenterFile = "config_center_file"
 )
 
 type Config struct {
@@ -37,6 +43,11 @@ type Config struct {
 	ResolutionDeadline             time.Duration
 	AgentDeadline                  time.Duration
 	AgentCredential                credential.Config
+	InstanceRoutingMode            string
+	ConfigCenterFileRoot           string
+	ConfigCenterMaxPayloadBytes    int64
+	InstanceDirectoryKey           configcenter.Key
+	InstancePortName               string
 }
 
 type jsonFrame struct {
@@ -46,14 +57,27 @@ type jsonFrame struct {
 }
 
 func Load() (Config, error) {
-	listen, err := requiredEnv("NEKIRO_ROUTER_LISTEN_ADDRESS")
+	return LoadFrom(os.LookupEnv)
+}
+
+// LoadFrom keeps bootstrap loading command-scoped while allowing the
+// composition root and tests to inject an explicit source.
+func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
+	if lookup == nil {
+		return Config{}, errors.New("Router configuration source is required")
+	}
+	required := func(name string) (string, error) { return requiredEnvFrom(lookup, name) }
+	requiredNumber := func(name string, minimum, maximum int64) (int64, error) {
+		return requiredInt64From(lookup, name, minimum, maximum)
+	}
+	listen, err := required("NEKIRO_ROUTER_LISTEN_ADDRESS")
 	if err != nil {
 		return Config{}, err
 	}
 	if err := validateListenAddress(listen); err != nil {
 		return Config{}, fmt.Errorf("NEKIRO_ROUTER_LISTEN_ADDRESS is invalid: %w", err)
 	}
-	principalsJSON, err := requiredEnv("NEKIRO_ROUTER_SERVICE_PRINCIPALS_JSON")
+	principalsJSON, err := required("NEKIRO_ROUTER_SERVICE_PRINCIPALS_JSON")
 	if err != nil {
 		return Config{}, err
 	}
@@ -61,7 +85,7 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("NEKIRO_ROUTER_SERVICE_PRINCIPALS_JSON is invalid: %w", err)
 	}
-	agentPrincipalsJSON, err := requiredEnv("NEKIRO_ROUTER_AGENT_PRINCIPALS_JSON")
+	agentPrincipalsJSON, err := required("NEKIRO_ROUTER_AGENT_PRINCIPALS_JSON")
 	if err != nil {
 		return Config{}, err
 	}
@@ -69,75 +93,115 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("NEKIRO_ROUTER_AGENT_PRINCIPALS_JSON is invalid: %w", err)
 	}
-	resolveURL, err := requiredEnv("NEKIRO_CONTROL_PLANE_RESOLVE_URL")
+	resolveURL, err := required("NEKIRO_CONTROL_PLANE_RESOLVE_URL")
 	if err != nil {
 		return Config{}, err
 	}
 	if err := validateResolveURL(resolveURL); err != nil {
 		return Config{}, fmt.Errorf("NEKIRO_CONTROL_PLANE_RESOLVE_URL is invalid: %w", err)
 	}
-	versionURL, err := requiredEnv("NEKIRO_CONTROL_PLANE_VERSION_URL")
+	versionURL, err := required("NEKIRO_CONTROL_PLANE_VERSION_URL")
 	if err != nil {
 		return Config{}, err
 	}
 	if err := validateControlPlaneURL(versionURL, "/internal/v3/resolve-installed-version"); err != nil {
 		return Config{}, fmt.Errorf("NEKIRO_CONTROL_PLANE_VERSION_URL is invalid: %w", err)
 	}
-	token, err := requiredEnv("NEKIRO_CONTROL_PLANE_SERVICE_TOKEN")
+	token, err := required("NEKIRO_CONTROL_PLANE_SERVICE_TOKEN")
 	if err != nil {
 		return Config{}, err
 	}
 	if err := validateVisibleASCII("NEKIRO_CONTROL_PLANE_SERVICE_TOKEN", token); err != nil {
 		return Config{}, err
 	}
-	databaseURL, err := LoadDatabaseURL()
+	databaseURL, err := LoadDatabaseURLFrom(lookup)
 	if err != nil {
 		return Config{}, err
 	}
-	requestLimit, err := requiredInt64("NEKIRO_ROUTER_INTERNAL_REQUEST_LIMIT_BYTES", contracts.RuntimeByteLimitMinimum, contracts.RuntimeByteLimitMaximum)
+	requestLimit, err := requiredNumber("NEKIRO_ROUTER_INTERNAL_REQUEST_LIMIT_BYTES", contracts.RuntimeByteLimitMinimum, contracts.RuntimeByteLimitMaximum)
 	if err != nil {
 		return Config{}, err
 	}
-	agentRequestLimit, err := requiredInt64("NEKIRO_ROUTER_AGENT_REQUEST_LIMIT_BYTES", contracts.RuntimeByteLimitMinimum, contracts.RuntimeByteLimitMaximum)
+	agentRequestLimit, err := requiredNumber("NEKIRO_ROUTER_AGENT_REQUEST_LIMIT_BYTES", contracts.RuntimeByteLimitMinimum, contracts.RuntimeByteLimitMaximum)
 	if err != nil {
 		return Config{}, err
 	}
-	responseLimit, err := requiredInt64("NEKIRO_ROUTER_CONTROL_PLANE_RESPONSE_LIMIT_BYTES", contracts.RuntimeByteLimitMinimum, contracts.RuntimeByteLimitMaximum)
+	responseLimit, err := requiredNumber("NEKIRO_ROUTER_CONTROL_PLANE_RESPONSE_LIMIT_BYTES", contracts.RuntimeByteLimitMinimum, contracts.RuntimeByteLimitMaximum)
 	if err != nil {
 		return Config{}, err
 	}
-	agentResponseLimit, err := requiredInt64("NEKIRO_ROUTER_AGENT_RESPONSE_LIMIT_BYTES", contracts.RuntimeByteLimitMinimum, contracts.RuntimeByteLimitMaximum)
+	agentResponseLimit, err := requiredNumber("NEKIRO_ROUTER_AGENT_RESPONSE_LIMIT_BYTES", contracts.RuntimeByteLimitMinimum, contracts.RuntimeByteLimitMaximum)
 	if err != nil {
 		return Config{}, err
 	}
-	a2aEventLimit, err := requiredInt64("NEKIRO_ROUTER_A2A_EVENT_LIMIT_BYTES", contracts.RuntimeByteLimitMinimum, contracts.RuntimeByteLimitMaximum)
+	a2aEventLimit, err := requiredNumber("NEKIRO_ROUTER_A2A_EVENT_LIMIT_BYTES", contracts.RuntimeByteLimitMinimum, contracts.RuntimeByteLimitMaximum)
 	if err != nil {
 		return Config{}, err
 	}
-	sseEventLimit, err := requiredInt64("NEKIRO_ROUTER_SSE_EVENT_LIMIT_BYTES", contracts.RuntimeByteLimitMinimum, contracts.RuntimeByteLimitMaximum)
+	sseEventLimit, err := requiredNumber("NEKIRO_ROUTER_SSE_EVENT_LIMIT_BYTES", contracts.RuntimeByteLimitMinimum, contracts.RuntimeByteLimitMaximum)
 	if err != nil {
 		return Config{}, err
 	}
-	deadlineMS, err := requiredInt64("NEKIRO_ROUTER_RESOLUTION_DEADLINE_MS", contracts.RuntimeDeadlineMinimumMS, contracts.RuntimeDeadlineMaximumMS)
+	deadlineMS, err := requiredNumber("NEKIRO_ROUTER_RESOLUTION_DEADLINE_MS", contracts.RuntimeDeadlineMinimumMS, contracts.RuntimeDeadlineMaximumMS)
 	if err != nil {
 		return Config{}, err
 	}
-	agentDeadlineMS, err := requiredInt64("NEKIRO_ROUTER_AGENT_DEADLINE_MS", contracts.RuntimeDeadlineMinimumMS, contracts.RuntimeDeadlineMaximumMS)
+	agentDeadlineMS, err := requiredNumber("NEKIRO_ROUTER_AGENT_DEADLINE_MS", contracts.RuntimeDeadlineMinimumMS, contracts.RuntimeDeadlineMaximumMS)
 	if err != nil {
 		return Config{}, err
 	}
-	agentCredential, err := credential.LoadConfig(os.LookupEnv)
+	agentCredential, err := credential.LoadConfig(lookup)
 	if err != nil {
 		return Config{}, err
 	}
-	return Config{ListenAddress: listen, RouterPrincipals: principals, AgentPrincipals: agentPrincipals, DatabaseURL: databaseURL, ControlPlaneResolveURL: resolveURL, ControlPlaneVersionURL: versionURL, ControlPlaneServiceToken: token, InternalRequestLimitBytes: requestLimit, AgentRequestLimitBytes: agentRequestLimit, ControlPlaneResponseLimitBytes: responseLimit, AgentResponseLimitBytes: agentResponseLimit, A2AEventLimitBytes: a2aEventLimit, SSEEventLimitBytes: sseEventLimit, ResolutionDeadline: time.Duration(deadlineMS) * time.Millisecond, AgentDeadline: time.Duration(agentDeadlineMS) * time.Millisecond, AgentCredential: agentCredential}, nil
+	routingMode, err := required("NEKIRO_ROUTER_INSTANCE_ROUTING_MODE")
+	if err != nil {
+		return Config{}, err
+	}
+	var fileRoot, portName string
+	var maxPayload int64
+	var directoryKey configcenter.Key
+	switch routingMode {
+	case InstanceRoutingDirect:
+	case InstanceRoutingConfigCenterFile:
+		fileRoot, err = required("NEKIRO_ROUTER_CONFIG_CENTER_FILE_ROOT")
+		if err != nil {
+			return Config{}, err
+		}
+		maxPayload, err = requiredNumber("NEKIRO_ROUTER_CONFIG_CENTER_MAX_PAYLOAD_BYTES", 1, contracts.RuntimeByteLimitMaximum)
+		if err != nil {
+			return Config{}, err
+		}
+		keyText, keyErr := required("NEKIRO_ROUTER_INSTANCE_DIRECTORY_KEY")
+		if keyErr != nil {
+			return Config{}, keyErr
+		}
+		directoryKey, err = configcenter.ParseKey(keyText)
+		if err != nil {
+			return Config{}, errors.New("NEKIRO_ROUTER_INSTANCE_DIRECTORY_KEY is invalid")
+		}
+		portName, err = required("NEKIRO_ROUTER_INSTANCE_PORT_NAME")
+		if err != nil {
+			return Config{}, err
+		}
+	default:
+		return Config{}, errors.New("NEKIRO_ROUTER_INSTANCE_ROUTING_MODE is unsupported")
+	}
+	return Config{ListenAddress: listen, RouterPrincipals: principals, AgentPrincipals: agentPrincipals, DatabaseURL: databaseURL, ControlPlaneResolveURL: resolveURL, ControlPlaneVersionURL: versionURL, ControlPlaneServiceToken: token, InternalRequestLimitBytes: requestLimit, AgentRequestLimitBytes: agentRequestLimit, ControlPlaneResponseLimitBytes: responseLimit, AgentResponseLimitBytes: agentResponseLimit, A2AEventLimitBytes: a2aEventLimit, SSEEventLimitBytes: sseEventLimit, ResolutionDeadline: time.Duration(deadlineMS) * time.Millisecond, AgentDeadline: time.Duration(agentDeadlineMS) * time.Millisecond, AgentCredential: agentCredential, InstanceRoutingMode: routingMode, ConfigCenterFileRoot: fileRoot, ConfigCenterMaxPayloadBytes: maxPayload, InstanceDirectoryKey: directoryKey, InstancePortName: portName}, nil
 }
 
 // LoadDatabaseURL validates the database boundary shared by the serving and
 // migration commands. The migration command must not require serving-only
 // credentials or endpoint configuration.
 func LoadDatabaseURL() (string, error) {
-	databaseURL, err := requiredEnv("NEKIRO_DATABASE_URL")
+	return LoadDatabaseURLFrom(os.LookupEnv)
+}
+
+func LoadDatabaseURLFrom(lookup func(string) (string, bool)) (string, error) {
+	if lookup == nil {
+		return "", errors.New("Router configuration source is required")
+	}
+	databaseURL, err := requiredEnvFrom(lookup, "NEKIRO_DATABASE_URL")
 	if err != nil {
 		return "", err
 	}
@@ -148,7 +212,11 @@ func LoadDatabaseURL() (string, error) {
 }
 
 func requiredEnv(name string) (string, error) {
-	value, exists := os.LookupEnv(name)
+	return requiredEnvFrom(os.LookupEnv, name)
+}
+
+func requiredEnvFrom(lookup func(string) (string, bool), name string) (string, error) {
+	value, exists := lookup(name)
 	if !exists {
 		return "", fmt.Errorf("%s is required", name)
 	}
@@ -246,7 +314,11 @@ func validateVisibleASCII(name, value string) error {
 }
 
 func requiredInt64(name string, minimum, maximum int64) (int64, error) {
-	value, err := requiredEnv(name)
+	return requiredInt64From(os.LookupEnv, name, minimum, maximum)
+}
+
+func requiredInt64From(lookup func(string) (string, bool), name string, minimum, maximum int64) (int64, error) {
+	value, err := requiredEnvFrom(lookup, name)
 	if err != nil {
 		return 0, err
 	}

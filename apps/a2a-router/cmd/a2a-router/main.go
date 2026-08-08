@@ -13,11 +13,14 @@ import (
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/api"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/auth"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/config"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/configdirectory"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/credential"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/ledger"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/nested"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/resolution"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/routing"
 	a2atransport "github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/transport/a2a"
+	configfile "github.com/NeKiro-project/NeKiro/config_center/file"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -67,7 +70,34 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 	if err := ledgerStore.Check(ctx); err != nil {
 		return fmt.Errorf("router Ledger schema is not ready: %w", err)
 	}
-	handler, err := newHandler(cfg, http.DefaultClient, http.DefaultClient, ledgerStore)
+	var selector a2atransport.TargetSelector
+	var directory *configdirectory.Directory
+	if cfg.InstanceRoutingMode == config.InstanceRoutingConfigCenterFile {
+		reader, openErr := configfile.OpenReader(configfile.ReaderConfig{
+			Root: cfg.ConfigCenterFileRoot, MaxPayloadBytes: cfg.ConfigCenterMaxPayloadBytes, SubscriptionBuffer: 1,
+		})
+		if openErr != nil {
+			return fmt.Errorf("open Router Config Center reader: %w", openErr)
+		}
+		directory, err = configdirectory.New(reader, cfg.InstanceDirectoryKey)
+		if err != nil {
+			_ = reader.Close()
+			return fmt.Errorf("initialize Router instance directory: %w", err)
+		}
+		defer directory.Close()
+		selector, err = routing.NewSnapshotSelector(directory, cfg.InstancePortName)
+		if err != nil {
+			return fmt.Errorf("initialize Router instance selector: %w", err)
+		}
+	}
+	var readiness []api.ReadinessChecker
+	if directory != nil {
+		if err := directory.Check(ctx); err != nil {
+			return fmt.Errorf("Router instance directory is not ready: %w", err)
+		}
+		readiness = append(readiness, directory)
+	}
+	handler, err := newHandlerWithTargetSelector(cfg, http.DefaultClient, http.DefaultClient, ledgerStore, selector, readiness...)
 	if err != nil {
 		return err
 	}
@@ -102,6 +132,10 @@ func migrate(ctx context.Context, direction string) (returnErr error) {
 }
 
 func newHandler(cfg config.Config, doer resolution.HTTPDoer, agentHTTPClient *http.Client, ledgerAppender api.InvocationLedgerAppender) (http.Handler, error) {
+	return newHandlerWithTargetSelector(cfg, doer, agentHTTPClient, ledgerAppender, nil)
+}
+
+func newHandlerWithTargetSelector(cfg config.Config, doer resolution.HTTPDoer, agentHTTPClient *http.Client, ledgerAppender api.InvocationLedgerAppender, selector a2atransport.TargetSelector, readiness ...api.ReadinessChecker) (http.Handler, error) {
 	authenticator, err := auth.NewStaticAuthenticator(cfg.RouterPrincipals)
 	if err != nil {
 		return nil, err
@@ -114,7 +148,12 @@ func newHandler(cfg config.Config, doer resolution.HTTPDoer, agentHTTPClient *ht
 	if err != nil {
 		return nil, err
 	}
-	transport, err := a2atransport.NewClient(agentHTTPClient, credentialIssuer, cfg.InternalRequestLimitBytes, cfg.AgentResponseLimitBytes, cfg.A2AEventLimitBytes, cfg.SSEEventLimitBytes)
+	var transport *a2atransport.Client
+	if selector == nil {
+		transport, err = a2atransport.NewClient(agentHTTPClient, credentialIssuer, cfg.InternalRequestLimitBytes, cfg.AgentResponseLimitBytes, cfg.A2AEventLimitBytes, cfg.SSEEventLimitBytes)
+	} else {
+		transport, err = a2atransport.NewClientWithTargetSelector(agentHTTPClient, credentialIssuer, selector, cfg.InternalRequestLimitBytes, cfg.AgentResponseLimitBytes, cfg.A2AEventLimitBytes, cfg.SSEEventLimitBytes)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +186,7 @@ func newHandler(cfg config.Config, doer resolution.HTTPDoer, agentHTTPClient *ht
 		return nil, err
 	}
 	mux := http.NewServeMux()
-	mux.Handle("GET /readyz", api.NewReadinessHandler())
+	mux.Handle("GET /readyz", api.NewReadinessHandler(readiness...))
 	dispatch.RegisterRoutes(mux)
 	agentHandler.RegisterRoutes(mux)
 	if err := ledgerHandler.RegisterRoutes(mux, authenticator); err != nil {

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -136,6 +137,47 @@ func TestClientSendNonStreamingMapsDispatchToA2A(t *testing.T) {
 	assertHeader(t, captured, HeaderWorkspaceID, "workspace-a")
 }
 
+func TestClientPinsSelectedTargetOncePerNonStreamingInvocation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		a2asrv.NewJSONRPCHandler(a2atest.NewHandler()).ServeHTTP(writer, request)
+	}))
+	t.Cleanup(server.Close)
+	issuer, err := credential.NewIssuer(credential.Config{Issuer: "https://a2a-router.nekiro.test", KeyID: "router-key-1", PrivateKey: ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)), TTL: 30 * time.Second}, time.Now, rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := &countingTargetSelector{}
+	client, err := NewClientWithTargetSelector(server.Client(), issuer, selector, 4096, 4096, 4096, 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.SendNonStreaming(t.Context(), contracts.DispatchInvocationRequestV4{
+		InvocationID: "inv-pin", RootTaskID: "task-pin", TraceID: "trace-pin",
+		Caller: contracts.Caller{Type: "user", ID: "owner-a"}, WorkspaceID: "workspace-a",
+		TargetAgentID: "agent-a", AgentCardVersion: "1.0.0", Capability: "capability-a",
+		Input: json.RawMessage(`{"fixture":"success","value":"pin"}`),
+	}, resolvedTarget(targetCard(server.URL, "none", "capability-a"))); err != nil {
+		t.Fatalf("SendNonStreaming = %v", err)
+	}
+	if got := selector.calls.Load(); got != 1 {
+		t.Fatalf("selector calls=%d, want 1", got)
+	}
+}
+
+type countingTargetSelector struct {
+	calls    atomic.Int32
+	endpoint string
+}
+
+func (selector *countingTargetSelector) Select(_ context.Context, target Target, _ ContextHeaders) (Target, error) {
+	selector.calls.Add(1)
+	if selector.endpoint != "" {
+		target.Endpoint = selector.endpoint
+	}
+	return target, nil
+}
+
 func TestClientSendStreamingMapsA2AEventsAndTrustedHeaders(t *testing.T) {
 	captured := make(http.Header)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -172,6 +214,36 @@ func TestClientSendStreamingMapsA2AEventsAndTrustedHeaders(t *testing.T) {
 	assertHeader(t, captured, HeaderInvocationID, "inv-a")
 	assertHeader(t, captured, HeaderRootTaskID, "task-a")
 	assertHeader(t, captured, HeaderWorkspaceID, "workspace-a")
+}
+
+func TestClientPinsSelectedTargetOnceForCompleteStream(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		a2asrv.NewJSONRPCHandler(a2atest.NewHandler()).ServeHTTP(writer, request)
+	}))
+	t.Cleanup(server.Close)
+	issuer, err := credential.NewIssuer(credential.Config{Issuer: "https://a2a-router.nekiro.test", KeyID: "router-key-1", PrivateKey: ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)), TTL: 30 * time.Second}, time.Now, rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := &countingTargetSelector{}
+	client, err := NewClientWithTargetSelector(server.Client(), issuer, selector, 4096, 4096, 4096, 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatch := contracts.DispatchInvocationRequestV4{
+		InvocationID: "inv-stream-pin", RootTaskID: "task-stream-pin", TraceID: "trace-stream-pin",
+		Caller: contracts.Caller{Type: "user", ID: "owner-a"}, WorkspaceID: "workspace-a",
+		TargetAgentID: "agent-a", AgentCardVersion: "1.0.0", Capability: "capability-a",
+		Input: json.RawMessage(`{"fixture":"stream-success","value":"pin"}`), Stream: true,
+	}
+	for _, streamErr := range client.SendStreaming(t.Context(), dispatch, resolvedTarget(targetCard(server.URL, "none", "capability-a"))) {
+		if streamErr != nil {
+			t.Fatal(streamErr)
+		}
+	}
+	if got := selector.calls.Load(); got != 1 {
+		t.Fatalf("selector calls=%d, want 1", got)
+	}
 }
 
 func TestClientStreamingRejectsInvalidJSONRPCEnvelopeBeforeEventMapping(t *testing.T) {

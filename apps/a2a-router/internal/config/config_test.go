@@ -109,6 +109,47 @@ func validEnv() map[string]string {
 		"NEKIRO_ROUTER_AGENT_CREDENTIAL_KEY_ID":                "router-key-1",
 		"NEKIRO_ROUTER_AGENT_CREDENTIAL_PRIVATE_KEY_BASE64URL": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8DoQe_884Qvh1w3RjnS8CZZ-TWMJulDV8d3IZkElUxuA",
 		"NEKIRO_ROUTER_AGENT_CREDENTIAL_TTL_SECONDS":           "30",
+		"NEKIRO_ROUTER_INSTANCE_ROUTING_MODE":                  "direct",
+	}
+}
+
+func TestLoadFromUsesOnlyInjectedSource(t *testing.T) {
+	env := validEnv()
+	config, err := LoadFrom(func(name string) (string, bool) {
+		value, ok := env[name]
+		return value, ok
+	})
+	if err != nil {
+		t.Fatalf("LoadFrom rejected injected source: %v", err)
+	}
+	if config.InstanceRoutingMode != InstanceRoutingDirect {
+		t.Fatalf("routing mode = %q", config.InstanceRoutingMode)
+	}
+	if _, err := LoadFrom(nil); err == nil {
+		t.Fatal("LoadFrom(nil) succeeded")
+	}
+}
+
+func TestLoadFromRequiresFileRoutingInputs(t *testing.T) {
+	env := validEnv()
+	env["NEKIRO_ROUTER_INSTANCE_ROUTING_MODE"] = InstanceRoutingConfigCenterFile
+	env["NEKIRO_ROUTER_CONFIG_CENTER_FILE_ROOT"] = `C:\nekiro\config`
+	env["NEKIRO_ROUTER_CONFIG_CENTER_MAX_PAYLOAD_BYTES"] = "65536"
+	env["NEKIRO_ROUTER_INSTANCE_DIRECTORY_KEY"] = "router/instance-directory"
+	env["NEKIRO_ROUTER_INSTANCE_PORT_NAME"] = "a2a"
+	config, err := LoadFrom(func(name string) (string, bool) {
+		value, ok := env[name]
+		return value, ok
+	})
+	if err != nil {
+		t.Fatalf("file routing config rejected: %v", err)
+	}
+	if config.InstanceDirectoryKey.String() != "router/instance-directory" || config.InstancePortName != "a2a" {
+		t.Fatalf("file routing config = %#v", config)
+	}
+	delete(env, "NEKIRO_ROUTER_INSTANCE_DIRECTORY_KEY")
+	if _, err := LoadFrom(func(name string) (string, bool) { value, ok := env[name]; return value, ok }); err == nil {
+		t.Fatal("missing directory key accepted")
 	}
 }
 

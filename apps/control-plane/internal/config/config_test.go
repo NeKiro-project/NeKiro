@@ -30,6 +30,31 @@ func TestLoadRequiresExplicitValidConfiguration(t *testing.T) {
 	}
 }
 
+func TestLoadFromUsesOnlyInjectedSource(t *testing.T) {
+	digest := sha256.Sum256([]byte("token"))
+	principals := `[{"id":"owner-a","tokenSha256":"` + hex.EncodeToString(digest[:]) + `"}]`
+	env := map[string]string{
+		"NEKIRO_DATABASE_URL":                      "postgresql://user:password@127.0.0.1:5432/catalog_test?sslmode=disable",
+		"NEKIRO_LISTEN_ADDRESS":                    "127.0.0.1:18080",
+		"NEKIRO_CORS_ALLOWED_ORIGINS":              "http://localhost:3000",
+		"NEKIRO_PUBLIC_AGENT_ORIGIN":               "https://agents.nekiro.test",
+		"NEKIRO_AUTH_MODE":                         DevelopmentStaticAuthMode,
+		"NEKIRO_DEV_AUTH_PRINCIPALS_JSON":          principals,
+		"NEKIRO_INTERNAL_AUTH_MODE":                DevelopmentStaticAuthMode,
+		"NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON": principals,
+	}
+	loaded, err := LoadFrom(func(name string) (string, bool) { value, ok := env[name]; return value, ok })
+	if err != nil {
+		t.Fatalf("LoadFrom rejected injected source: %v", err)
+	}
+	if loaded.ListenAddress != env["NEKIRO_LISTEN_ADDRESS"] {
+		t.Fatalf("loaded config = %#v", loaded)
+	}
+	if _, err := LoadFrom(nil); err == nil {
+		t.Fatal("LoadFrom(nil) succeeded")
+	}
+}
+
 func TestLoadRejectsMissingBlankAndMalformedConfiguration(t *testing.T) {
 	digest := sha256.Sum256([]byte("token"))
 	validDigest := hex.EncodeToString(digest[:])
