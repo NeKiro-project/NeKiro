@@ -6,6 +6,8 @@ ARG GOSUMDB=sum.golang.org
 COPY go.mod go.sum ./
 RUN GOPROXY="$GOPROXY" GOSUMDB="$GOSUMDB" go mod download
 COPY contracts ./contracts
+COPY config_center ./config_center
+COPY registry ./registry
 COPY apps/a2a-router ./apps/a2a-router
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/a2a-router ./apps/a2a-router/cmd/a2a-router
 

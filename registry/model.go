@@ -11,6 +11,9 @@ type AddressType string
 const (
 	AddressTypeIPv4 AddressType = "IPv4"
 	AddressTypeIPv6 AddressType = "IPv6"
+	// AddressTypeDNS is used by explicitly configured directories whose
+	// deployment owner supplies a stable DNS instance address.
+	AddressTypeDNS AddressType = "DNS"
 )
 
 // TransportProtocol identifies the transport protocol of a NetworkEndpoint.

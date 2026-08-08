@@ -14,6 +14,14 @@ func (client *Client) SendNonStreaming(ctx context.Context, dispatch contracts.D
 	if err != nil {
 		return nil, err
 	}
+	headers := ContextHeaders{
+		TraceID: dispatch.TraceID, InvocationID: dispatch.InvocationID, RootTaskID: dispatch.RootTaskID,
+		ParentInvocationID: dispatch.ParentInvocationID, WorkspaceID: dispatch.WorkspaceID,
+	}
+	target, err = client.selectTarget(ctx, target, headers)
+	if err != nil {
+		return nil, err
+	}
 	inputLimit := client.inputLimitBytes
 	if target.MaxInputBytes < inputLimit {
 		inputLimit = target.MaxInputBytes
@@ -25,13 +33,7 @@ func (client *Client) SendNonStreaming(ctx context.Context, dispatch contracts.D
 	if err != nil {
 		return nil, err
 	}
-	result, err := client.SendMessage(ctx, target, ContextHeaders{
-		TraceID:            dispatch.TraceID,
-		InvocationID:       dispatch.InvocationID,
-		RootTaskID:         dispatch.RootTaskID,
-		ParentInvocationID: dispatch.ParentInvocationID,
-		WorkspaceID:        dispatch.WorkspaceID,
-	}, params)
+	result, err := client.SendMessage(ctx, target, headers, params)
 	if err != nil {
 		return nil, err
 	}

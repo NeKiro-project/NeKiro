@@ -3,6 +3,10 @@
 !go.sum
 !contracts/
 !contracts/**
+!config_center/
+!config_center/**
+!registry/
+!registry/**
 !apps/
 !apps/control-plane/
 !apps/control-plane/**

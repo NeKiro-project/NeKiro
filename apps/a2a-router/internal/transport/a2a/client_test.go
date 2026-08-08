@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -136,6 +137,127 @@ func TestClientSendNonStreamingMapsDispatchToA2A(t *testing.T) {
 	assertHeader(t, captured, HeaderWorkspaceID, "workspace-a")
 }
 
+func TestClientPinsSelectedTargetOncePerNonStreamingInvocation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		a2asrv.NewJSONRPCHandler(a2atest.NewHandler()).ServeHTTP(writer, request)
+	}))
+	t.Cleanup(server.Close)
+	issuer, err := credential.NewIssuer(credential.Config{Issuer: "https://a2a-router.nekiro.test", KeyID: "router-key-1", PrivateKey: ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)), TTL: 30 * time.Second}, time.Now, rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := &countingTargetSelector{}
+	client, err := NewClientWithTargetSelector(server.Client(), issuer, selector, 4096, 4096, 4096, 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.SendNonStreaming(t.Context(), contracts.DispatchInvocationRequestV4{
+		InvocationID: "inv-pin", RootTaskID: "task-pin", TraceID: "trace-pin",
+		Caller: contracts.Caller{Type: "user", ID: "owner-a"}, WorkspaceID: "workspace-a",
+		TargetAgentID: "agent-a", AgentCardVersion: "1.0.0", Capability: "capability-a",
+		Input: json.RawMessage(`{"fixture":"success","value":"pin"}`),
+	}, resolvedTarget(targetCard(server.URL, "none", "capability-a"))); err != nil {
+		t.Fatalf("SendNonStreaming = %v", err)
+	}
+	if got := selector.calls.Load(); got != 1 {
+		t.Fatalf("selector calls=%d, want 1", got)
+	}
+}
+
+func TestClientRejectsSelectorMutationOutsideEndpoint(t *testing.T) {
+	mutations := map[string]func(*Target){
+		"agent id":     func(target *Target) { target.AgentID = "other-agent" },
+		"version":      func(target *Target) { target.Version = "2.0.0" },
+		"capability":   func(target *Target) { target.Capability = "other-capability" },
+		"audience":     func(target *Target) { target.Audience = "http://other.example" },
+		"release id":   func(target *Target) { target.ReleaseID = "other-release" },
+		"card digest":  func(target *Target) { target.CardDigest = strings.Repeat("b", 64) },
+		"protocol":     func(target *Target) { target.Protocol = "other" },
+		"transport":    func(target *Target) { target.Transport = "other" },
+		"auth type":    func(target *Target) { target.AuthType = "other" },
+		"input limit":  func(target *Target) { target.MaxInputBytes++ },
+		"output limit": func(target *Target) { target.MaxOutputBytes++ },
+		"timeout":      func(target *Target) { target.TimeoutMS++ },
+		"streaming":    func(target *Target) { target.Streaming = !target.Streaming },
+	}
+	for name, mutate := range mutations {
+		t.Run(name, func(t *testing.T) {
+			target := testTarget("http://agent.example/a2a")
+			selector := &countingTargetSelector{mutate: mutate}
+			client := &Client{targetSelector: selector}
+			if _, err := client.selectTarget(t.Context(), target, ContextHeaders{}); errorCode(err) != contracts.ErrorCodeA2AProtocol {
+				t.Fatalf("selectTarget error=%v, want %q", err, contracts.ErrorCodeA2AProtocol)
+			}
+		})
+	}
+}
+
+func TestClientAllowsSelectorToChangeOnlyEndpoint(t *testing.T) {
+	target := testTarget("http://agent.example/a2a")
+	client := &Client{targetSelector: &countingTargetSelector{endpoint: "http://instance.example:8091/a2a"}}
+	selected, err := client.selectTarget(t.Context(), target, ContextHeaders{})
+	if err != nil {
+		t.Fatalf("selectTarget returned error: %v", err)
+	}
+	if selected.Endpoint != "http://instance.example:8091/a2a" {
+		t.Fatalf("selected endpoint=%q", selected.Endpoint)
+	}
+}
+
+func TestClientRejectsSelectorEndpointChangesOutsideAuthority(t *testing.T) {
+	for name, endpoint := range map[string]string{
+		"scheme":         "http://instance.example:8091/a2a",
+		"empty userinfo": "https://@instance.example:8091/a2a",
+		"path":           "https://instance.example:8091/other",
+		"query":          "https://instance.example:8091/a2a?route=other",
+	} {
+		t.Run(name, func(t *testing.T) {
+			target := testTarget("https://agent.example/a2a")
+			client := &Client{targetSelector: &countingTargetSelector{endpoint: endpoint}}
+			if _, err := client.selectTarget(t.Context(), target, ContextHeaders{}); errorCode(err) != contracts.ErrorCodeA2AProtocol {
+				t.Fatalf("selectTarget error=%v, want %q", err, contracts.ErrorCodeA2AProtocol)
+			}
+		})
+	}
+}
+
+func TestClientPreservesSelectionCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	selector := targetSelectorFunc(func(context.Context, Target, ContextHeaders) (Target, error) {
+		return Target{}, errors.New("selector stopped")
+	})
+	client := &Client{targetSelector: selector}
+	_, err := client.selectTarget(ctx, testTarget("https://agent.example/a2a"), ContextHeaders{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("selectTarget error=%v, want context.Canceled", err)
+	}
+}
+
+type countingTargetSelector struct {
+	calls    atomic.Int32
+	endpoint string
+	mutate   func(*Target)
+}
+
+type targetSelectorFunc func(context.Context, Target, ContextHeaders) (Target, error)
+
+func (fn targetSelectorFunc) Select(ctx context.Context, target Target, headers ContextHeaders) (Target, error) {
+	return fn(ctx, target, headers)
+}
+
+func (selector *countingTargetSelector) Select(_ context.Context, target Target, _ ContextHeaders) (Target, error) {
+	selector.calls.Add(1)
+	if selector.endpoint != "" {
+		target.Endpoint = selector.endpoint
+	}
+	if selector.mutate != nil {
+		selector.mutate(&target)
+	}
+	return target, nil
+}
+
 func TestClientSendStreamingMapsA2AEventsAndTrustedHeaders(t *testing.T) {
 	captured := make(http.Header)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -172,6 +294,36 @@ func TestClientSendStreamingMapsA2AEventsAndTrustedHeaders(t *testing.T) {
 	assertHeader(t, captured, HeaderInvocationID, "inv-a")
 	assertHeader(t, captured, HeaderRootTaskID, "task-a")
 	assertHeader(t, captured, HeaderWorkspaceID, "workspace-a")
+}
+
+func TestClientPinsSelectedTargetOnceForCompleteStream(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		a2asrv.NewJSONRPCHandler(a2atest.NewHandler()).ServeHTTP(writer, request)
+	}))
+	t.Cleanup(server.Close)
+	issuer, err := credential.NewIssuer(credential.Config{Issuer: "https://a2a-router.nekiro.test", KeyID: "router-key-1", PrivateKey: ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)), TTL: 30 * time.Second}, time.Now, rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := &countingTargetSelector{}
+	client, err := NewClientWithTargetSelector(server.Client(), issuer, selector, 4096, 4096, 4096, 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatch := contracts.DispatchInvocationRequestV4{
+		InvocationID: "inv-stream-pin", RootTaskID: "task-stream-pin", TraceID: "trace-stream-pin",
+		Caller: contracts.Caller{Type: "user", ID: "owner-a"}, WorkspaceID: "workspace-a",
+		TargetAgentID: "agent-a", AgentCardVersion: "1.0.0", Capability: "capability-a",
+		Input: json.RawMessage(`{"fixture":"stream-success","value":"pin"}`), Stream: true,
+	}
+	for _, streamErr := range client.SendStreaming(t.Context(), dispatch, resolvedTarget(targetCard(server.URL, "none", "capability-a"))) {
+		if streamErr != nil {
+			t.Fatal(streamErr)
+		}
+	}
+	if got := selector.calls.Load(); got != 1 {
+		t.Fatalf("selector calls=%d, want 1", got)
+	}
 }
 
 func TestClientStreamingRejectsInvalidJSONRPCEnvelopeBeforeEventMapping(t *testing.T) {

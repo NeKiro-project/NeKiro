@@ -123,7 +123,8 @@ func TestClientStreamingMakesOneCancelAttemptAfterDeadline(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	issuer := &recordingCredentialIssuer{}
-	client, err := NewClient(server.Client(), issuer, 4096, 4096, 4096, 4096)
+	selector := &countingTargetSelector{endpoint: server.URL}
+	client, err := NewClientWithTargetSelector(server.Client(), issuer, selector, 4096, 4096, 4096, 4096)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +137,7 @@ func TestClientStreamingMakesOneCancelAttemptAfterDeadline(t *testing.T) {
 		Input: json.RawMessage(`{"fixture":"stream-success","value":"stream"}`), Stream: true,
 	}
 	seenEvent := false
-	for event, streamErr := range client.SendStreaming(ctx, dispatch, resolvedTarget(targetCard(server.URL, "none", "capability-a"))) {
+	for event, streamErr := range client.SendStreaming(ctx, dispatch, resolvedTarget(targetCard("http://127.0.0.1:1", "none", "capability-a"))) {
 		if streamErr != nil {
 			break
 		}
@@ -152,6 +153,9 @@ func TestClientStreamingMakesOneCancelAttemptAfterDeadline(t *testing.T) {
 	}
 	if cancelCount.Load() != 1 {
 		t.Fatalf("cancel attempts=%d, want 1", cancelCount.Load())
+	}
+	if got := selector.calls.Load(); got != 1 {
+		t.Fatalf("selector calls=%d, want one selection shared by stream and cancellation", got)
 	}
 	if tokens := issuer.tokensSnapshot(); len(tokens) != 2 || tokens[0] == tokens[1] {
 		t.Fatalf("stream/cancel credentials = %v, want two fresh values", tokens)

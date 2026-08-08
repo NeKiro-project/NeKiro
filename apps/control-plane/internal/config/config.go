@@ -58,23 +58,33 @@ type jsonFrame struct {
 }
 
 func Load() (Config, error) {
-	databaseURL, err := LoadDatabaseURL()
+	return LoadFrom(os.LookupEnv)
+}
+
+// LoadFrom preserves command-scoped validation while making the bootstrap
+// source an explicit composition dependency.
+func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
+	if lookup == nil {
+		return Config{}, errors.New("Control Plane configuration source is required")
+	}
+	required := func(name string) (string, error) { return requiredEnvFrom(lookup, name) }
+	databaseURL, err := LoadDatabaseURLFrom(lookup)
 	if err != nil {
 		return Config{}, err
 	}
 
-	listenAddress, err := requiredEnv("NEKIRO_LISTEN_ADDRESS")
+	listenAddress, err := required("NEKIRO_LISTEN_ADDRESS")
 	if err != nil {
 		return Config{}, err
 	}
 	if err := validateListenAddress(listenAddress); err != nil {
 		return Config{}, fmt.Errorf("NEKIRO_LISTEN_ADDRESS is invalid: %w", err)
 	}
-	corsOrigins, err := loadCORSAllowedOrigins()
+	corsOrigins, err := loadCORSAllowedOriginsFrom(lookup)
 	if err != nil {
 		return Config{}, err
 	}
-	publicAgentOrigin, err := requiredEnv("NEKIRO_PUBLIC_AGENT_ORIGIN")
+	publicAgentOrigin, err := required("NEKIRO_PUBLIC_AGENT_ORIGIN")
 	if err != nil {
 		return Config{}, err
 	}
@@ -82,7 +92,7 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("NEKIRO_PUBLIC_AGENT_ORIGIN is invalid: %w", err)
 	}
 
-	authMode, err := requiredEnv("NEKIRO_AUTH_MODE")
+	authMode, err := required("NEKIRO_AUTH_MODE")
 	if err != nil {
 		return Config{}, err
 	}
@@ -90,7 +100,7 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("NEKIRO_AUTH_MODE %q is unsupported", authMode)
 	}
 
-	principalsJSON, err := requiredEnv("NEKIRO_DEV_AUTH_PRINCIPALS_JSON")
+	principalsJSON, err := required("NEKIRO_DEV_AUTH_PRINCIPALS_JSON")
 	if err != nil {
 		return Config{}, err
 	}
@@ -98,14 +108,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("NEKIRO_DEV_AUTH_PRINCIPALS_JSON is invalid: %w", err)
 	}
-	internalAuthMode, err := requiredEnv("NEKIRO_INTERNAL_AUTH_MODE")
+	internalAuthMode, err := required("NEKIRO_INTERNAL_AUTH_MODE")
 	if err != nil {
 		return Config{}, err
 	}
 	if internalAuthMode != DevelopmentStaticAuthMode {
 		return Config{}, fmt.Errorf("NEKIRO_INTERNAL_AUTH_MODE %q is unsupported", internalAuthMode)
 	}
-	internalPrincipalsJSON, err := requiredEnv("NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON")
+	internalPrincipalsJSON, err := required("NEKIRO_INTERNAL_DEV_AUTH_PRINCIPALS_JSON")
 	if err != nil {
 		return Config{}, err
 	}
@@ -120,7 +130,11 @@ func Load() (Config, error) {
 }
 
 func loadCORSAllowedOrigins() ([]string, error) {
-	value, err := requiredEnv("NEKIRO_CORS_ALLOWED_ORIGINS")
+	return loadCORSAllowedOriginsFrom(os.LookupEnv)
+}
+
+func loadCORSAllowedOriginsFrom(lookup func(string) (string, bool)) ([]string, error) {
+	value, err := requiredEnvFrom(lookup, "NEKIRO_CORS_ALLOWED_ORIGINS")
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +173,14 @@ func validateHTTPOrigin(value string) error {
 }
 
 func LoadDatabaseURL() (string, error) {
-	databaseURL, err := requiredEnv("NEKIRO_DATABASE_URL")
+	return LoadDatabaseURLFrom(os.LookupEnv)
+}
+
+func LoadDatabaseURLFrom(lookup func(string) (string, bool)) (string, error) {
+	if lookup == nil {
+		return "", errors.New("Control Plane configuration source is required")
+	}
+	databaseURL, err := requiredEnvFrom(lookup, "NEKIRO_DATABASE_URL")
 	if err != nil {
 		return "", err
 	}
@@ -178,7 +199,18 @@ func LoadDatabaseURL() (string, error) {
 }
 
 func LoadInvocationRuntime() (InvocationRuntimeConfig, error) {
-	routerURL, err := requiredEnv("NEKIRO_ROUTER_INTERNAL_URL")
+	return LoadInvocationRuntimeFrom(os.LookupEnv)
+}
+
+func LoadInvocationRuntimeFrom(lookup func(string) (string, bool)) (InvocationRuntimeConfig, error) {
+	if lookup == nil {
+		return InvocationRuntimeConfig{}, errors.New("Control Plane configuration source is required")
+	}
+	required := func(name string) (string, error) { return requiredEnvFrom(lookup, name) }
+	requiredNumber := func(name string, minimum, maximum int64) (int64, error) {
+		return requiredStrictInt64From(lookup, name, minimum, maximum)
+	}
+	routerURL, err := required("NEKIRO_ROUTER_INTERNAL_URL")
 	if err != nil {
 		return InvocationRuntimeConfig{}, err
 	}
@@ -186,7 +218,7 @@ func LoadInvocationRuntime() (InvocationRuntimeConfig, error) {
 	if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "/internal/v4/invocations" {
 		return InvocationRuntimeConfig{}, errors.New("NEKIRO_ROUTER_INTERNAL_URL is invalid")
 	}
-	token, err := requiredEnv("NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN")
+	token, err := required("NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN")
 	if err != nil {
 		return InvocationRuntimeConfig{}, err
 	}
@@ -198,23 +230,23 @@ func LoadInvocationRuntime() (InvocationRuntimeConfig, error) {
 	if strings.ContainsAny(token, " \t\r\n") {
 		return InvocationRuntimeConfig{}, errors.New("NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN is invalid")
 	}
-	internalRequestLimit, err := requiredStrictInt64("NEKIRO_CONTROL_PLANE_INTERNAL_REQUEST_MAX_BYTES", 1, 2147483647)
+	internalRequestLimit, err := requiredNumber("NEKIRO_CONTROL_PLANE_INTERNAL_REQUEST_MAX_BYTES", 1, 2147483647)
 	if err != nil {
 		return InvocationRuntimeConfig{}, err
 	}
-	requestLimit, err := requiredStrictInt64("NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES", 1, 2147483647)
+	requestLimit, err := requiredNumber("NEKIRO_GATEWAY_INVOCATION_REQUEST_MAX_BYTES", 1, 2147483647)
 	if err != nil {
 		return InvocationRuntimeConfig{}, err
 	}
-	sseLimit, err := requiredStrictInt64("NEKIRO_GATEWAY_SSE_EVENT_MAX_BYTES", 1, 2147483647)
+	sseLimit, err := requiredNumber("NEKIRO_GATEWAY_SSE_EVENT_MAX_BYTES", 1, 2147483647)
 	if err != nil {
 		return InvocationRuntimeConfig{}, err
 	}
-	metadataLimit, err := requiredStrictInt64("NEKIRO_GATEWAY_METADATA_RESPONSE_MAX_BYTES", 1, 2147483647)
+	metadataLimit, err := requiredNumber("NEKIRO_GATEWAY_METADATA_RESPONSE_MAX_BYTES", 1, 2147483647)
 	if err != nil {
 		return InvocationRuntimeConfig{}, err
 	}
-	deadline, err := requiredStrictInt64("NEKIRO_GATEWAY_INVOCATION_DEADLINE_MS", 1, 600000)
+	deadline, err := requiredNumber("NEKIRO_GATEWAY_INVOCATION_DEADLINE_MS", 1, 600000)
 	if err != nil {
 		return InvocationRuntimeConfig{}, err
 	}
@@ -222,18 +254,25 @@ func LoadInvocationRuntime() (InvocationRuntimeConfig, error) {
 }
 
 func LoadTrustedPublication() (TrustedPublicationConfig, error) {
-	ttlSeconds, err := requiredStrictInt64("NEKIRO_ENDPOINT_CHALLENGE_TTL_SECONDS", 1, 3600)
+	return LoadTrustedPublicationFrom(os.LookupEnv)
+}
+
+func LoadTrustedPublicationFrom(lookup func(string) (string, bool)) (TrustedPublicationConfig, error) {
+	if lookup == nil {
+		return TrustedPublicationConfig{}, errors.New("Control Plane configuration source is required")
+	}
+	ttlSeconds, err := requiredStrictInt64From(lookup, "NEKIRO_ENDPOINT_CHALLENGE_TTL_SECONDS", 1, 3600)
 	if err != nil {
 		return TrustedPublicationConfig{}, err
 	}
-	timeoutMilliseconds, err := requiredStrictInt64("NEKIRO_ENDPOINT_VERIFICATION_TIMEOUT_MS", 1, 60000)
+	timeoutMilliseconds, err := requiredStrictInt64From(lookup, "NEKIRO_ENDPOINT_VERIFICATION_TIMEOUT_MS", 1, 60000)
 	if err != nil {
 		return TrustedPublicationConfig{}, err
 	}
 	if time.Duration(timeoutMilliseconds)*time.Millisecond >= time.Duration(ttlSeconds)*time.Second {
 		return TrustedPublicationConfig{}, errors.New("NEKIRO_ENDPOINT_VERIFICATION_TIMEOUT_MS must be shorter than the challenge TTL")
 	}
-	allowlistJSON, err := requiredEnv("NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON")
+	allowlistJSON, err := requiredEnvFrom(lookup, "NEKIRO_ENDPOINT_ALLOWED_PRIVATE_HOSTS_JSON")
 	if err != nil {
 		return TrustedPublicationConfig{}, err
 	}
@@ -270,7 +309,11 @@ func LoadTrustedPublication() (TrustedPublicationConfig, error) {
 }
 
 func requiredStrictInt64(name string, minimum, maximum int64) (int64, error) {
-	value, err := requiredEnv(name)
+	return requiredStrictInt64From(os.LookupEnv, name, minimum, maximum)
+}
+
+func requiredStrictInt64From(lookup func(string) (string, bool), name string, minimum, maximum int64) (int64, error) {
+	value, err := requiredEnvFrom(lookup, name)
 	if err != nil {
 		return 0, err
 	}
@@ -287,7 +330,11 @@ func requiredStrictInt64(name string, minimum, maximum int64) (int64, error) {
 }
 
 func requiredEnv(name string) (string, error) {
-	value, exists := os.LookupEnv(name)
+	return requiredEnvFrom(os.LookupEnv, name)
+}
+
+func requiredEnvFrom(lookup func(string) (string, bool), name string) (string, error) {
+	value, exists := lookup(name)
 	if !exists {
 		return "", fmt.Errorf("%s is required", name)
 	}
