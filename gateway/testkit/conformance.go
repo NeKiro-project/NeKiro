@@ -3,6 +3,7 @@ package testkit
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/NeKiro-project/NeKiro/gateway"
@@ -46,56 +47,9 @@ func RunProviderConformance(t testing.TB, driver ProviderConformanceDriver, fixt
 	if provider == nil {
 		t.Fatal("provider conformance driver returned nil provider")
 	}
-	if err := fixture.Spec.Validate(); err != nil {
-		t.Fatalf("fixture spec: %v", err)
-	}
-	if err := fixture.Unsupported.Validate(); err != nil {
-		t.Fatalf("fixture unsupported spec: %v", err)
-	}
-	if fixture.Unsupported.Revision().Equal(fixture.Spec.Revision()) {
-		t.Fatal("fixture unsupported spec must use a distinct desired revision")
-	}
-	if err := fixture.StaleRevision.Validate(); err != nil {
-		t.Fatalf("fixture stale revision: %v", err)
-	}
-	if fixture.StaleRevision.Equal(fixture.Spec.Revision()) {
-		t.Fatal("fixture stale revision equals desired revision")
-	}
-	if err := fixture.UnknownKey.Validate(); err != nil {
-		t.Fatalf("fixture unknown key: %v", err)
-	}
-	if fixture.UnknownKey.Equal(fixture.Spec.Key()) {
-		t.Fatal("fixture unknown key equals desired route key")
-	}
-	if err := fixture.Observed.Validate(); err != nil {
-		t.Fatalf("fixture observed status: %v", err)
-	}
-	if fixture.Observed.Key() != fixture.Spec.Key() ||
-		!fixture.Observed.DesiredRevision().Equal(fixture.Spec.Revision()) ||
-		fixture.Observed.State() != gateway.RouteStateProgrammed {
-		t.Fatal("fixture observed status must be programmed for the exact desired route")
-	}
-	if err := fixture.Deleted.Validate(); err != nil {
-		t.Fatalf("fixture deleted status: %v", err)
-	}
-	if fixture.Deleted.Key() != fixture.Spec.Key() ||
-		!fixture.Deleted.DesiredRevision().Equal(fixture.Spec.Revision()) ||
-		fixture.Deleted.State() != gateway.RouteStateDeleted {
-		t.Fatal("fixture deleted status must be deleted for the exact desired route")
-	}
-
-	if err := provider.Name().Validate(); err != nil {
-		t.Fatalf("provider name: %v", err)
-	}
 	capabilities := provider.Capabilities()
-	if err := capabilities.Validate(); err != nil {
-		t.Fatalf("provider capabilities: %v", err)
-	}
-	if missing := capabilities.Missing(fixture.Spec.RequiredCapabilities()); len(missing) != 0 {
-		t.Fatalf("provider is missing fixture requirements: %v", missing)
-	}
-	if missing := capabilities.Missing(fixture.Unsupported.RequiredCapabilities()); len(missing) == 0 {
-		t.Fatal("provider supports every fixture unsupported requirement")
+	if err := validateProviderConformanceFixture(provider.Name(), capabilities, fixture); err != nil {
+		t.Fatal(err)
 	}
 
 	drainRequest, err := gateway.NewDrainRequest(fixture.Spec.Revision())
@@ -216,6 +170,59 @@ func RunProviderConformance(t testing.TB, driver ProviderConformanceDriver, fixt
 	if _, err := provider.Delete(context.Background(), fixture.Spec.Key(), deleteRequest); !errors.Is(err, gateway.ErrClosed) {
 		t.Fatalf("delete after close = %v, want closed", err)
 	}
+}
+
+func validateProviderConformanceFixture(name gateway.ProviderName, capabilities gateway.Capabilities, fixture ProviderConformanceFixture) error {
+	if err := name.Validate(); err != nil {
+		return fmt.Errorf("provider name: %w", err)
+	}
+	if err := capabilities.Validate(); err != nil {
+		return fmt.Errorf("provider capabilities: %w", err)
+	}
+	if err := fixture.Spec.Validate(); err != nil {
+		return fmt.Errorf("fixture spec: %w", err)
+	}
+	if err := fixture.Unsupported.Validate(); err != nil {
+		return fmt.Errorf("fixture unsupported spec: %w", err)
+	}
+	if fixture.Unsupported.Revision().Equal(fixture.Spec.Revision()) {
+		return errors.New("fixture unsupported spec must use a distinct desired revision")
+	}
+	if err := fixture.StaleRevision.Validate(); err != nil {
+		return fmt.Errorf("fixture stale revision: %w", err)
+	}
+	if fixture.StaleRevision.Equal(fixture.Spec.Revision()) {
+		return errors.New("fixture stale revision equals desired revision")
+	}
+	if err := fixture.UnknownKey.Validate(); err != nil {
+		return fmt.Errorf("fixture unknown key: %w", err)
+	}
+	if fixture.UnknownKey.Equal(fixture.Spec.Key()) {
+		return errors.New("fixture unknown key equals desired route key")
+	}
+	if err := fixture.Observed.Validate(); err != nil {
+		return fmt.Errorf("fixture observed status: %w", err)
+	}
+	if fixture.Observed.Key() != fixture.Spec.Key() ||
+		!fixture.Observed.DesiredRevision().Equal(fixture.Spec.Revision()) ||
+		fixture.Observed.State() != gateway.RouteStateProgrammed {
+		return errors.New("fixture observed status must be programmed for the exact desired route")
+	}
+	if err := fixture.Deleted.Validate(); err != nil {
+		return fmt.Errorf("fixture deleted status: %w", err)
+	}
+	if fixture.Deleted.Key() != fixture.Spec.Key() ||
+		!fixture.Deleted.DesiredRevision().Equal(fixture.Spec.Revision()) ||
+		fixture.Deleted.State() != gateway.RouteStateDeleted {
+		return errors.New("fixture deleted status must be deleted for the exact desired route")
+	}
+	if missing := capabilities.Missing(fixture.Spec.RequiredCapabilities()); len(missing) != 0 {
+		return fmt.Errorf("provider is missing fixture requirements: %v", missing)
+	}
+	if missing := capabilities.Missing(fixture.Unsupported.RequiredCapabilities()); len(missing) == 0 {
+		return errors.New("provider supports every fixture unsupported requirement")
+	}
+	return nil
 }
 
 func assertResultMatchesSpec(t testing.TB, result gateway.ReconcileResult, spec gateway.RouteSpec) {

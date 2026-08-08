@@ -1,6 +1,7 @@
 package testkit
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -39,6 +40,93 @@ func TestFakeProviderConformanceReportsUnsupportedOptionalDrain(t *testing.T) {
 		Deleted:       mustStatus(t, spec, gateway.RouteStateDeleted, "provider-rev-2"),
 	}
 	RunProviderConformance(t, provider, fixture)
+}
+
+func TestProviderConformanceFixtureValidationRejectsInvalidContracts(t *testing.T) {
+	name := mustProviderName(t, "fake")
+	emptyCapabilities, err := gateway.NewCapabilities()
+	if err != nil {
+		t.Fatalf("empty capabilities: %v", err)
+	}
+	forwardingCapabilities, err := gateway.NewCapabilities(gateway.CapabilityForwarding)
+	if err != nil {
+		t.Fatalf("forwarding capabilities: %v", err)
+	}
+
+	tests := map[string]struct {
+		name         gateway.ProviderName
+		capabilities gateway.Capabilities
+		mutate       func(*ProviderConformanceFixture)
+		wantInvalid  bool
+	}{
+		"provider name": {capabilities: emptyCapabilities, wantInvalid: true},
+		"spec": {name: name, capabilities: emptyCapabilities, wantInvalid: true, mutate: func(f *ProviderConformanceFixture) {
+			f.Spec = gateway.RouteSpec{}
+		}},
+		"unsupported spec": {name: name, capabilities: emptyCapabilities, wantInvalid: true, mutate: func(f *ProviderConformanceFixture) {
+			f.Unsupported = gateway.RouteSpec{}
+		}},
+		"unsupported revision": {name: name, capabilities: emptyCapabilities, mutate: func(f *ProviderConformanceFixture) {
+			f.Unsupported = f.Spec
+		}},
+		"stale revision": {name: name, capabilities: emptyCapabilities, wantInvalid: true, mutate: func(f *ProviderConformanceFixture) {
+			f.StaleRevision = gateway.RouteRevision{}
+		}},
+		"same stale revision": {name: name, capabilities: emptyCapabilities, mutate: func(f *ProviderConformanceFixture) {
+			f.StaleRevision = f.Spec.Revision()
+		}},
+		"unknown key": {name: name, capabilities: emptyCapabilities, wantInvalid: true, mutate: func(f *ProviderConformanceFixture) {
+			f.UnknownKey = gateway.RouteKey{}
+		}},
+		"same unknown key": {name: name, capabilities: emptyCapabilities, mutate: func(f *ProviderConformanceFixture) {
+			f.UnknownKey = f.Spec.Key()
+		}},
+		"observed status": {name: name, capabilities: emptyCapabilities, wantInvalid: true, mutate: func(f *ProviderConformanceFixture) {
+			f.Observed = gateway.RouteStatus{}
+		}},
+		"wrong observed state": {name: name, capabilities: emptyCapabilities, mutate: func(f *ProviderConformanceFixture) {
+			f.Observed = f.Deleted
+		}},
+		"deleted status": {name: name, capabilities: emptyCapabilities, wantInvalid: true, mutate: func(f *ProviderConformanceFixture) {
+			f.Deleted = gateway.RouteStatus{}
+		}},
+		"wrong deleted state": {name: name, capabilities: emptyCapabilities, mutate: func(f *ProviderConformanceFixture) {
+			f.Deleted = f.Observed
+		}},
+		"missing required capability": {name: name, capabilities: emptyCapabilities, mutate: func(f *ProviderConformanceFixture) {
+			f.Spec = mustSpec(t, "rev-1", strings.Repeat("a", 64), gateway.CapabilityForwarding)
+			f.Observed = mustStatus(t, f.Spec, gateway.RouteStateProgrammed, "provider-rev-1")
+			f.Deleted = mustStatus(t, f.Spec, gateway.RouteStateDeleted, "provider-rev-2")
+		}},
+		"supported unsupported fixture": {name: name, capabilities: forwardingCapabilities},
+	}
+
+	for testName, testCase := range tests {
+		t.Run(testName, func(t *testing.T) {
+			fixture := validConformanceFixture(t)
+			if testCase.mutate != nil {
+				testCase.mutate(&fixture)
+			}
+			if err := validateProviderConformanceFixture(testCase.name, testCase.capabilities, fixture); err == nil {
+				t.Fatal("validation unexpectedly succeeded")
+			} else if testCase.wantInvalid && !errors.Is(err, gateway.ErrInvalid) {
+				t.Fatalf("validation error = %v, want wrapped invalid", err)
+			}
+		})
+	}
+}
+
+func validConformanceFixture(t testing.TB) ProviderConformanceFixture {
+	t.Helper()
+	spec := mustSpec(t, "rev-1", strings.Repeat("a", 64))
+	return ProviderConformanceFixture{
+		Spec:          spec,
+		Unsupported:   mustSpec(t, "rev-unsupported", strings.Repeat("b", 64), gateway.CapabilityForwarding),
+		StaleRevision: mustRevision(t, "rev-stale"),
+		UnknownKey:    mustKey(t, "unknown-route"),
+		Observed:      mustStatus(t, spec, gateway.RouteStateProgrammed, "provider-rev-1"),
+		Deleted:       mustStatus(t, spec, gateway.RouteStateDeleted, "provider-rev-2"),
+	}
 }
 
 func mustProviderName(t testing.TB, value string) gateway.ProviderName {
