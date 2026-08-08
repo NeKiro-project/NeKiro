@@ -11,7 +11,7 @@ import (
 	"github.com/NeKiro-project/NeKiro/registry"
 )
 
-var dnsAddressPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,62})(?:\.[a-z0-9](?:[a-z0-9-]{0,62}))*$`)
+var dnsAddressPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$`)
 
 type Reader interface {
 	Get(context.Context, configcenter.Key) (configcenter.Snapshot, error)

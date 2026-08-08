@@ -135,6 +135,8 @@ func TestDirectoryAddressValidationIsCanonicalAndProviderBounded(t *testing.T) {
 		{name: "IPv6", addressType: registry.AddressTypeIPv6, address: "::1", want: true},
 		{name: "IPv4 as IPv6", addressType: registry.AddressTypeIPv6, address: "127.0.0.1"},
 		{name: "DNS", addressType: registry.AddressTypeDNS, address: "runtime-b.default", want: true},
+		{name: "DNS trailing hyphen", addressType: registry.AddressTypeDNS, address: "runtime-b-"},
+		{name: "DNS label trailing hyphen", addressType: registry.AddressTypeDNS, address: "runtime-.default"},
 		{name: "uppercase DNS", addressType: registry.AddressTypeDNS, address: "Runtime-B"},
 		{name: "unknown", addressType: registry.AddressType("Unix"), address: "runtime-b"},
 	} {

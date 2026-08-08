@@ -151,6 +151,11 @@ func TestLoadFromRequiresFileRoutingInputs(t *testing.T) {
 	if _, err := LoadFrom(func(name string) (string, bool) { value, ok := env[name]; return value, ok }); err == nil {
 		t.Fatal("missing directory key accepted")
 	}
+	env["NEKIRO_ROUTER_INSTANCE_DIRECTORY_KEY"] = "router/instance-directory"
+	env["NEKIRO_ROUTER_INSTANCE_PORT_NAME"] = "a2a port"
+	if _, err := LoadFrom(func(name string) (string, bool) { value, ok := env[name]; return value, ok }); err == nil {
+		t.Fatal("invalid directory port name accepted")
+	}
 }
 
 func loadWithEnv(t *testing.T, env map[string]string) (Config, error) {

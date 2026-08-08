@@ -35,6 +35,25 @@ func TestDecodeRouterInstanceDirectoryV1(t *testing.T) {
 	}
 }
 
+func TestValidateRouterInstancePortNameV1(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		want  bool
+	}{
+		{value: "a2a", want: true},
+		{value: "a2a-v1", want: true},
+		{value: "a2a port", want: false},
+		{value: "", want: false},
+	} {
+		t.Run(test.value, func(t *testing.T) {
+			got := ValidateRouterInstancePortNameV1(test.value) == nil
+			if got != test.want {
+				t.Fatalf("valid=%v want=%v", got, test.want)
+			}
+		})
+	}
+}
+
 func TestRouterInstanceDirectoryV1SchemaCompilesAndMatchesDecoder(t *testing.T) {
 	data, err := fs.ReadFile(ContractFiles(), "schemas/router-instance-directory.v1.schema.json")
 	if err != nil {

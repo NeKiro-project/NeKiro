@@ -184,10 +184,35 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		if err != nil {
 			return Config{}, err
 		}
+		if err := contracts.ValidateRouterInstancePortNameV1(portName); err != nil {
+			return Config{}, errors.New("NEKIRO_ROUTER_INSTANCE_PORT_NAME is invalid")
+		}
 	default:
 		return Config{}, errors.New("NEKIRO_ROUTER_INSTANCE_ROUTING_MODE is unsupported")
 	}
-	return Config{ListenAddress: listen, RouterPrincipals: principals, AgentPrincipals: agentPrincipals, DatabaseURL: databaseURL, ControlPlaneResolveURL: resolveURL, ControlPlaneVersionURL: versionURL, ControlPlaneServiceToken: token, InternalRequestLimitBytes: requestLimit, AgentRequestLimitBytes: agentRequestLimit, ControlPlaneResponseLimitBytes: responseLimit, AgentResponseLimitBytes: agentResponseLimit, A2AEventLimitBytes: a2aEventLimit, SSEEventLimitBytes: sseEventLimit, ResolutionDeadline: time.Duration(deadlineMS) * time.Millisecond, AgentDeadline: time.Duration(agentDeadlineMS) * time.Millisecond, AgentCredential: agentCredential, InstanceRoutingMode: routingMode, ConfigCenterFileRoot: fileRoot, ConfigCenterMaxPayloadBytes: maxPayload, InstanceDirectoryKey: directoryKey, InstancePortName: portName}, nil
+	return Config{
+		ListenAddress:                  listen,
+		RouterPrincipals:               principals,
+		AgentPrincipals:                agentPrincipals,
+		DatabaseURL:                    databaseURL,
+		ControlPlaneResolveURL:         resolveURL,
+		ControlPlaneVersionURL:         versionURL,
+		ControlPlaneServiceToken:       token,
+		InternalRequestLimitBytes:      requestLimit,
+		AgentRequestLimitBytes:         agentRequestLimit,
+		ControlPlaneResponseLimitBytes: responseLimit,
+		AgentResponseLimitBytes:        agentResponseLimit,
+		A2AEventLimitBytes:             a2aEventLimit,
+		SSEEventLimitBytes:             sseEventLimit,
+		ResolutionDeadline:             time.Duration(deadlineMS) * time.Millisecond,
+		AgentDeadline:                  time.Duration(agentDeadlineMS) * time.Millisecond,
+		AgentCredential:                agentCredential,
+		InstanceRoutingMode:            routingMode,
+		ConfigCenterFileRoot:           fileRoot,
+		ConfigCenterMaxPayloadBytes:    maxPayload,
+		InstanceDirectoryKey:           directoryKey,
+		InstancePortName:               portName,
+	}, nil
 }
 
 // LoadDatabaseURL validates the database boundary shared by the serving and

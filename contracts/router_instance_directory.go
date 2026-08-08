@@ -59,6 +59,15 @@ type RouterNetworkEndpointV1 struct {
 	Protocol    string `json:"protocol"`
 }
 
+// ValidateRouterInstancePortNameV1 validates the shared port-name identifier
+// used by Router bootstrap configuration and directory documents.
+func ValidateRouterInstancePortNameV1(value string) error {
+	if !safeIdentifierPattern.MatchString(value) {
+		return errors.New("invalid Router instance port name")
+	}
+	return nil
+}
+
 // DecodeRouterInstanceDirectoryV1 rejects unknown and duplicate members. The
 // registry package performs the provider-neutral semantic validation when it
 // turns these wire values into immutable topology values.
@@ -113,7 +122,7 @@ func validateRouterInstanceDirectoryV1(document RouterInstanceDirectoryV1) error
 			for _, endpoint := range instance.Endpoints {
 				if endpoint.AddressType != "IPv4" && endpoint.AddressType != "IPv6" && endpoint.AddressType != "DNS" ||
 					utf8.RuneCountInString(endpoint.Address) < 1 || utf8.RuneCountInString(endpoint.Address) > routerDirectoryAddressLengthLimit ||
-					!safeIdentifierPattern.MatchString(endpoint.PortName) || endpoint.Port < 1 || endpoint.Port > 65535 || endpoint.Protocol != "TCP" {
+					ValidateRouterInstancePortNameV1(endpoint.PortName) != nil || endpoint.Port < 1 || endpoint.Port > 65535 || endpoint.Protocol != "TCP" {
 					return errors.New("invalid endpoint")
 				}
 			}
