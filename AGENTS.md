@@ -11,6 +11,8 @@ Core 只维护以下内容：
 - `config_center/`：provider-neutral 的配置源读取、观察和显式发布边界。
 - `registry`：provider-neutral 的临时 Agent 实例拓扑与适配器；它不是
   Catalog Registry 的第二事实源，也不拥有 Release、Endpoint Binding、权限或持久化。
+- `gateway/`：provider-neutral 的外部 Gateway 期望路由、能力、协调与状态边界；
+  它不等同于 Control Plane 的语义 Gateway，也不拥有北向 API 或平台调用语义。
 - `contracts`：语言无关的 JSON Schema、OpenAPI、A2A Profile 及其 Go 映射。
 - Catalog、Workspace、Ledger 各自拥有的 PostgreSQL migrations。
 - Core 单元、契约和服务集成测试。
@@ -36,18 +38,22 @@ Register -> Discover -> Install -> Invoke -> Record
 
 必须遵守：
 
-1. Console 和外部应用只能访问 Gateway。
-2. Gateway 不直接调用 Agent；平台托管调用全部交给 A2A Router。
+1. Console 和外部应用只能访问 Control Plane 的语义 Gateway。
+2. Control Plane 的语义 Gateway 不直接调用 Agent；平台托管调用全部交给 A2A Router。
 3. Registry 是 Agent Card 与 Release 的唯一事实来源；Discovery 只提供派生查询。
    根级 `registry/` 仅报告已经精确授权 Release 的临时实例拓扑，不得读取、写入、
    解析或替代 Catalog Registry 事实。
-4. A2A Router 通过受控接口解析精确 Agent Card/Release，不保存第二份永久 Card。
-5. Agent-to-Agent 托管调用必须再次经过 Router，并传播 `root_task_id`、`parent_invocation_id` 和 `trace_id`。
-6. Ledger 只记录追加式 metadata 事实，不保存 Agent 输入、输出、凭证或密钥。
-7. 模块只能写入自己拥有的数据；共享数据库实例不改变数据所有权。
-8. 跨进程数据必须使用 `contracts/` 中的版本化契约，不共享内部实现类型。
-9. Control Plane 与 Router 是独立部署边界；Router 不导入 Control Plane 的 internal package。
-10. Core 的 PR required CI 不 checkout、构建或测试卫星仓源码。独立的
+4. 根级 `gateway/` 只协调和观察外部 Gateway provider 的显式期望路由。它不得
+   认证北向调用方、授权 Workspace、解析/替换 Release、签发 Router 凭证、绕过
+   Router dispatch 或写入 Ledger；`apps/control-plane/internal/gateway` 继续拥有
+   语义 Gateway。
+5. A2A Router 通过受控接口解析精确 Agent Card/Release，不保存第二份永久 Card。
+6. Agent-to-Agent 托管调用必须再次经过 Router，并传播 `root_task_id`、`parent_invocation_id` 和 `trace_id`。
+7. Ledger 只记录追加式 metadata 事实，不保存 Agent 输入、输出、凭证或密钥。
+8. 模块只能写入自己拥有的数据；共享数据库实例不改变数据所有权。
+9. 跨进程数据必须使用 `contracts/` 中的版本化契约，不共享内部实现类型。
+10. Control Plane 与 Router 是独立部署边界；Router 不导入 Control Plane 的 internal package。
+11. Core 的 PR required CI 不 checkout、构建或测试卫星仓源码。独立的
     post-merge 编排 workflow 可以调用由卫星仓拥有、并固定到完整 commit
     SHA 的 reusable workflow；源码解析、测试命令和成功判据仍由对应 owner
     仓定义，且该编排不得成为 Core 本地构建的备用路径。
@@ -64,6 +70,20 @@ Control Plane 和 A2A Router 继续各自拥有服务配置 schema、业务验�
 动态字段接受范围和 policy 决策。File provider 是本地/受控部署适配器；Nacos、
 loader 注入和 dynamic governance 必须由独立 Issue/ADR 明确数据所有权、失败语义
 与 readiness 策略，不能把 `config_center/` 变成隐式 source precedence 或 fallback。
+
+### External Gateway ownership
+
+根级 `gateway/` 只拥有外部 Gateway provider 的 provider-neutral route contract：
+精确 Release provenance、canonical endpoint/audience、单一 discovery owner、显式
+capability、desired/observed revision、reconcile、drain、delete 与 typed status/outcome。
+它不实现 NeKiro 的北向 HTTP API，也不得将外部 provider 的管理成功误报为 Agent
+data-plane readiness。
+
+外部 Gateway 的 forwarding、SSE flush、cancellation affinity、drain、readiness、
+retry policy 与 instance selection 均须由具体 adapter 明确声明 capability 并用独立
+契约和 Stack 验收验证。未支持的能力必须明确失败；不得推断默认 provider、替代
+upstream/Release/endpoint、缓存旧状态、静默 retry 或在 Gateway/Router 之间双重
+discovery。
 
 ## 3. 技术约束
 
