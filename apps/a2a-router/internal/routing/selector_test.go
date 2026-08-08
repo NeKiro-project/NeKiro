@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -8,6 +9,19 @@ import (
 	"github.com/NeKiro-project/NeKiro/registry"
 	"github.com/NeKiro-project/NeKiro/registry/testkit"
 )
+
+type capabilityDirectory struct{ capabilities registry.Capabilities }
+
+func (directory capabilityDirectory) Snapshot(context.Context, registry.ReleaseTarget) (registry.InstanceSnapshot, error) {
+	return registry.InstanceSnapshot{}, registry.ErrInvalid
+}
+func (directory capabilityDirectory) Observe(context.Context, registry.ReleaseTarget) (registry.InstanceObservation, error) {
+	return registry.InstanceObservation{}, registry.ErrInvalid
+}
+func (directory capabilityDirectory) Capabilities() registry.Capabilities {
+	return directory.capabilities
+}
+func (capabilityDirectory) Close() error { return nil }
 
 func TestSnapshotSelectorPinsOneReadyEndpointAndPreservesIdentity(t *testing.T) {
 	target, snapshot := selectionFixture(t, []string{"runtime-b-directory"})
@@ -42,6 +56,32 @@ func TestSnapshotSelectorRejectsAmbiguousReadySet(t *testing.T) {
 	_, err := selector.Select(t.Context(), a2a.Target{AgentID: target.AgentID(), Version: target.AgentCardVersion(), ReleaseID: target.ReleaseID(), CardDigest: target.CardDigest(), Endpoint: "http://runtime-b:8092", Audience: target.Audience()}, a2a.ContextHeaders{})
 	if err == nil {
 		t.Fatal("ambiguous ready set accepted")
+	}
+}
+
+func TestSnapshotSelectorRequiresSnapshotDirectoryAndMatchingEndpoint(t *testing.T) {
+	if _, err := NewSnapshotSelector(nil, "a2a"); err == nil {
+		t.Fatal("nil directory accepted")
+	}
+	capabilities, _ := registry.NewCapabilities(registry.CapabilityObserve)
+	observeOnly := capabilityDirectory{capabilities: capabilities}
+	if _, err := NewSnapshotSelector(observeOnly, "a2a"); err == nil {
+		t.Fatal("directory without snapshot capability accepted")
+	}
+
+	target, snapshot := selectionFixture(t, []string{"runtime-b-directory"})
+	snapshotCapabilities, _ := registry.NewCapabilities(registry.CapabilitySnapshot, registry.CapabilityObserve)
+	directory, err := testkit.NewFakeDirectory(testkit.FakeConfig{Capabilities: snapshotCapabilities, QueueCapacity: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := directory.Bind(target, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	selector, _ := NewSnapshotSelector(directory, "other-port")
+	_, err = selector.Select(t.Context(), a2a.Target{AgentID: target.AgentID(), Version: target.AgentCardVersion(), ReleaseID: target.ReleaseID(), CardDigest: target.CardDigest(), Endpoint: "http://runtime-b:8092", Audience: target.Audience()}, a2a.ContextHeaders{})
+	if err == nil {
+		t.Fatal("snapshot without matching ready endpoint accepted")
 	}
 }
 

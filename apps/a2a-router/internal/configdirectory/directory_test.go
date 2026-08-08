@@ -14,13 +14,18 @@ type stubReader struct {
 	snapshot configcenter.Snapshot
 	err      error
 	gets     int
+	closes   int
+	closeErr error
 }
 
 func (reader *stubReader) Get(context.Context, configcenter.Key) (configcenter.Snapshot, error) {
 	reader.gets++
 	return reader.snapshot, reader.err
 }
-func (*stubReader) Close() error { return nil }
+func (reader *stubReader) Close() error {
+	reader.closes++
+	return reader.closeErr
+}
 
 func TestDirectoryReturnsExactImmutableSnapshot(t *testing.T) {
 	key, _ := configcenter.ParseKey("router/instance-directory")
@@ -63,6 +68,79 @@ func TestDirectoryRejectsMissingAndInvalidDocuments(t *testing.T) {
 			_, err := directory.Snapshot(t.Context(), target)
 			if name == "missing" && !errors.Is(err, registry.ErrMissing) || name == "invalid" && !errors.Is(err, registry.ErrInvalid) {
 				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}
+
+func TestDirectoryLifecycleExposesOnlySnapshotCapability(t *testing.T) {
+	key, _ := configcenter.ParseKey("router/instance-directory")
+	reader := &stubReader{snapshot: mustSnapshot(t, key, []byte(`{"schemaVersion":"1","revision":"stack-1","targets":[]}`)), closeErr: errors.New("close failed")}
+	directory, err := New(reader, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := directory.Check(t.Context()); err != nil {
+		t.Fatalf("Check failed: %v", err)
+	}
+	if !directory.Capabilities().Supports(registry.CapabilitySnapshot) || directory.Capabilities().Supports(registry.CapabilityObserve) {
+		t.Fatalf("capabilities=%#v", directory.Capabilities())
+	}
+	if _, err := directory.Observe(t.Context(), registry.ReleaseTarget{}); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("Observe error=%v", err)
+	}
+	if err := directory.Close(); err != reader.closeErr || reader.closes != 1 {
+		t.Fatalf("Close error=%v closes=%d", err, reader.closes)
+	}
+	if _, err := New(nil, key); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("New(nil) error=%v", err)
+	}
+	if _, err := New(reader, configcenter.Key{}); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("New(invalid key) error=%v", err)
+	}
+}
+
+func TestDirectoryMapsConfigCenterFailures(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		source error
+		want   error
+	}{
+		{name: "missing", source: configcenter.ErrMissing, want: registry.ErrMissing},
+		{name: "invalid", source: configcenter.ErrInvalid, want: registry.ErrInvalid},
+		{name: "unsafe", source: configcenter.ErrUnsafeState, want: registry.ErrInvalid},
+		{name: "too large", source: configcenter.ErrPayloadTooLarge, want: registry.ErrInvalid},
+		{name: "unauthorized", source: configcenter.ErrUnauthorized, want: registry.ErrUnauthorized},
+		{name: "canceled", source: configcenter.ErrCanceled, want: registry.ErrCanceled},
+		{name: "closed", source: configcenter.ErrReaderClosed, want: registry.ErrClosed},
+		{name: "unavailable", source: errors.New("provider detail"), want: registry.ErrUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := mapSourceError(test.source); !errors.Is(got, test.want) {
+				t.Fatalf("mapSourceError(%v)=%v want=%v", test.source, got, test.want)
+			}
+		})
+	}
+}
+
+func TestDirectoryAddressValidationIsCanonicalAndProviderBounded(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		addressType registry.AddressType
+		address     string
+		want        bool
+	}{
+		{name: "IPv4", addressType: registry.AddressTypeIPv4, address: "127.0.0.1", want: true},
+		{name: "noncanonical IPv4", addressType: registry.AddressTypeIPv4, address: "127.000.000.001"},
+		{name: "IPv6", addressType: registry.AddressTypeIPv6, address: "::1", want: true},
+		{name: "IPv4 as IPv6", addressType: registry.AddressTypeIPv6, address: "127.0.0.1"},
+		{name: "DNS", addressType: registry.AddressTypeDNS, address: "runtime-b.default", want: true},
+		{name: "uppercase DNS", addressType: registry.AddressTypeDNS, address: "Runtime-B"},
+		{name: "unknown", addressType: registry.AddressType("Unix"), address: "runtime-b"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := validAddress(test.addressType, test.address); got != test.want {
+				t.Fatalf("validAddress(%q, %q)=%v want=%v", test.addressType, test.address, got, test.want)
 			}
 		})
 	}
