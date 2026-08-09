@@ -25,6 +25,16 @@ type failingObserveDirectory struct {
 	observes atomic.Int32
 }
 
+type mismatchedInitialDirectory struct {
+	capabilityDirectory
+	initial registry.InstanceSnapshot
+	watch   registry.InstanceWatch
+}
+
+func (directory *mismatchedInitialDirectory) Observe(context.Context, registry.ReleaseTarget) (registry.InstanceObservation, error) {
+	return registry.NewInstanceObservation(directory.initial, directory.watch)
+}
+
 func (directory *failingObserveDirectory) Observe(context.Context, registry.ReleaseTarget) (registry.InstanceObservation, error) {
 	directory.observes.Add(1)
 	return registry.InstanceObservation{}, registry.ErrUnavailable
@@ -152,6 +162,31 @@ func TestWatchSelectorLatchesInitializationFailure(t *testing.T) {
 	}
 	if directory.observes.Load() != 1 {
 		t.Fatalf("failed observation retried %d times", directory.observes.Load())
+	}
+}
+
+func TestWatchSelectorRejectsMismatchedInitialSnapshot(t *testing.T) {
+	target, _ := selectionFixture(t, []string{"runtime-b-old"})
+	_, otherInitial := releaseFixture(t, "runtime-c", "release-c", "runtime-c-old", 8093)
+	watch, _, err := registry.NewInstanceWatch(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := &mismatchedInitialDirectory{
+		capabilityDirectory: capabilityDirectory{capabilities: func() registry.Capabilities {
+			capabilities, _ := registry.NewCapabilities(registry.CapabilityObserve)
+			return capabilities
+		}()},
+		initial: otherInitial,
+		watch:   watch,
+	}
+	selector, err := NewWatchSelector(directory, "a2a", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer selector.Close()
+	if _, err := selector.Select(t.Context(), a2aTarget(target), a2a.ContextHeaders{}); err == nil {
+		t.Fatal("selector accepted an initial snapshot for another Release")
 	}
 }
 

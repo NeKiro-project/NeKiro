@@ -100,7 +100,7 @@ func (selector *WatchSelector) observe(target registry.ReleaseTarget, session *o
 		return
 	}
 	watch := observation.Watch()
-	if !session.initialize(observation.Initial(), watch) {
+	if !session.initialize(target, observation.Initial(), watch) {
 		_ = watch.Close()
 		return
 	}
@@ -135,10 +135,10 @@ func (selector *WatchSelector) Close() error {
 	return nil
 }
 
-func (session *observationSession) initialize(snapshot registry.InstanceSnapshot, watch registry.InstanceWatch) bool {
+func (session *observationSession) initialize(target registry.ReleaseTarget, snapshot registry.InstanceSnapshot, watch registry.InstanceWatch) bool {
 	session.mu.Lock()
 	defer session.mu.Unlock()
-	if watch == nil || snapshot.Validate() != nil {
+	if watch == nil || snapshot.Validate() != nil || !snapshot.Target().Equal(target) || snapshot.Revision().LocalOrder() != 0 {
 		session.readyOnce.Do(func() { close(session.ready) })
 		return false
 	}
