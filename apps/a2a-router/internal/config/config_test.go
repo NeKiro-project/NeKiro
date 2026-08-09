@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"testing"
+	"time"
 )
 
 func TestLoadRequiresStrictRouterConfig(t *testing.T) {
@@ -156,6 +157,72 @@ func TestLoadFromRequiresFileRoutingInputs(t *testing.T) {
 	if _, err := LoadFrom(func(name string) (string, bool) { value, ok := env[name]; return value, ok }); err == nil {
 		t.Fatal("invalid directory port name accepted")
 	}
+}
+
+func TestLoadFromRequiresExplicitNacosRoutingInputs(t *testing.T) {
+	env := validEnv()
+	env["NEKIRO_ROUTER_INSTANCE_ROUTING_MODE"] = InstanceRoutingNacos
+	env["NEKIRO_ROUTER_NACOS_API_ORIGIN"] = "http://nacos:8848/nacos"
+	env["NEKIRO_ROUTER_NACOS_NAMESPACE_ID"] = "public"
+	env["NEKIRO_ROUTER_NACOS_CONFIG_GROUP"] = "NEKIRO"
+	env["NEKIRO_ROUTER_NACOS_AUTH_MODE"] = NacosAuthNone
+	env["NEKIRO_ROUTER_NACOS_RESPONSE_LIMIT_BYTES"] = "65536"
+	env["NEKIRO_ROUTER_NACOS_REQUEST_TIMEOUT_MS"] = "3000"
+	env["NEKIRO_ROUTER_INSTANCE_DIRECTORY_KEY"] = "router.nacos-bindings"
+	env["NEKIRO_ROUTER_INSTANCE_PORT_NAME"] = "a2a"
+	loaded, err := LoadFrom(func(name string) (string, bool) { value, ok := env[name]; return value, ok })
+	if err != nil {
+		t.Fatalf("Nacos routing config rejected: %v", err)
+	}
+	if loaded.NacosAPIOrigin != env["NEKIRO_ROUTER_NACOS_API_ORIGIN"] || loaded.NacosRequestTimeout != 3*time.Second {
+		t.Fatalf("Nacos config=%#v", loaded)
+	}
+	env["NEKIRO_ROUTER_NACOS_ACCESS_TOKEN"] = "unexpected"
+	if _, err := LoadFrom(func(name string) (string, bool) { value, ok := env[name]; return value, ok }); err == nil {
+		t.Fatal("Nacos none auth accepted an access token")
+	}
+	delete(env, "NEKIRO_ROUTER_NACOS_ACCESS_TOKEN")
+	env["NEKIRO_ROUTER_NACOS_AUTH_MODE"] = NacosAuthAccessToken
+	if _, err := LoadFrom(func(name string) (string, bool) { value, ok := env[name]; return value, ok }); err == nil {
+		t.Fatal("Nacos access-token auth accepted a missing token")
+	}
+
+	for _, test := range []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{name: "origin without nacos path", key: "NEKIRO_ROUTER_NACOS_API_ORIGIN", value: "http://nacos:8848"},
+		{name: "origin with query", key: "NEKIRO_ROUTER_NACOS_API_ORIGIN", value: "http://nacos:8848/nacos?server=other"},
+		{name: "empty namespace", key: "NEKIRO_ROUTER_NACOS_NAMESPACE_ID", value: ""},
+		{name: "empty group", key: "NEKIRO_ROUTER_NACOS_CONFIG_GROUP", value: ""},
+		{name: "zero response limit", key: "NEKIRO_ROUTER_NACOS_RESPONSE_LIMIT_BYTES", value: "0"},
+		{name: "zero timeout", key: "NEKIRO_ROUTER_NACOS_REQUEST_TIMEOUT_MS", value: "0"},
+		{name: "unsafe directory key", key: "NEKIRO_ROUTER_INSTANCE_DIRECTORY_KEY", value: "../bindings"},
+		{name: "unsafe port name", key: "NEKIRO_ROUTER_INSTANCE_PORT_NAME", value: "a2a port"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			invalid := validNacosEnv()
+			invalid[test.key] = test.value
+			if _, err := LoadFrom(func(name string) (string, bool) { value, ok := invalid[name]; return value, ok }); err == nil {
+				t.Fatalf("invalid %s=%q was accepted", test.key, test.value)
+			}
+		})
+	}
+}
+
+func validNacosEnv() map[string]string {
+	env := validEnv()
+	env["NEKIRO_ROUTER_INSTANCE_ROUTING_MODE"] = InstanceRoutingNacos
+	env["NEKIRO_ROUTER_NACOS_API_ORIGIN"] = "http://nacos:8848/nacos"
+	env["NEKIRO_ROUTER_NACOS_NAMESPACE_ID"] = "public"
+	env["NEKIRO_ROUTER_NACOS_CONFIG_GROUP"] = "NEKIRO"
+	env["NEKIRO_ROUTER_NACOS_AUTH_MODE"] = NacosAuthNone
+	env["NEKIRO_ROUTER_NACOS_RESPONSE_LIMIT_BYTES"] = "65536"
+	env["NEKIRO_ROUTER_NACOS_REQUEST_TIMEOUT_MS"] = "3000"
+	env["NEKIRO_ROUTER_INSTANCE_DIRECTORY_KEY"] = "router.nacos-bindings"
+	env["NEKIRO_ROUTER_INSTANCE_PORT_NAME"] = "a2a"
+	return env
 }
 
 func loadWithEnv(t *testing.T, env map[string]string) (Config, error) {

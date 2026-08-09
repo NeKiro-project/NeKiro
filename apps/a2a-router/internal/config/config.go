@@ -17,6 +17,7 @@ import (
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/credential"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/nested"
 	configcenter "github.com/NeKiro-project/NeKiro/config_center"
+	confignacos "github.com/NeKiro-project/NeKiro/config_center/nacos"
 	"github.com/NeKiro-project/NeKiro/contracts"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -24,6 +25,9 @@ import (
 const (
 	InstanceRoutingDirect           = "direct"
 	InstanceRoutingConfigCenterFile = "config_center_file"
+	InstanceRoutingNacos            = "nacos"
+	NacosAuthNone                   = "none"
+	NacosAuthAccessToken            = "access_token"
 )
 
 type Config struct {
@@ -48,6 +52,13 @@ type Config struct {
 	ConfigCenterMaxPayloadBytes    int64
 	InstanceDirectoryKey           configcenter.Key
 	InstancePortName               string
+	NacosAPIOrigin                 string
+	NacosNamespaceID               string
+	NacosConfigGroup               string
+	NacosAuthMode                  string
+	NacosAccessToken               string
+	NacosResponseLimitBytes        int64
+	NacosRequestTimeout            time.Duration
 }
 
 type jsonFrame struct {
@@ -158,8 +169,8 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	var fileRoot, portName string
-	var maxPayload int64
+	var fileRoot, portName, nacosOrigin, nacosNamespace, nacosGroup, nacosAuthMode, nacosToken string
+	var maxPayload, nacosResponseLimit, nacosTimeoutMS int64
 	var directoryKey configcenter.Key
 	switch routingMode {
 	case InstanceRoutingDirect:
@@ -178,6 +189,59 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		}
 		directoryKey, err = configcenter.ParseKey(keyText)
 		if err != nil {
+			return Config{}, errors.New("NEKIRO_ROUTER_INSTANCE_DIRECTORY_KEY is invalid")
+		}
+		portName, err = required("NEKIRO_ROUTER_INSTANCE_PORT_NAME")
+		if err != nil {
+			return Config{}, err
+		}
+		if err := contracts.ValidateRouterInstancePortNameV1(portName); err != nil {
+			return Config{}, errors.New("NEKIRO_ROUTER_INSTANCE_PORT_NAME is invalid")
+		}
+	case InstanceRoutingNacos:
+		nacosOrigin, err = required("NEKIRO_ROUTER_NACOS_API_ORIGIN")
+		if err != nil || validateNacosAPIOrigin(nacosOrigin) != nil {
+			return Config{}, errors.New("NEKIRO_ROUTER_NACOS_API_ORIGIN is invalid")
+		}
+		nacosNamespace, err = required("NEKIRO_ROUTER_NACOS_NAMESPACE_ID")
+		if err != nil {
+			return Config{}, err
+		}
+		nacosGroup, err = required("NEKIRO_ROUTER_NACOS_CONFIG_GROUP")
+		if err != nil {
+			return Config{}, err
+		}
+		nacosAuthMode, err = required("NEKIRO_ROUTER_NACOS_AUTH_MODE")
+		if err != nil {
+			return Config{}, err
+		}
+		switch nacosAuthMode {
+		case NacosAuthNone:
+			if _, exists := lookup("NEKIRO_ROUTER_NACOS_ACCESS_TOKEN"); exists {
+				return Config{}, errors.New("NEKIRO_ROUTER_NACOS_ACCESS_TOKEN must be absent when Nacos authentication is none")
+			}
+		case NacosAuthAccessToken:
+			nacosToken, err = required("NEKIRO_ROUTER_NACOS_ACCESS_TOKEN")
+			if err != nil || validateVisibleASCII("NEKIRO_ROUTER_NACOS_ACCESS_TOKEN", nacosToken) != nil {
+				return Config{}, errors.New("NEKIRO_ROUTER_NACOS_ACCESS_TOKEN is invalid")
+			}
+		default:
+			return Config{}, errors.New("NEKIRO_ROUTER_NACOS_AUTH_MODE is unsupported")
+		}
+		nacosResponseLimit, err = requiredNumber("NEKIRO_ROUTER_NACOS_RESPONSE_LIMIT_BYTES", 1, contracts.RuntimeByteLimitMaximum)
+		if err != nil {
+			return Config{}, err
+		}
+		nacosTimeoutMS, err = requiredNumber("NEKIRO_ROUTER_NACOS_REQUEST_TIMEOUT_MS", contracts.RuntimeDeadlineMinimumMS, contracts.RuntimeDeadlineMaximumMS)
+		if err != nil {
+			return Config{}, err
+		}
+		keyText, keyErr := required("NEKIRO_ROUTER_INSTANCE_DIRECTORY_KEY")
+		if keyErr != nil {
+			return Config{}, keyErr
+		}
+		directoryKey, err = configcenter.ParseKey(keyText)
+		if err != nil || !confignacos.ValidDataID(keyText) {
 			return Config{}, errors.New("NEKIRO_ROUTER_INSTANCE_DIRECTORY_KEY is invalid")
 		}
 		portName, err = required("NEKIRO_ROUTER_INSTANCE_PORT_NAME")
@@ -212,7 +276,22 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		ConfigCenterMaxPayloadBytes:    maxPayload,
 		InstanceDirectoryKey:           directoryKey,
 		InstancePortName:               portName,
+		NacosAPIOrigin:                 nacosOrigin,
+		NacosNamespaceID:               nacosNamespace,
+		NacosConfigGroup:               nacosGroup,
+		NacosAuthMode:                  nacosAuthMode,
+		NacosAccessToken:               nacosToken,
+		NacosResponseLimitBytes:        nacosResponseLimit,
+		NacosRequestTimeout:            time.Duration(nacosTimeoutMS) * time.Millisecond,
 	}, nil
+}
+
+func validateNacosAPIOrigin(value string) error {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Path != "/nacos" || parsed.RawPath != "" || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || parsed.RawFragment != "" {
+		return errors.New("Nacos API origin must be an HTTP(S) origin with the exact /nacos path")
+	}
+	return nil
 }
 
 // LoadDatabaseURL validates the database boundary shared by the serving and

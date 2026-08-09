@@ -16,11 +16,15 @@ import (
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/configdirectory"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/credential"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/ledger"
+	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/nacosdirectory"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/nested"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/resolution"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/routing"
 	a2atransport "github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/transport/a2a"
 	configfile "github.com/NeKiro-project/NeKiro/config_center/file"
+	confignacos "github.com/NeKiro-project/NeKiro/config_center/nacos"
+	"github.com/NeKiro-project/NeKiro/registry"
+	registrynacos "github.com/NeKiro-project/NeKiro/registry/nacos"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -71,19 +75,11 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("router Ledger schema is not ready: %w", err)
 	}
 	var selector a2atransport.TargetSelector
-	var directory *configdirectory.Directory
-	if cfg.InstanceRoutingMode == config.InstanceRoutingConfigCenterFile {
-		reader, openErr := configfile.OpenReader(configfile.ReaderConfig{
-			Root: cfg.ConfigCenterFileRoot, MaxPayloadBytes: cfg.ConfigCenterMaxPayloadBytes, SubscriptionBuffer: 1,
-		})
-		if openErr != nil {
-			return fmt.Errorf("open Router Config Center reader: %w", openErr)
-		}
-		directory, err = configdirectory.New(reader, cfg.InstanceDirectoryKey)
-		if err != nil {
-			_ = reader.Close()
-			return fmt.Errorf("initialize Router instance directory: %w", err)
-		}
+	directory, err := openInstanceDirectory(cfg)
+	if err != nil {
+		return err
+	}
+	if directory != nil {
 		defer directory.Close()
 		selector, err = routing.NewSnapshotSelector(directory, cfg.InstancePortName)
 		if err != nil {
@@ -109,6 +105,63 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	return nil
+}
+
+type instanceDirectory interface {
+	registry.InstanceDirectory
+	api.ReadinessChecker
+}
+
+func openInstanceDirectory(cfg config.Config) (instanceDirectory, error) {
+	switch cfg.InstanceRoutingMode {
+	case config.InstanceRoutingConfigCenterFile:
+		reader, openErr := configfile.OpenReader(configfile.ReaderConfig{
+			Root: cfg.ConfigCenterFileRoot, MaxPayloadBytes: cfg.ConfigCenterMaxPayloadBytes, SubscriptionBuffer: 1,
+		})
+		if openErr != nil {
+			return nil, fmt.Errorf("open Router Config Center reader: %w", openErr)
+		}
+		directory, err := configdirectory.New(reader, cfg.InstanceDirectoryKey)
+		if err != nil {
+			_ = reader.Close()
+			return nil, fmt.Errorf("initialize Router instance directory: %w", err)
+		}
+		return directory, nil
+	case config.InstanceRoutingNacos:
+		nacosClient := newNacosHTTPClient(cfg.NacosRequestTimeout)
+		reader, readerErr := confignacos.NewReader(confignacos.ReaderConfig{
+			APIOrigin: cfg.NacosAPIOrigin, NamespaceID: cfg.NacosNamespaceID, GroupName: cfg.NacosConfigGroup,
+			MaxPayloadBytes: cfg.NacosResponseLimitBytes, AuthMode: cfg.NacosAuthMode,
+			AccessToken: cfg.NacosAccessToken, Executor: nacosClient,
+		})
+		if readerErr != nil {
+			return nil, fmt.Errorf("open Router Nacos Config Center reader: %w", readerErr)
+		}
+		directory, err := nacosdirectory.New(reader, cfg.InstanceDirectoryKey, registrynacos.DirectoryConfig{
+			APIOrigin: cfg.NacosAPIOrigin, NamespaceID: cfg.NacosNamespaceID, PortName: cfg.InstancePortName,
+			MaxResponseBytes: cfg.NacosResponseLimitBytes, AuthMode: cfg.NacosAuthMode,
+			AccessToken: cfg.NacosAccessToken, Executor: nacosClient,
+		})
+		if err != nil {
+			_ = reader.Close()
+			return nil, fmt.Errorf("initialize Router Nacos instance directory: %w", err)
+		}
+		return directory, nil
+	}
+	return nil, nil
+}
+
+func newNacosHTTPClient(timeout time.Duration) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.DisableKeepAlives = true
+	return &http.Client{
+		Transport: transport,
+		Timeout:   timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return errors.New("Nacos redirects are disabled")
+		},
+	}
 }
 
 func migrate(ctx context.Context, direction string) (returnErr error) {
