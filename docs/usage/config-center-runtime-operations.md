@@ -3,10 +3,21 @@
 ## Bootstrap
 
 Router bootstrap must set `NEKIRO_ROUTER_INSTANCE_ROUTING_MODE` to exactly
-`direct` or `config_center_file`. File mode additionally requires an absolute
+`direct`, `config_center_file`, or `nacos`. File mode additionally requires an absolute
 root, a positive payload limit, a strict configuration key, and an instance
 port name. The mapped file must contain a valid
 `router-instance-directory.v1` document before the Router starts.
+
+Nacos mode requires one exact API origin ending in `/nacos`, namespace ID,
+configuration group, authentication mode, response byte limit, request
+timeout, strict directory key, and instance port name. Authentication is
+explicitly `none` or `access_token`; the token must be absent in `none` mode.
+The configured Nacos key must contain a valid
+`router-nacos-instance-bindings.v1` document before the Router starts. Each
+exact Release target maps to one Nacos service, group, and cluster.
+The key must also be a legal Nacos dataId and is passed without translation;
+for example, `router.nacos-bindings` is valid while a slash-separated key is
+rejected during Router bootstrap.
 
 Secrets, database URLs, Router signing keys, and service authentication remain
 bootstrap configuration. They are not accepted in the instance directory.
@@ -16,7 +27,9 @@ bootstrap configuration. They are not accepted in the instance directory.
 1. Publish and authorize the exact Agent Release through the Control Plane.
 2. Build a directory target from the published Release ID, Card digest, Agent
    identity, canonical endpoint, and canonical audience.
-3. Publish the complete replacement document atomically.
+3. In File mode, publish the complete replacement directory document
+   atomically. In Nacos mode, publish the complete binding document after the
+   Agent service has registered its ephemeral instance.
 4. Wait for `/readyz` to return `200` with `{"status":"ok"}`.
 5. Invoke through the Control Plane and verify the normal Ledger lineage.
 
@@ -36,9 +49,10 @@ source; do not switch sources or enable direct routing as an incident fallback.
 
 ## Deletion And Outage
 
-Deleting the configured key, removing the source root, losing permissions, or
-interrupting the File watcher makes the directory unavailable. Readiness
-returns `503`, and affected new Invocations fail with dependency semantics.
+Deleting the configured key, removing the File source root, losing
+permissions, interrupting the File watcher, or making the configured Nacos
+origin unavailable makes the directory unavailable. Readiness returns `503`,
+and affected new Invocations fail with dependency semantics.
 Configuration bytes, paths, source errors, and credentials are never returned
 by readiness.
 
@@ -46,5 +60,7 @@ by readiness.
 
 Restore the same configured source and publish one complete valid document.
 If the File reader has entered a terminal interrupted state, restart the Router
-after repairing the source. Confirm readiness, then issue a new Invocation.
-The Router never retries or reroutes an already failed Invocation.
+after repairing the source. Nacos mode performs a fresh binding read and one
+fresh Naming snapshot for each new Invocation; it has no local cache, retry,
+alternate server, or watch recovery. Confirm readiness, then issue a new
+Invocation. The Router never retries or reroutes an already failed Invocation.
