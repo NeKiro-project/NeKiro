@@ -128,6 +128,25 @@ func TestOpenInstanceDirectoryOwnsEachConfiguredMode(t *testing.T) {
 	if err := nacosDirectory.Close(); err != nil {
 		t.Fatal(err)
 	}
+	observedConfig := nacosConfig
+	observedConfig.NacosObserveEnabled = true
+	observedConfig.NacosGRPCTarget = "nacos.test:9848"
+	observedConfig.NacosGRPCClientIP = "127.0.0.1"
+	observedConfig.NacosGRPCRequestTimeout = time.Second
+	observedConfig.NacosPendingChanges = 4
+	observedConfig.NacosGRPCTransportSecurity = "insecure"
+	observedDirectory, err := openInstanceDirectory(observedConfig)
+	if err != nil || observedDirectory == nil || !observedDirectory.Capabilities().Supports(registry.CapabilityObserve) {
+		t.Fatalf("observed Nacos directory=%v error=%v", observedDirectory, err)
+	}
+	if err := observedDirectory.Close(); err != nil {
+		t.Fatal(err)
+	}
+	invalidGRPC := observedConfig
+	invalidGRPC.NacosGRPCTarget = ""
+	if _, err := openInstanceDirectory(invalidGRPC); err == nil || !strings.Contains(err.Error(), "initialize Router Nacos gRPC executor") {
+		t.Fatalf("invalid Nacos gRPC executor error=%v", err)
+	}
 	invalidReader := nacosConfig
 	invalidReader.NacosAPIOrigin = "http://nacos.test/wrong"
 	if _, err := openInstanceDirectory(invalidReader); err == nil || !strings.Contains(err.Error(), "open Router Nacos Config Center reader") {

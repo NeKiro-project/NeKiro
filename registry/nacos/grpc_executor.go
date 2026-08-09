@@ -86,6 +86,9 @@ func (executor *GRPCExecutor) Subscribe(ctx context.Context, request NamingSubsc
 	}
 	fail := func(stage string) (NamingSubscription, error) {
 		_ = connection.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return NamingSubscription{}, canceled(ctxErr)
+		}
 		return NamingSubscription{}, fmt.Errorf("nacos grpc %s: %w", stage, registry.ErrUnavailable)
 	}
 	client := nacosgrpc.NewRequestClient(connection)
@@ -138,7 +141,11 @@ func (executor *GRPCExecutor) Subscribe(ctx context.Context, request NamingSubsc
 		cancel()
 		return fail("subscribe_response")
 	}
-	push := &grpcPushStream{executor: executor, connection: connection, stream: stream, cancel: cancel, request: request}
+	push := &grpcPushStream{
+		executor: executor, connection: connection, stream: stream, cancel: cancel, request: request,
+		messages: make(chan grpcPushMessage), done: make(chan struct{}),
+	}
+	go push.receive()
 	return NewNamingSubscription(response.ServiceInfo, push)
 }
 
@@ -159,25 +166,58 @@ type grpcPushStream struct {
 	stream     nacosgrpc.BiRequestStream_RequestBiStreamClient
 	cancel     context.CancelFunc
 	request    NamingSubscribeRequest
-	closeOnce  sync.Once
+	messages   chan grpcPushMessage
+	done       chan struct{}
+	sendMu     sync.Mutex
+	finishOnce sync.Once
+	terminal   error
 	closeErr   error
+}
+
+type grpcPushMessage struct {
+	request     *nacosgrpc.Payload
+	serviceInfo []byte
 }
 
 func (stream *grpcPushStream) Next(ctx context.Context) ([]byte, error) {
 	if ctx == nil {
 		return nil, registry.ErrInvalid
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, canceled(err)
+	}
+	select {
+	case <-stream.done:
+		return nil, stream.terminal
+	default:
+	}
+	select {
+	case <-ctx.Done():
+		return nil, canceled(ctx.Err())
+	case <-stream.done:
+		return nil, stream.terminal
+	case message := <-stream.messages:
+		if err := stream.ack(message.request, "NotifySubscriberResponse", true); err != nil {
+			stream.finish(err)
+			return nil, err
+		}
+		return append([]byte(nil), message.serviceInfo...), nil
+	}
+}
+
+func (stream *grpcPushStream) receive() {
 	for {
 		payload, err := stream.stream.Recv()
 		if err != nil {
-			return nil, err
+			stream.finish(err)
+			return
 		}
 		switch payload.GetMetadata().GetType() {
 		case "ClientDetectionRequest":
 			if err := stream.ack(payload, "ClientDetectionResponse", false); err != nil {
-				return nil, err
+				stream.finish(err)
+				return
 			}
-			continue
 		case "NotifySubscriberRequest":
 			var push struct {
 				RequestID   string          `json:"requestId"`
@@ -187,14 +227,17 @@ func (stream *grpcPushStream) Next(ctx context.Context) ([]byte, error) {
 				ServiceInfo json.RawMessage `json:"serviceInfo"`
 			}
 			if json.Unmarshal(payload.GetBody().GetValue(), &push) != nil || push.RequestID == "" || push.Namespace != stream.request.namespaceID || push.ServiceName != stream.request.serviceName || push.GroupName != stream.request.groupName || len(push.ServiceInfo) == 0 {
-				return nil, registry.ErrInvalid
+				stream.finish(registry.ErrInvalid)
+				return
 			}
-			if err := stream.ack(payload, "NotifySubscriberResponse", true); err != nil {
-				return nil, err
+			select {
+			case stream.messages <- grpcPushMessage{request: payload, serviceInfo: append([]byte(nil), push.ServiceInfo...)}:
+			case <-stream.done:
+				return
 			}
-			return append([]byte(nil), push.ServiceInfo...), nil
 		default:
-			return nil, registry.ErrInvalid
+			stream.finish(registry.ErrInvalid)
+			return
 		}
 	}
 }
@@ -206,15 +249,23 @@ func (stream *grpcPushStream) ack(request *nacosgrpc.Payload, responseType strin
 	if json.Unmarshal(request.GetBody().GetValue(), &requestBody) != nil || requestBody.RequestID == "" {
 		return registry.ErrInvalid
 	}
+	stream.sendMu.Lock()
+	defer stream.sendMu.Unlock()
 	return stream.stream.Send(stream.executor.payload(responseType, map[string]any{"resultCode": 200, "errorCode": 0, "success": success, "requestId": requestBody.RequestID}, nil))
 }
 
 func (stream *grpcPushStream) Close() error {
-	stream.closeOnce.Do(func() {
+	stream.finish(registry.ErrClosed)
+	return stream.closeErr
+}
+
+func (stream *grpcPushStream) finish(err error) {
+	stream.finishOnce.Do(func() {
+		stream.terminal = err
+		close(stream.done)
 		stream.cancel()
 		stream.closeErr = stream.connection.Close()
 	})
-	return stream.closeErr
 }
 
 var requestSequence atomic.Uint64
