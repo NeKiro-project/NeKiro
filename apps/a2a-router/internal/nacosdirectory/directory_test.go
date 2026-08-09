@@ -36,7 +36,7 @@ func TestDirectoryJoinsExactBindingAndNacosInstances(t *testing.T) {
 	payload := []byte(`{"schemaVersion":"1","revision":"stack-1","targets":[{"agentId":"runtime-b","agentCardVersion":"1.0.0","releaseId":"release-b","cardDigest":"` + digest + `","canonicalEndpoint":"http://runtime-b:8092/","audience":"http://runtime-b:8092","serviceName":"runtime-b","groupName":"NEKIRO","clusterName":"DEFAULT"}]}`)
 	snapshot, _ := configcenter.NewPresentSnapshot(key, payload, configcenter.UnscopedRevision())
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		_, _ = writer.Write([]byte(`{"hosts":[{"instanceId":"provider-generated","ip":"172.28.0.12","port":8092,"healthy":true,"enabled":true,"ephemeral":true,"clusterName":"DEFAULT","metadata":{"nekiro.instanceId":"runtime-b-directory"}}]}`))
+		_, _ = writer.Write([]byte(`{"name":"NEKIRO@@runtime-b","groupName":"NEKIRO","clusters":"DEFAULT","hosts":[{"instanceId":"provider-generated","ip":"172.28.0.12","port":8092,"healthy":true,"enabled":true,"ephemeral":true,"clusterName":"DEFAULT","metadata":{"nekiro.instanceId":"runtime-b-directory"}}]}`))
 	}))
 	defer server.Close()
 	directory, err := New(stubReader{snapshot: snapshot}, key, registrynacos.DirectoryConfig{APIOrigin: server.URL + "/nacos", NamespaceID: "public", PortName: "a2a", MaxResponseBytes: 4096, AuthMode: registrynacos.AuthNone, Executor: server.Client()})

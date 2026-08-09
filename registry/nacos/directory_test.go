@@ -2,6 +2,7 @@ package nacos
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -32,6 +33,36 @@ type failingReader struct{}
 func (failingReader) Read([]byte) (int, error) { return 0, errors.New("read failed") }
 func (failingReader) Close() error             { return nil }
 
+type invalidGuaranteeSubscriber struct{}
+
+func (invalidGuaranteeSubscriber) Guarantees() NamingSubscriptionGuarantees {
+	return NamingSubscriptionGuarantees{}
+}
+
+func (invalidGuaranteeSubscriber) Subscribe(context.Context, NamingSubscribeRequest) (NamingSubscription, error) {
+	return NamingSubscription{}, registry.ErrUnavailable
+}
+
+func TestDirectoryRejectsImplicitObservationPolicy(t *testing.T) {
+	target := testTarget(t)
+	binding, _ := NewBinding(BindingInput{Target: target, ServiceName: "runtime-b", GroupName: "NEKIRO", ClusterName: "DEFAULT"})
+	base := DirectoryConfig{APIOrigin: "http://nacos.test/nacos", NamespaceID: "public", PortName: "a2a", MaxResponseBytes: 4096, AuthMode: AuthNone, Executor: http.DefaultClient, Bindings: bindingSource{binding: binding}}
+	base.PendingChanges = 1
+	if _, err := NewDirectory(base); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("queue without subscriber error=%v", err)
+	}
+	base.Subscriber = invalidGuaranteeSubscriber{}
+	if _, err := NewDirectory(base); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("invalid subscriber guarantees error=%v", err)
+	}
+	var typedNil *fixtureSubscriber
+	base.PendingChanges = 0
+	base.Subscriber = typedNil
+	if _, err := NewDirectory(base); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("typed nil subscriber error=%v", err)
+	}
+}
+
 func TestDirectoryReadsOneExactNacosSnapshot(t *testing.T) {
 	target := testTarget(t)
 	binding, _ := NewBinding(BindingInput{Target: target, ServiceName: "runtime-b", GroupName: "NEKIRO", ClusterName: "DEFAULT"})
@@ -42,7 +73,7 @@ func TestDirectoryReadsOneExactNacosSnapshot(t *testing.T) {
 		if request.URL.Path != "/nacos/v1/ns/instance/list" || query.Get("serviceName") != "runtime-b" || query.Get("groupName") != "NEKIRO" || query.Get("clusters") != "DEFAULT" || query.Get("namespaceId") != "public" || query.Get("healthyOnly") != "false" {
 			t.Errorf("request URL=%s", request.URL.String())
 		}
-		_, _ = writer.Write([]byte(`{"hosts":[{"instanceId":"provider-generated","ip":"172.28.0.12","port":8092,"healthy":true,"enabled":true,"ephemeral":true,"clusterName":"DEFAULT","metadata":{"nekiro.instanceId":"runtime-b-directory"}}]}`))
+		_, _ = writer.Write([]byte(httpServiceInfo(`{"hosts":[{"instanceId":"provider-generated","ip":"172.28.0.12","port":8092,"healthy":true,"enabled":true,"ephemeral":true,"clusterName":"DEFAULT","metadata":{"nekiro.instanceId":"runtime-b-directory"}}]}`)))
 	}))
 	t.Cleanup(server.Close)
 	directory, err := NewDirectory(DirectoryConfig{APIOrigin: server.URL + "/nacos", NamespaceID: "public", PortName: "a2a", MaxResponseBytes: 4096, AuthMode: AuthNone, Executor: server.Client(), Bindings: bindingSource{binding: binding}})
@@ -59,7 +90,7 @@ func TestDirectoryKeepsUnhealthyNacosInstanceUnavailable(t *testing.T) {
 	target := testTarget(t)
 	binding, _ := NewBinding(BindingInput{Target: target, ServiceName: "runtime-b", GroupName: "NEKIRO", ClusterName: "DEFAULT"})
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		_, _ = writer.Write([]byte(`{"hosts":[{"instanceId":"provider-generated","ip":"172.28.0.12","port":8092,"healthy":false,"enabled":true,"ephemeral":true,"clusterName":"DEFAULT","metadata":{"nekiro.instanceId":"runtime-b-directory"}}]}`))
+		_, _ = writer.Write([]byte(httpServiceInfo(`{"hosts":[{"instanceId":"provider-generated","ip":"172.28.0.12","port":8092,"healthy":false,"enabled":true,"ephemeral":true,"clusterName":"DEFAULT","metadata":{"nekiro.instanceId":"runtime-b-directory"}}]}`)))
 	}))
 	defer server.Close()
 	directory, _ := NewDirectory(DirectoryConfig{APIOrigin: server.URL + "/nacos", NamespaceID: "public", PortName: "a2a", MaxResponseBytes: 4096, AuthMode: AuthNone, Executor: server.Client(), Bindings: bindingSource{binding: binding}})
@@ -86,7 +117,7 @@ func TestDirectoryRejectsProviderIdentityAndFailureChanges(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 				writer.WriteHeader(test.status)
-				_, _ = writer.Write([]byte(test.body))
+				_, _ = writer.Write([]byte(httpServiceInfo(test.body)))
 			}))
 			defer server.Close()
 			directory, _ := NewDirectory(DirectoryConfig{APIOrigin: server.URL + "/nacos", NamespaceID: "public", PortName: "a2a", MaxResponseBytes: 4096, AuthMode: AuthNone, Executor: server.Client(), Bindings: bindingSource{binding: binding}})
@@ -228,7 +259,7 @@ func TestDirectoryHandlesMissingEmptyAndIPv6Snapshots(t *testing.T) {
 					t.Errorf("access token missing")
 				}
 				writer.WriteHeader(test.status)
-				_, _ = writer.Write([]byte(test.body))
+				_, _ = writer.Write([]byte(httpServiceInfo(test.body)))
 			}))
 			defer server.Close()
 			directory, _ := NewDirectory(DirectoryConfig{APIOrigin: server.URL + "/nacos", NamespaceID: "public", PortName: "a2a", MaxResponseBytes: 4096, AuthMode: AuthAccessToken, AccessToken: "token-a", Executor: server.Client(), Bindings: bindingSource{binding: binding}})
@@ -244,6 +275,41 @@ func TestDirectoryHandlesMissingEmptyAndIPv6Snapshots(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSnapshotRejectsMismatchedServiceInfoIdentity(t *testing.T) {
+	target := testTarget(t)
+	binding, _ := NewBinding(BindingInput{Target: target, ServiceName: "runtime-b", GroupName: "NEKIRO", ClusterName: "DEFAULT"})
+	for name, payload := range map[string]string{
+		"missing":       `{"hosts":[]}`,
+		"wrong service": `{"name":"runtime-a","groupName":"NEKIRO","clusters":"DEFAULT","hosts":[]}`,
+		"wrong group":   `{"name":"runtime-b","groupName":"OTHER","clusters":"DEFAULT","hosts":[]}`,
+		"wrong cluster": `{"name":"runtime-b","groupName":"NEKIRO","clusters":"OTHER","hosts":[]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := snapshotFromPayload([]byte(payload), binding, "a2a", 0); !errors.Is(err, registry.ErrInvalid) {
+				t.Fatalf("snapshot error=%v", err)
+			}
+		})
+	}
+	for _, serviceName := range []string{"runtime-b", "NEKIRO@@runtime-b"} {
+		payload := `{"name":"` + serviceName + `","groupName":"NEKIRO","clusters":"DEFAULT","hosts":[]}`
+		if _, err := snapshotFromPayload([]byte(payload), binding, "a2a", 0); err != nil {
+			t.Fatalf("service name %q error=%v", serviceName, err)
+		}
+	}
+}
+
+func httpServiceInfo(body string) string {
+	var document map[string]any
+	if json.Unmarshal([]byte(body), &document) != nil {
+		return body
+	}
+	document["name"] = "NEKIRO@@runtime-b"
+	document["groupName"] = "NEKIRO"
+	document["clusters"] = "DEFAULT"
+	encoded, _ := json.Marshal(document)
+	return string(encoded)
 }
 
 func testTarget(t *testing.T) registry.ReleaseTarget {
