@@ -27,6 +27,7 @@ import (
 	registrynacos "github.com/NeKiro-project/NeKiro/registry/nacos"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -137,10 +138,28 @@ func openInstanceDirectory(cfg config.Config) (instanceDirectory, error) {
 		if readerErr != nil {
 			return nil, fmt.Errorf("open Router Nacos Config Center reader: %w", readerErr)
 		}
+		var subscriber registrynacos.NamingSubscriptionExecutor
+		if cfg.NacosObserveEnabled {
+			var headers map[string]string
+			if cfg.NacosAuthMode == config.NacosAuthAccessToken {
+				headers = map[string]string{"accessToken": cfg.NacosAccessToken}
+			}
+			grpcExecutor, grpcErr := registrynacos.NewGRPCExecutor(registrynacos.GRPCExecutorConfig{
+				Target: cfg.NacosGRPCTarget, ClientIP: cfg.NacosGRPCClientIP,
+				RequestTimeout: cfg.NacosGRPCRequestTimeout, TransportCredentials: insecure.NewCredentials(),
+				RequestHeaders: headers,
+			})
+			if grpcErr != nil {
+				_ = reader.Close()
+				return nil, fmt.Errorf("initialize Router Nacos gRPC executor: %w", grpcErr)
+			}
+			subscriber = grpcExecutor
+		}
 		directory, err := nacosdirectory.New(reader, cfg.InstanceDirectoryKey, registrynacos.DirectoryConfig{
 			APIOrigin: cfg.NacosAPIOrigin, NamespaceID: cfg.NacosNamespaceID, PortName: cfg.InstancePortName,
 			MaxResponseBytes: cfg.NacosResponseLimitBytes, AuthMode: cfg.NacosAuthMode,
 			AccessToken: cfg.NacosAccessToken, Executor: nacosClient,
+			Subscriber: subscriber, PendingChanges: cfg.NacosPendingChanges,
 		})
 		if err != nil {
 			_ = reader.Close()
