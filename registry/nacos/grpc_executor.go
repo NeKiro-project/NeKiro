@@ -85,8 +85,9 @@ func (executor *GRPCExecutor) Subscribe(ctx context.Context, request NamingSubsc
 		return NamingSubscription{}, registry.ErrUnavailable
 	}
 	fail := func(stage string) (NamingSubscription, error) {
+		ctxErr := ctx.Err()
 		_ = connection.Close()
-		if ctxErr := ctx.Err(); ctxErr != nil {
+		if ctxErr != nil {
 			return NamingSubscription{}, canceled(ctxErr)
 		}
 		return NamingSubscription{}, fmt.Errorf("nacos grpc %s: %w", stage, registry.ErrUnavailable)
