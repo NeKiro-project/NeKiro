@@ -21,6 +21,16 @@ prefix, maps to `nekiro.key.v1.` followed by the unpadded Base64URL encoding of
 the complete key. This mapping is collision-free; the existing
 `router.nacos-bindings` dataId remains unchanged.
 
+Nacos Naming observation is optional and disabled by default. Enabling it
+requires all of `NEKIRO_ROUTER_NACOS_GRPC_TARGET`,
+`NEKIRO_ROUTER_NACOS_GRPC_CLIENT_IP`,
+`NEKIRO_ROUTER_NACOS_GRPC_REQUEST_TIMEOUT_MS`,
+`NEKIRO_ROUTER_NACOS_PENDING_CHANGES`, and the explicit
+`NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY=insecure` together with
+`NEKIRO_ROUTER_NACOS_OBSERVE_ENABLED=true`. Partial gRPC configuration is
+rejected. The executor opens one connection and never retries, reconnects,
+polls, switches authority, or serves cached topology after failure.
+
 Secrets, database URLs, Router signing keys, and service authentication remain
 bootstrap configuration. They are not accepted in the instance directory.
 

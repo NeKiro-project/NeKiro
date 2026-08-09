@@ -177,6 +177,68 @@ func TestLoadFromRequiresExplicitNacosRoutingInputs(t *testing.T) {
 	if loaded.NacosAPIOrigin != env["NEKIRO_ROUTER_NACOS_API_ORIGIN"] || loaded.NacosRequestTimeout != 3*time.Second {
 		t.Fatalf("Nacos config=%#v", loaded)
 	}
+	observed := validNacosEnv()
+	observed["NEKIRO_ROUTER_NACOS_OBSERVE_ENABLED"] = "true"
+	observed["NEKIRO_ROUTER_NACOS_GRPC_TARGET"] = "nacos:9848"
+	observed["NEKIRO_ROUTER_NACOS_GRPC_CLIENT_IP"] = "172.30.88.12"
+	observed["NEKIRO_ROUTER_NACOS_GRPC_REQUEST_TIMEOUT_MS"] = "5000"
+	observed["NEKIRO_ROUTER_NACOS_PENDING_CHANGES"] = "8"
+	observed["NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY"] = "insecure"
+	loaded, err = LoadFrom(func(name string) (string, bool) { value, ok := observed[name]; return value, ok })
+	if err != nil || !loaded.NacosObserveEnabled || loaded.NacosGRPCTarget != "nacos:9848" || loaded.NacosPendingChanges != 8 {
+		t.Fatalf("Nacos observation config=%#v error=%v", loaded, err)
+	}
+	disabledWithGRPC := validNacosEnv()
+	disabledWithGRPC["NEKIRO_ROUTER_NACOS_GRPC_TARGET"] = "nacos:9848"
+	if _, err := LoadFrom(func(name string) (string, bool) { value, ok := disabledWithGRPC[name]; return value, ok }); err == nil {
+		t.Fatal("Nacos snapshot-only mode accepted gRPC configuration")
+	}
+	for _, name := range []string{
+		"NEKIRO_ROUTER_NACOS_GRPC_CLIENT_IP",
+		"NEKIRO_ROUTER_NACOS_GRPC_REQUEST_TIMEOUT_MS",
+		"NEKIRO_ROUTER_NACOS_PENDING_CHANGES",
+		"NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY",
+	} {
+		t.Run("snapshot only "+name, func(t *testing.T) {
+			candidate := validNacosEnv()
+			candidate[name] = "configured"
+			if _, err := LoadFrom(func(key string) (string, bool) { value, ok := candidate[key]; return value, ok }); err == nil {
+				t.Fatalf("snapshot-only mode accepted %s", name)
+			}
+		})
+	}
+	for _, test := range []struct {
+		name  string
+		key   string
+		value *string
+	}{
+		{name: "observe value", key: "NEKIRO_ROUTER_NACOS_OBSERVE_ENABLED", value: ptr("yes")},
+		{name: "missing target", key: "NEKIRO_ROUTER_NACOS_GRPC_TARGET"},
+		{name: "invalid target", key: "NEKIRO_ROUTER_NACOS_GRPC_TARGET", value: ptr("https://nacos:9848")},
+		{name: "missing client IP", key: "NEKIRO_ROUTER_NACOS_GRPC_CLIENT_IP"},
+		{name: "invalid client IP", key: "NEKIRO_ROUTER_NACOS_GRPC_CLIENT_IP", value: ptr("localhost")},
+		{name: "zero gRPC timeout", key: "NEKIRO_ROUTER_NACOS_GRPC_REQUEST_TIMEOUT_MS", value: ptr("0")},
+		{name: "zero pending changes", key: "NEKIRO_ROUTER_NACOS_PENDING_CHANGES", value: ptr("0")},
+		{name: "unsupported security", key: "NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY", value: ptr("tls")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := validNacosEnv()
+			candidate["NEKIRO_ROUTER_NACOS_OBSERVE_ENABLED"] = "true"
+			candidate["NEKIRO_ROUTER_NACOS_GRPC_TARGET"] = "nacos:9848"
+			candidate["NEKIRO_ROUTER_NACOS_GRPC_CLIENT_IP"] = "172.30.88.12"
+			candidate["NEKIRO_ROUTER_NACOS_GRPC_REQUEST_TIMEOUT_MS"] = "5000"
+			candidate["NEKIRO_ROUTER_NACOS_PENDING_CHANGES"] = "8"
+			candidate["NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY"] = "insecure"
+			if test.value == nil {
+				delete(candidate, test.key)
+			} else {
+				candidate[test.key] = *test.value
+			}
+			if _, err := LoadFrom(func(key string) (string, bool) { value, ok := candidate[key]; return value, ok }); err == nil {
+				t.Fatalf("invalid observation config accepted")
+			}
+		})
+	}
 	env["NEKIRO_ROUTER_NACOS_ACCESS_TOKEN"] = "unexpected"
 	if _, err := LoadFrom(func(name string) (string, bool) { value, ok := env[name]; return value, ok }); err == nil {
 		t.Fatal("Nacos none auth accepted an access token")

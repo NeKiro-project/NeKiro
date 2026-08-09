@@ -36,9 +36,12 @@ would be polling rather than Naming observation.
 6. Invalid or oversized push data, delivery overflow, stream EOF, or transport
    failure terminates the observation. There is no resubscription or snapshot
    fallback.
-7. This decision does not approve the stock Nacos SDK client. A production
-   gRPC executor satisfying these guarantees and Router composition remain
-   required before the #89 Nacos watch task is complete.
+7. This decision does not approve the stock Nacos SDK client. Core provides a
+   minimal executor over the official published protobuf API. It performs one
+   explicit TCP connection, ServerCheck, push-stream setup, and Subscribe
+   request; it ACKs client detection and Naming pushes and refuses every
+   reconnect attempt. Router composition is explicit and disabled unless all
+   Naming gRPC observation bootstrap fields are present.
 
 ## Consequences
 
@@ -46,7 +49,9 @@ would be polling rather than Naming observation.
   raw initial/push boundary a production executor must implement.
 - Transport recovery policy cannot leak into Registry through a generic SDK
   callback.
-- The current Router Nacos mode remains snapshot-only.
+- The executor is verified against Nacos 2.5.1 as well as an in-process
+  protocol fixture. Existing Router deployments remain snapshot-only; an
+  explicitly enabled deployment advertises Naming observation.
 
 ## Fallback Delta
 

@@ -58,6 +58,12 @@ type Config struct {
 	NacosAccessToken               string
 	NacosResponseLimitBytes        int64
 	NacosRequestTimeout            time.Duration
+	NacosObserveEnabled            bool
+	NacosGRPCTarget                string
+	NacosGRPCClientIP              string
+	NacosGRPCRequestTimeout        time.Duration
+	NacosPendingChanges            int
+	NacosGRPCTransportSecurity     string
 }
 
 type jsonFrame struct {
@@ -169,7 +175,9 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, err
 	}
 	var fileRoot, portName, nacosOrigin, nacosNamespace, nacosGroup, nacosAuthMode, nacosToken string
-	var maxPayload, nacosResponseLimit, nacosTimeoutMS int64
+	var nacosGRPCTarget, nacosGRPCClientIP, nacosGRPCSecurity string
+	var maxPayload, nacosResponseLimit, nacosTimeoutMS, nacosGRPCTimeoutMS, nacosPendingChanges int64
+	var nacosObserve bool
 	var directoryKey configcenter.Key
 	switch routingMode {
 	case InstanceRoutingDirect:
@@ -250,6 +258,42 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		if err := contracts.ValidateRouterInstancePortNameV1(portName); err != nil {
 			return Config{}, errors.New("NEKIRO_ROUTER_INSTANCE_PORT_NAME is invalid")
 		}
+		if observeText, exists := lookup("NEKIRO_ROUTER_NACOS_OBSERVE_ENABLED"); exists {
+			if observeText != "true" && observeText != "false" {
+				return Config{}, errors.New("NEKIRO_ROUTER_NACOS_OBSERVE_ENABLED is invalid")
+			}
+			nacosObserve = observeText == "true"
+		}
+		grpcNames := []string{"NEKIRO_ROUTER_NACOS_GRPC_TARGET", "NEKIRO_ROUTER_NACOS_GRPC_CLIENT_IP", "NEKIRO_ROUTER_NACOS_GRPC_REQUEST_TIMEOUT_MS", "NEKIRO_ROUTER_NACOS_PENDING_CHANGES", "NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY"}
+		if !nacosObserve {
+			for _, name := range grpcNames {
+				if _, exists := lookup(name); exists {
+					return Config{}, errors.New(name + " requires Nacos observation")
+				}
+			}
+		} else {
+			nacosGRPCTarget, err = required(grpcNames[0])
+			if err != nil || validateListenAddress(nacosGRPCTarget) != nil {
+				return Config{}, errors.New(grpcNames[0] + " is invalid")
+			}
+			nacosGRPCClientIP, err = required(grpcNames[1])
+			parsedClientIP := net.ParseIP(nacosGRPCClientIP)
+			if err != nil || parsedClientIP == nil || parsedClientIP.String() != nacosGRPCClientIP {
+				return Config{}, errors.New(grpcNames[1] + " is invalid")
+			}
+			nacosGRPCTimeoutMS, err = requiredNumber(grpcNames[2], contracts.RuntimeDeadlineMinimumMS, contracts.RuntimeDeadlineMaximumMS)
+			if err != nil {
+				return Config{}, err
+			}
+			nacosPendingChanges, err = requiredNumber(grpcNames[3], 1, 1024)
+			if err != nil {
+				return Config{}, err
+			}
+			nacosGRPCSecurity, err = required(grpcNames[4])
+			if err != nil || nacosGRPCSecurity != "insecure" {
+				return Config{}, errors.New(grpcNames[4] + " is unsupported")
+			}
+		}
 	default:
 		return Config{}, errors.New("NEKIRO_ROUTER_INSTANCE_ROUTING_MODE is unsupported")
 	}
@@ -282,6 +326,12 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		NacosAccessToken:               nacosToken,
 		NacosResponseLimitBytes:        nacosResponseLimit,
 		NacosRequestTimeout:            time.Duration(nacosTimeoutMS) * time.Millisecond,
+		NacosObserveEnabled:            nacosObserve,
+		NacosGRPCTarget:                nacosGRPCTarget,
+		NacosGRPCClientIP:              nacosGRPCClientIP,
+		NacosGRPCRequestTimeout:        time.Duration(nacosGRPCTimeoutMS) * time.Millisecond,
+		NacosPendingChanges:            int(nacosPendingChanges),
+		NacosGRPCTransportSecurity:     nacosGRPCSecurity,
 	}, nil
 }
 
