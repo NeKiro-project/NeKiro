@@ -63,6 +63,7 @@ type Config struct {
 	NacosGRPCClientIP              string
 	NacosGRPCRequestTimeout        time.Duration
 	NacosPendingChanges            int
+	NacosMaxObservations           int
 	NacosGRPCTransportSecurity     string
 }
 
@@ -176,7 +177,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	}
 	var fileRoot, portName, nacosOrigin, nacosNamespace, nacosGroup, nacosAuthMode, nacosToken string
 	var nacosGRPCTarget, nacosGRPCClientIP, nacosGRPCSecurity string
-	var maxPayload, nacosResponseLimit, nacosTimeoutMS, nacosGRPCTimeoutMS, nacosPendingChanges int64
+	var maxPayload, nacosResponseLimit, nacosTimeoutMS, nacosGRPCTimeoutMS, nacosPendingChanges, nacosMaxObservations int64
 	var nacosObserve bool
 	var directoryKey configcenter.Key
 	switch routingMode {
@@ -264,7 +265,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 			}
 			nacosObserve = observeText == "true"
 		}
-		grpcNames := []string{"NEKIRO_ROUTER_NACOS_GRPC_TARGET", "NEKIRO_ROUTER_NACOS_GRPC_CLIENT_IP", "NEKIRO_ROUTER_NACOS_GRPC_REQUEST_TIMEOUT_MS", "NEKIRO_ROUTER_NACOS_PENDING_CHANGES", "NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY"}
+		grpcNames := []string{"NEKIRO_ROUTER_NACOS_GRPC_TARGET", "NEKIRO_ROUTER_NACOS_GRPC_CLIENT_IP", "NEKIRO_ROUTER_NACOS_GRPC_REQUEST_TIMEOUT_MS", "NEKIRO_ROUTER_NACOS_PENDING_CHANGES", "NEKIRO_ROUTER_NACOS_MAX_OBSERVATIONS", "NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY"}
 		if !nacosObserve {
 			for _, name := range grpcNames {
 				if _, exists := lookup(name); exists {
@@ -289,9 +290,13 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 			if err != nil {
 				return Config{}, err
 			}
-			nacosGRPCSecurity, err = required(grpcNames[4])
+			nacosMaxObservations, err = requiredNumber(grpcNames[4], 1, 65536)
+			if err != nil {
+				return Config{}, err
+			}
+			nacosGRPCSecurity, err = required(grpcNames[5])
 			if err != nil || nacosGRPCSecurity != "insecure" {
-				return Config{}, errors.New(grpcNames[4] + " is unsupported")
+				return Config{}, errors.New(grpcNames[5] + " is unsupported")
 			}
 		}
 	default:
@@ -331,6 +336,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		NacosGRPCClientIP:              nacosGRPCClientIP,
 		NacosGRPCRequestTimeout:        time.Duration(nacosGRPCTimeoutMS) * time.Millisecond,
 		NacosPendingChanges:            int(nacosPendingChanges),
+		NacosMaxObservations:           int(nacosMaxObservations),
 		NacosGRPCTransportSecurity:     nacosGRPCSecurity,
 	}, nil
 }

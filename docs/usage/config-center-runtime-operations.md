@@ -25,11 +25,16 @@ Nacos Naming observation is optional and disabled by default. Enabling it
 requires all of `NEKIRO_ROUTER_NACOS_GRPC_TARGET`,
 `NEKIRO_ROUTER_NACOS_GRPC_CLIENT_IP`,
 `NEKIRO_ROUTER_NACOS_GRPC_REQUEST_TIMEOUT_MS`,
-`NEKIRO_ROUTER_NACOS_PENDING_CHANGES`, and the explicit
+`NEKIRO_ROUTER_NACOS_PENDING_CHANGES`,
+`NEKIRO_ROUTER_NACOS_MAX_OBSERVATIONS`, and the explicit
 `NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY=insecure` together with
 `NEKIRO_ROUTER_NACOS_OBSERVE_ENABLED=true`. Partial gRPC configuration is
 rejected. The executor opens one connection and never retries, reconnects,
-polls, switches authority, or serves cached topology after failure.
+polls, switches authority, or serves cached topology after failure. The first
+Invocation for an exact Release atomically establishes its observation and
+uses the initial snapshot. Later Invocations read the latest immutable watched
+snapshot without issuing a Naming list request. One observation is retained
+per exact Release until Router shutdown, bounded by the configured maximum.
 
 Secrets, database URLs, Router signing keys, and service authentication remain
 bootstrap configuration. They are not accepted in the instance directory.
@@ -72,7 +77,8 @@ by readiness.
 
 Restore the same configured source and publish one complete valid document.
 If the File reader has entered a terminal interrupted state, restart the Router
-after repairing the source. Nacos mode performs a fresh binding read and one
-fresh Naming snapshot for each new Invocation; it has no local cache, retry,
-alternate server, or watch recovery. Confirm readiness, then issue a new
-Invocation. The Router never retries or reroutes an already failed Invocation.
+after repairing the source. Nacos observation mode does not recover a terminal
+watch. Restart the Router after repairing the same configured source to
+establish fresh observations. It has no stale snapshot fallback, retry,
+polling, or alternate server. The Router never retries or reroutes an already
+failed Invocation.

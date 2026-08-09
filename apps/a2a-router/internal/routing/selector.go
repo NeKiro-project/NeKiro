@@ -27,14 +27,7 @@ func NewSnapshotSelector(directory registry.InstanceDirectory, portName string) 
 }
 
 func (selector *SnapshotSelector) Select(ctx context.Context, target a2a.Target, _ a2a.ContextHeaders) (a2a.Target, error) {
-	canonicalEndpoint, err := canonicalEndpoint(target.Endpoint)
-	if err != nil {
-		return a2a.Target{}, err
-	}
-	release, err := registry.NewReleaseTarget(registry.ReleaseTargetInput{
-		AgentID: target.AgentID, AgentCardVersion: target.Version, ReleaseID: target.ReleaseID,
-		CardDigest: target.CardDigest, CanonicalEndpoint: canonicalEndpoint, Audience: target.Audience,
-	})
+	release, err := releaseTarget(target)
 	if err != nil {
 		return a2a.Target{}, err
 	}
@@ -42,13 +35,28 @@ func (selector *SnapshotSelector) Select(ctx context.Context, target a2a.Target,
 	if err != nil {
 		return a2a.Target{}, err
 	}
+	return selectSnapshotTarget(target, snapshot, selector.portName)
+}
+
+func releaseTarget(target a2a.Target) (registry.ReleaseTarget, error) {
+	canonicalEndpoint, err := canonicalEndpoint(target.Endpoint)
+	if err != nil {
+		return registry.ReleaseTarget{}, err
+	}
+	return registry.NewReleaseTarget(registry.ReleaseTargetInput{
+		AgentID: target.AgentID, AgentCardVersion: target.Version, ReleaseID: target.ReleaseID,
+		CardDigest: target.CardDigest, CanonicalEndpoint: canonicalEndpoint, Audience: target.Audience,
+	})
+}
+
+func selectSnapshotTarget(target a2a.Target, snapshot registry.InstanceSnapshot, portName string) (a2a.Target, error) {
 	var selected *registry.NetworkEndpoint
 	for _, instance := range snapshot.Instances() {
 		if instance.State() != registry.InstanceStateReady {
 			continue
 		}
 		for _, endpoint := range instance.Endpoints() {
-			if endpoint.PortName() != selector.portName || endpoint.Protocol() != registry.TransportProtocolTCP {
+			if endpoint.PortName() != portName || endpoint.Protocol() != registry.TransportProtocolTCP {
 				continue
 			}
 			if selected != nil {

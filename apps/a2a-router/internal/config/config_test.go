@@ -183,10 +183,15 @@ func TestLoadFromRequiresExplicitNacosRoutingInputs(t *testing.T) {
 	observed["NEKIRO_ROUTER_NACOS_GRPC_CLIENT_IP"] = "172.30.88.12"
 	observed["NEKIRO_ROUTER_NACOS_GRPC_REQUEST_TIMEOUT_MS"] = "5000"
 	observed["NEKIRO_ROUTER_NACOS_PENDING_CHANGES"] = "8"
+	observed["NEKIRO_ROUTER_NACOS_MAX_OBSERVATIONS"] = "1024"
 	observed["NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY"] = "insecure"
 	loaded, err = LoadFrom(func(name string) (string, bool) { value, ok := observed[name]; return value, ok })
-	if err != nil || !loaded.NacosObserveEnabled || loaded.NacosGRPCTarget != "nacos:9848" || loaded.NacosPendingChanges != 8 {
+	if err != nil || !loaded.NacosObserveEnabled || loaded.NacosGRPCTarget != "nacos:9848" || loaded.NacosPendingChanges != 8 || loaded.NacosMaxObservations != 1024 {
 		t.Fatalf("Nacos observation config=%#v error=%v", loaded, err)
+	}
+	delete(observed, "NEKIRO_ROUTER_NACOS_MAX_OBSERVATIONS")
+	if _, err := LoadFrom(func(name string) (string, bool) { value, ok := observed[name]; return value, ok }); err == nil {
+		t.Fatal("Nacos observation accepted a missing observation limit")
 	}
 	disabledWithGRPC := validNacosEnv()
 	disabledWithGRPC["NEKIRO_ROUTER_NACOS_GRPC_TARGET"] = "nacos:9848"
