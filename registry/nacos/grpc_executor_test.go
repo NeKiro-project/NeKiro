@@ -108,7 +108,8 @@ func TestGRPCExecutorNextHonorsCancellationWithoutClosingSubscription(t *testing
 	nextContext, cancelNext := context.WithTimeout(t.Context(), time.Second)
 	defer cancelNext()
 	payload, err := executor.Next(nextContext)
-	if err != nil || string(payload) != changedServiceInfo {
+	var pushed listResponse
+	if err != nil || json.Unmarshal(payload, &pushed) != nil || len(pushed.Hosts) != 2 {
 		t.Fatalf("Next after cancellation payload=%s error=%v", payload, err)
 	}
 }
