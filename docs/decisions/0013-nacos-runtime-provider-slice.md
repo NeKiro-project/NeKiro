@@ -61,7 +61,8 @@ fallback policy unless separately approved.
   to File, direct routing, a cached response, or another endpoint.
 - This slice's Nacos adapters advertise only snapshot capability. ADR 0014
   subsequently adds explicit Config Center watch capability for #88; Naming
-  watch conformance remains separately visible in #89.
+  watch conformance remains separately visible in #89. ADR 0015 subsequently
+  defines its strict push-executor boundary without approving SDK recovery.
 
 ## Fallback Delta
 

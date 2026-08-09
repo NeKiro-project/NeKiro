@@ -32,6 +32,35 @@ type failingReader struct{}
 func (failingReader) Read([]byte) (int, error) { return 0, errors.New("read failed") }
 func (failingReader) Close() error             { return nil }
 
+type invalidGuaranteeSubscriber struct{}
+
+func (invalidGuaranteeSubscriber) Guarantees() NamingSubscriptionGuarantees {
+	return NamingSubscriptionGuarantees{}
+}
+
+func (invalidGuaranteeSubscriber) Subscribe(context.Context, NamingSubscribeRequest) (NamingSubscription, error) {
+	return NamingSubscription{}, registry.ErrUnavailable
+}
+
+func TestDirectoryRejectsImplicitObservationPolicy(t *testing.T) {
+	target := testTarget(t)
+	binding, _ := NewBinding(BindingInput{Target: target, ServiceName: "runtime-b", GroupName: "NEKIRO", ClusterName: "DEFAULT"})
+	base := DirectoryConfig{APIOrigin: "http://nacos.test/nacos", NamespaceID: "public", PortName: "a2a", MaxResponseBytes: 4096, AuthMode: AuthNone, Executor: http.DefaultClient, Bindings: bindingSource{binding: binding}}
+	base.PendingChanges = 1
+	if _, err := NewDirectory(base); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("queue without subscriber error=%v", err)
+	}
+	base.Subscriber = invalidGuaranteeSubscriber{}
+	if _, err := NewDirectory(base); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("invalid subscriber guarantees error=%v", err)
+	}
+	var typedNil *fixtureSubscriber
+	base.Subscriber = typedNil
+	if _, err := NewDirectory(base); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("typed nil subscriber error=%v", err)
+	}
+}
+
 func TestDirectoryReadsOneExactNacosSnapshot(t *testing.T) {
 	target := testTarget(t)
 	binding, _ := NewBinding(BindingInput{Target: target, ServiceName: "runtime-b", GroupName: "NEKIRO", ClusterName: "DEFAULT"})

@@ -1,4 +1,4 @@
-// Package nacos implements snapshot-only Nacos instance discovery.
+// Package nacos implements Nacos instance discovery.
 package nacos
 
 import (
@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -70,6 +71,8 @@ type DirectoryConfig struct {
 	AccessToken      string
 	Executor         RequestExecutor
 	Bindings         BindingSource
+	Subscriber       NamingSubscriptionExecutor
+	PendingChanges   int
 }
 
 type Directory struct {
@@ -81,9 +84,12 @@ type Directory struct {
 	accessToken      string
 	executor         RequestExecutor
 	bindings         BindingSource
+	subscriber       NamingSubscriptionExecutor
+	pendingChanges   int
 	capabilities     registry.Capabilities
 	mu               sync.Mutex
 	closed           bool
+	sessions         map[*observationSession]struct{}
 }
 
 func NewDirectory(config DirectoryConfig) (*Directory, error) {
@@ -91,7 +97,11 @@ func NewDirectory(config DirectoryConfig) (*Directory, error) {
 	if err != nil {
 		return nil, err
 	}
-	capabilities, err := registry.NewCapabilities(registry.CapabilitySnapshot)
+	capabilityValues := []registry.Capability{registry.CapabilitySnapshot}
+	if config.Subscriber != nil {
+		capabilityValues = append(capabilityValues, registry.CapabilityObserve)
+	}
+	capabilities, err := registry.NewCapabilities(capabilityValues...)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +109,8 @@ func NewDirectory(config DirectoryConfig) (*Directory, error) {
 		origin: origin, namespaceID: config.NamespaceID, portName: config.PortName,
 		maxResponseBytes: config.MaxResponseBytes, authMode: config.AuthMode,
 		accessToken: config.AccessToken, executor: config.Executor, bindings: config.Bindings,
-		capabilities: capabilities,
+		subscriber: config.Subscriber, pendingChanges: config.PendingChanges,
+		capabilities: capabilities, sessions: make(map[*observationSession]struct{}),
 	}, nil
 }
 
@@ -163,12 +174,113 @@ func (directory *Directory) Snapshot(ctx context.Context, target registry.Releas
 	if int64(len(data)) > directory.maxResponseBytes {
 		return registry.InstanceSnapshot{}, registry.ErrInvalid
 	}
-	instances, err := decodeInstances(data, binding, directory.portName)
+	return snapshotFromPayload(data, binding, directory.portName, 0)
+}
+
+func (directory *Directory) Observe(ctx context.Context, target registry.ReleaseTarget) (registry.InstanceObservation, error) {
+	if ctx == nil || target.Validate() != nil {
+		return registry.InstanceObservation{}, registry.ErrInvalid
+	}
+	if err := ctx.Err(); err != nil {
+		return registry.InstanceObservation{}, canceled(err)
+	}
+	directory.mu.Lock()
+	closed := directory.closed
+	subscriber := directory.subscriber
+	directory.mu.Unlock()
+	if closed {
+		return registry.InstanceObservation{}, registry.ErrClosed
+	}
+	if subscriber == nil {
+		return registry.InstanceObservation{}, registry.ErrInvalid
+	}
+	binding, err := directory.bindings.Binding(ctx, target)
+	if err != nil {
+		return registry.InstanceObservation{}, err
+	}
+	if !binding.target.Equal(target) {
+		return registry.InstanceObservation{}, registry.ErrInvalid
+	}
+	source, err := subscriber.Subscribe(ctx, newNamingSubscribeRequest(directory.namespaceID, binding))
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return registry.InstanceObservation{}, canceled(ctxErr)
+		}
+		return registry.InstanceObservation{}, safeSubscribeError(err)
+	}
+	initialPayload := source.InitialPayload()
+	if int64(len(initialPayload)) > directory.maxResponseBytes {
+		_ = source.Close()
+		return registry.InstanceObservation{}, registry.ErrInvalid
+	}
+	initial, err := snapshotFromPayload(initialPayload, binding, directory.portName, 0)
+	if err != nil {
+		_ = source.Close()
+		return registry.InstanceObservation{}, err
+	}
+	watch, publisher, err := registry.NewInstanceWatch(directory.pendingChanges)
+	if err != nil {
+		_ = source.Close()
+		return registry.InstanceObservation{}, err
+	}
+	session := newObservationSession(directory, target, binding, initial, source, watch, publisher)
+	if !directory.registerSession(session) {
+		_ = source.Close()
+		publisher.Terminate(registry.ErrClosed)
+		return registry.InstanceObservation{}, registry.ErrClosed
+	}
+	if err := ctx.Err(); err != nil {
+		_ = session.close()
+		return registry.InstanceObservation{}, canceled(err)
+	}
+	go session.run()
+	return registry.NewInstanceObservation(initial, session.watch)
+}
+
+func (directory *Directory) Capabilities() registry.Capabilities { return directory.capabilities }
+
+func (directory *Directory) Close() error {
+	directory.mu.Lock()
+	if directory.closed {
+		directory.mu.Unlock()
+		return nil
+	}
+	directory.closed = true
+	sessions := make([]*observationSession, 0, len(directory.sessions))
+	for session := range directory.sessions {
+		sessions = append(sessions, session)
+	}
+	directory.sessions = make(map[*observationSession]struct{})
+	directory.mu.Unlock()
+	for _, session := range sessions {
+		_ = session.close()
+	}
+	return nil
+}
+
+func (directory *Directory) registerSession(session *observationSession) bool {
+	directory.mu.Lock()
+	defer directory.mu.Unlock()
+	if directory.closed {
+		return false
+	}
+	directory.sessions[session] = struct{}{}
+	return true
+}
+
+func (directory *Directory) unregisterSession(session *observationSession) {
+	directory.mu.Lock()
+	delete(directory.sessions, session)
+	directory.mu.Unlock()
+}
+
+func snapshotFromPayload(data []byte, binding Binding, portName string, localOrder uint64) (registry.InstanceSnapshot, error) {
+	instances, err := decodeInstances(data, binding, portName)
 	if err != nil {
 		return registry.InstanceSnapshot{}, err
 	}
 	digest := sha256.Sum256(data)
-	revision, err := registry.NewRevision(registry.RevisionInput{SourceTokens: []string{hex.EncodeToString(digest[:])}})
+	revision, err := registry.NewRevision(registry.RevisionInput{SourceTokens: []string{hex.EncodeToString(digest[:])}, LocalOrder: localOrder})
 	if err != nil {
 		return registry.InstanceSnapshot{}, registry.ErrInvalid
 	}
@@ -176,20 +288,7 @@ func (directory *Directory) Snapshot(ctx context.Context, target registry.Releas
 	if len(instances) != 0 {
 		state = registry.SnapshotStatePopulated
 	}
-	return registry.NewInstanceSnapshot(registry.InstanceSnapshotInput{Target: target, Revision: revision, State: state, Instances: instances})
-}
-
-func (directory *Directory) Observe(context.Context, registry.ReleaseTarget) (registry.InstanceObservation, error) {
-	return registry.InstanceObservation{}, registry.ErrInvalid
-}
-
-func (directory *Directory) Capabilities() registry.Capabilities { return directory.capabilities }
-
-func (directory *Directory) Close() error {
-	directory.mu.Lock()
-	directory.closed = true
-	directory.mu.Unlock()
-	return nil
+	return registry.NewInstanceSnapshot(registry.InstanceSnapshotInput{Target: binding.target, Revision: revision, State: state, Instances: instances})
 }
 
 type listResponse struct {
@@ -245,7 +344,27 @@ func validateConfig(config DirectoryConfig) (*url.URL, error) {
 	if config.AuthMode != AuthNone && config.AuthMode != AuthAccessToken || config.AuthMode == AuthNone && config.AccessToken != "" || config.AuthMode == AuthAccessToken && !validText(config.AccessToken) {
 		return nil, registry.ErrInvalid
 	}
+	if isNilInterface(config.Subscriber) {
+		if config.PendingChanges != 0 {
+			return nil, registry.ErrInvalid
+		}
+	} else if config.PendingChanges <= 0 || config.Subscriber.Guarantees().Validate() != nil {
+		return nil, registry.ErrInvalid
+	}
 	return origin, nil
+}
+
+func isNilInterface(value any) bool {
+	if value == nil {
+		return true
+	}
+	reflected := reflect.ValueOf(value)
+	switch reflected.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return reflected.IsNil()
+	default:
+		return false
+	}
 }
 
 func validText(value string) bool {
