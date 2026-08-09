@@ -7,13 +7,14 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/NeKiro-project/NeKiro/registry"
 	"github.com/NeKiro-project/NeKiro/registry/testkit"
 )
 
-const initialServiceInfo = `{"hosts":[{"ip":"172.28.0.12","port":8092,"healthy":true,"enabled":true,"ephemeral":true,"clusterName":"DEFAULT","metadata":{"nekiro.instanceId":"runtime-b-1"}}]}`
-const changedServiceInfo = `{"hosts":[{"ip":"172.28.0.12","port":8092,"healthy":true,"enabled":true,"ephemeral":true,"clusterName":"DEFAULT","metadata":{"nekiro.instanceId":"runtime-b-1"}},{"ip":"172.28.0.13","port":8092,"healthy":true,"enabled":true,"ephemeral":true,"clusterName":"DEFAULT","metadata":{"nekiro.instanceId":"runtime-b-2"}}]}`
+const initialServiceInfo = `{"name":"runtime-b","groupName":"NEKIRO","clusters":"DEFAULT","hosts":[{"ip":"172.28.0.12","port":8092,"healthy":true,"enabled":true,"ephemeral":true,"clusterName":"DEFAULT","metadata":{"nekiro.instanceId":"runtime-b-1"}}]}`
+const changedServiceInfo = `{"name":"runtime-b","groupName":"NEKIRO","clusters":"DEFAULT","hosts":[{"ip":"172.28.0.12","port":8092,"healthy":true,"enabled":true,"ephemeral":true,"clusterName":"DEFAULT","metadata":{"nekiro.instanceId":"runtime-b-1"}},{"ip":"172.28.0.13","port":8092,"healthy":true,"enabled":true,"ephemeral":true,"clusterName":"DEFAULT","metadata":{"nekiro.instanceId":"runtime-b-2"}}]}`
 
 func TestNacosDirectoryConformance(t *testing.T) {
 	target := testTarget(t)
@@ -59,6 +60,51 @@ func TestNacosDirectoryConformance(t *testing.T) {
 		Target: target, UnboundTarget: unbound, Initial: initial, Change: change,
 		Terminal: registry.NewOutcomeError(registry.OutcomeWatchInterrupted, registry.CauseStreamEOF),
 	})
+}
+
+func TestObservationRejectsMismatchedServiceInfoIdentity(t *testing.T) {
+	target := testTarget(t)
+	binding, _ := NewBinding(BindingInput{Target: target, ServiceName: "runtime-b", GroupName: "NEKIRO", ClusterName: "DEFAULT"})
+	invalid := []byte(`{"name":"runtime-a","groupName":"NEKIRO","clusters":"DEFAULT","hosts":[]}`)
+
+	t.Run("initial", func(t *testing.T) {
+		subscriber := newFixtureSubscriber(invalid)
+		directory := newObservationFixtureDirectory(t, binding, subscriber)
+		if _, err := directory.Observe(t.Context(), target); !errors.Is(err, registry.ErrInvalid) {
+			t.Fatalf("Observe error=%v", err)
+		}
+	})
+
+	t.Run("push", func(t *testing.T) {
+		subscriber := newFixtureSubscriber([]byte(initialServiceInfo))
+		directory := newObservationFixtureDirectory(t, binding, subscriber)
+		observation, err := directory.Observe(t.Context(), target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		subscriber.latest().events <- invalid
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		_, err = observation.Watch().Next(ctx)
+		var outcome *registry.OutcomeError
+		if !errors.Is(err, registry.ErrWatchInterrupted) || !errors.As(err, &outcome) || outcome.Cause() != registry.CauseWatchEventInvalid {
+			t.Fatalf("Watch error=%v", err)
+		}
+	})
+}
+
+func newObservationFixtureDirectory(t *testing.T, binding Binding, subscriber NamingSubscriptionExecutor) *Directory {
+	t.Helper()
+	directory, err := NewDirectory(DirectoryConfig{
+		APIOrigin: "http://nacos.test/nacos", NamespaceID: "public", PortName: "a2a", MaxResponseBytes: 4096,
+		AuthMode: AuthNone, Executor: http.DefaultClient, Bindings: exactBindingSource{binding: binding},
+		Subscriber: subscriber, PendingChanges: 4,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = directory.Close() })
+	return directory
 }
 
 type exactBindingSource struct{ binding Binding }

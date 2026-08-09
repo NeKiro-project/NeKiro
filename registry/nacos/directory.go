@@ -98,7 +98,7 @@ func NewDirectory(config DirectoryConfig) (*Directory, error) {
 		return nil, err
 	}
 	capabilityValues := []registry.Capability{registry.CapabilitySnapshot}
-	if config.Subscriber != nil {
+	if !isNilInterface(config.Subscriber) {
 		capabilityValues = append(capabilityValues, registry.CapabilityObserve)
 	}
 	capabilities, err := registry.NewCapabilities(capabilityValues...)
@@ -292,7 +292,10 @@ func snapshotFromPayload(data []byte, binding Binding, portName string, localOrd
 }
 
 type listResponse struct {
-	Hosts []host `json:"hosts"`
+	Name      string `json:"name"`
+	GroupName string `json:"groupName"`
+	Clusters  string `json:"clusters"`
+	Hosts     []host `json:"hosts"`
 }
 
 type host struct {
@@ -307,7 +310,7 @@ type host struct {
 
 func decodeInstances(data []byte, binding Binding, portName string) ([]registry.Instance, error) {
 	var response listResponse
-	if err := json.Unmarshal(data, &response); err != nil || response.Hosts == nil || len(response.Hosts) > maxInstances {
+	if err := json.Unmarshal(data, &response); err != nil || !matchesServiceInfoIdentity(response, binding) || response.Hosts == nil || len(response.Hosts) > maxInstances {
 		return nil, registry.ErrInvalid
 	}
 	instances := make([]registry.Instance, 0, len(response.Hosts))
@@ -335,6 +338,12 @@ func decodeInstances(data []byte, binding Binding, portName string) ([]registry.
 	return instances, nil
 }
 
+func matchesServiceInfoIdentity(response listResponse, binding Binding) bool {
+	// HTTP list uses the grouped name; Naming gRPC ServiceInfo uses the bare name.
+	nameMatches := response.Name == binding.serviceName || response.Name == binding.groupName+"@@"+binding.serviceName
+	return nameMatches && response.GroupName == binding.groupName && response.Clusters == binding.clusterName
+}
+
 func validateConfig(config DirectoryConfig) (*url.URL, error) {
 	origin, err := url.Parse(config.APIOrigin)
 	if err != nil || origin.Scheme != "http" && origin.Scheme != "https" || origin.Host == "" || origin.User != nil || origin.Path != "/nacos" || origin.RawQuery != "" || origin.Fragment != "" ||
@@ -344,7 +353,10 @@ func validateConfig(config DirectoryConfig) (*url.URL, error) {
 	if config.AuthMode != AuthNone && config.AuthMode != AuthAccessToken || config.AuthMode == AuthNone && config.AccessToken != "" || config.AuthMode == AuthAccessToken && !validText(config.AccessToken) {
 		return nil, registry.ErrInvalid
 	}
-	if isNilInterface(config.Subscriber) {
+	if config.Subscriber != nil && isNilInterface(config.Subscriber) {
+		return nil, registry.ErrInvalid
+	}
+	if config.Subscriber == nil {
 		if config.PendingChanges != 0 {
 			return nil, registry.ErrInvalid
 		}
