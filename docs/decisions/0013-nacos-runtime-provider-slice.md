@@ -48,9 +48,10 @@ fallback policy unless separately approved.
 7. Authentication mode is explicit `none` or `access_token`. Tokens are
    bootstrap secrets and are never returned in errors, status, logs, contracts,
    or Ledger facts.
-8. Observe/listener recovery, multiple Nacos servers, provider failover,
-   load-balancing, registration federation, and external Gateway consumption
-   remain outside this slice.
+8. Observe, multiple Nacos servers, provider failover, load-balancing,
+   registration federation, and external Gateway consumption remain outside
+   this slice. ADR 0014 subsequently defines Config Center observation without
+   listener recovery; Naming observation remains outside this decision.
 
 ## Consequences
 
@@ -58,8 +59,9 @@ fallback policy unless separately approved.
   ephemeral registration.
 - Snapshot failure is visible on the affected Invocation and never falls back
   to File, direct routing, a cached response, or another endpoint.
-- The Nacos adapters advertise only snapshot capability. Completing the full
-  watch conformance task remains separately visible in #88 and #89.
+- This slice's Nacos adapters advertise only snapshot capability. ADR 0014
+  subsequently adds explicit Config Center watch capability for #88; Naming
+  watch conformance remains separately visible in #89.
 
 ## Fallback Delta
 

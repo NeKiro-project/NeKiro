@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	configcenter "github.com/NeKiro-project/NeKiro/config_center"
 )
@@ -71,19 +72,18 @@ func TestReaderClassifiesNacosFailuresAndBounds(t *testing.T) {
 	}
 }
 
-func TestReaderRejectsAProviderIncompatibleDataIDBeforeRequest(t *testing.T) {
-	requests := 0
-	executor := requestExecutorFunc(func(*http.Request) (*http.Response, error) {
-		requests++
-		return nil, errors.New("unexpected request")
-	})
-	reader, err := NewReader(ReaderConfig{APIOrigin: "http://nacos.test/nacos", NamespaceID: "public", GroupName: "NEKIRO", MaxPayloadBytes: 4, AuthMode: AuthNone, Executor: executor})
-	if err != nil {
-		t.Fatal(err)
+func TestReaderMapsProviderNeutralKeysWithoutCollisions(t *testing.T) {
+	exact, _ := configcenter.ParseKey("router.nacos-bindings")
+	mapped, _ := configcenter.ParseKey("router/nacos-bindings")
+	reserved, _ := configcenter.ParseKey("nekiro.key.v1.literal")
+	if got := dataIDForKey(exact); got != exact.String() {
+		t.Fatalf("exact dataId=%q", got)
 	}
-	key, _ := configcenter.ParseKey("router/nacos-bindings")
-	if _, err := reader.Get(t.Context(), key); !errors.Is(err, configcenter.ErrInvalid) || requests != 0 {
-		t.Fatalf("Get error=%v requests=%d", err, requests)
+	if got := dataIDForKey(mapped); got == mapped.String() || !ValidDataID(got) {
+		t.Fatalf("mapped dataId=%q", got)
+	}
+	if got := dataIDForKey(reserved); got == reserved.String() || got == dataIDForKey(mapped) || !ValidDataID(got) {
+		t.Fatalf("reserved dataId=%q", got)
 	}
 }
 
@@ -98,6 +98,9 @@ func TestReaderRejectsImplicitNacosConfiguration(t *testing.T) {
 		{},
 		{APIOrigin: "http://nacos.test/nacos", NamespaceID: "public", GroupName: "NEKIRO", MaxPayloadBytes: 1, AuthMode: AuthNone},
 		{APIOrigin: "http://nacos.test/nacos", NamespaceID: "public", GroupName: "NEKIRO", MaxPayloadBytes: 1, AuthMode: AuthNone, AccessToken: "unexpected", Executor: http.DefaultClient},
+		{APIOrigin: "http://nacos.test/nacos", NamespaceID: "public", GroupName: "NEKIRO", MaxPayloadBytes: 1, WatchEnabled: true, LongPollTimeout: 99 * time.Millisecond, SubscriptionBuffer: 1, AuthMode: AuthNone, Executor: http.DefaultClient},
+		{APIOrigin: "http://nacos.test/nacos", NamespaceID: "public", GroupName: "NEKIRO", MaxPayloadBytes: 1, WatchEnabled: true, LongPollTimeout: 100 * time.Millisecond, SubscriptionBuffer: 0, AuthMode: AuthNone, Executor: http.DefaultClient},
+		{APIOrigin: "http://nacos.test/nacos", NamespaceID: "public", GroupName: "NEKIRO", MaxPayloadBytes: 1, LongPollTimeout: time.Second, AuthMode: AuthNone, Executor: http.DefaultClient},
 	} {
 		if _, err := NewReader(config); !errors.Is(err, configcenter.ErrInvalid) {
 			t.Fatalf("NewReader(%#v) error=%v", config, err)
@@ -138,6 +141,15 @@ func TestReaderClassifiesRequestLifecycleFailures(t *testing.T) {
 	if _, err := closingReader.Get(t.Context(), key); !errors.Is(err, configcenter.ErrReaderClosed) {
 		t.Fatalf("closed-during-read Get error=%v", err)
 	}
+	var missingClosingReader *Reader
+	base.Executor = requestExecutorFunc(func(*http.Request) (*http.Response, error) {
+		_ = missingClosingReader.Close()
+		return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("missing"))}, nil
+	})
+	missingClosingReader, _ = NewReader(base)
+	if _, err := missingClosingReader.Get(t.Context(), key); !errors.Is(err, configcenter.ErrReaderClosed) {
+		t.Fatalf("closed-during-missing-read Get error=%v", err)
+	}
 	if _, err := reader.Get(nil, key); !errors.Is(err, configcenter.ErrInvalid) {
 		t.Fatalf("nil-context Get error=%v", err)
 	}
@@ -153,7 +165,7 @@ func TestValidDataIDAndConfigurationTextBoundaries(t *testing.T) {
 	if !ValidDataID("A-z_0.:-9") {
 		t.Fatal("safe data ID was rejected")
 	}
-	for _, value := range []string{"", strings.Repeat("a", 129), "router/bindings", "bad value"} {
+	for _, value := range []string{"", strings.Repeat("a", 256), "router/bindings", "bad value"} {
 		if ValidDataID(value) {
 			t.Fatalf("unsafe data ID %q was accepted", value)
 		}

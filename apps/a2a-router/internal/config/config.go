@@ -17,7 +17,6 @@ import (
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/credential"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/nested"
 	configcenter "github.com/NeKiro-project/NeKiro/config_center"
-	confignacos "github.com/NeKiro-project/NeKiro/config_center/nacos"
 	"github.com/NeKiro-project/NeKiro/contracts"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -241,7 +240,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 			return Config{}, keyErr
 		}
 		directoryKey, err = configcenter.ParseKey(keyText)
-		if err != nil || !confignacos.ValidDataID(keyText) {
+		if err != nil {
 			return Config{}, errors.New("NEKIRO_ROUTER_INSTANCE_DIRECTORY_KEY is invalid")
 		}
 		portName, err = required("NEKIRO_ROUTER_INSTANCE_PORT_NAME")

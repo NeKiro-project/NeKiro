@@ -15,9 +15,11 @@ explicitly `none` or `access_token`; the token must be absent in `none` mode.
 The configured Nacos key must contain a valid
 `router-nacos-instance-bindings.v1` document before the Router starts. Each
 exact Release target maps to one Nacos service, group, and cluster.
-The key must also be a legal Nacos dataId and is passed without translation;
-for example, `router.nacos-bindings` is valid while a slash-separated key is
-rejected during Router bootstrap.
+Keys that are already legal Nacos dataIds are passed without translation. A
+slash-separated key, or a key beginning with the reserved `nekiro.key.v1.`
+prefix, maps to `nekiro.key.v1.` followed by the unpadded Base64URL encoding of
+the complete key. This mapping is collision-free; the existing
+`router.nacos-bindings` dataId remains unchanged.
 
 Secrets, database URLs, Router signing keys, and service authentication remain
 bootstrap configuration. They are not accepted in the instance directory.
