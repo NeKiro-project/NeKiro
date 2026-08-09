@@ -217,7 +217,8 @@ func TestGRPCExecutorSubscribesAndAcknowledgesPush(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 	payload, err := subscription.Next(ctx)
-	if err != nil || string(payload) != changedServiceInfo {
+	var pushed listResponse
+	if err != nil || json.Unmarshal(payload, &pushed) != nil || len(pushed.Hosts) != 2 {
 		t.Fatalf("Next payload=%s error=%v", payload, err)
 	}
 	select {
@@ -259,6 +260,27 @@ func TestGRPCExecutorAgainstNacos(t *testing.T) {
 	var response listResponse
 	if err := json.Unmarshal(subscription.InitialPayload(), &response); err != nil || len(response.Hosts) == 0 {
 		t.Fatalf("initial ServiceInfo hosts=%d error=%v", len(response.Hosts), err)
+	}
+}
+
+func TestDecodeSubscriberPushRequiresExactSubscribedService(t *testing.T) {
+	request := NamingSubscribeRequest{namespaceID: "nekiro", serviceName: "runtime-b", groupName: "NEKIRO", clusterName: "DEFAULT"}
+	valid := `{"requestId":"push-1","module":"naming","serviceInfo":{"name":"runtime-b","groupName":"NEKIRO","clusters":"DEFAULT","hosts":[]}}`
+	if payload, err := decodeSubscriberPush([]byte(valid), request); err != nil || string(payload) != `{"name":"runtime-b","groupName":"NEKIRO","clusters":"DEFAULT","hosts":[]}` {
+		t.Fatalf("valid push payload=%s error=%v", payload, err)
+	}
+	for name, payload := range map[string]string{
+		"missing request": `{"module":"naming","serviceInfo":{"name":"runtime-b","groupName":"NEKIRO","clusters":"DEFAULT"}}`,
+		"wrong module":    `{"requestId":"push-1","module":"config","serviceInfo":{"name":"runtime-b","groupName":"NEKIRO","clusters":"DEFAULT"}}`,
+		"wrong service":   `{"requestId":"push-1","module":"naming","serviceInfo":{"name":"runtime-a","groupName":"NEKIRO","clusters":"DEFAULT"}}`,
+		"wrong group":     `{"requestId":"push-1","module":"naming","serviceInfo":{"name":"runtime-b","groupName":"OTHER","clusters":"DEFAULT"}}`,
+		"wrong cluster":   `{"requestId":"push-1","module":"naming","serviceInfo":{"name":"runtime-b","groupName":"NEKIRO","clusters":"OTHER"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := decodeSubscriberPush([]byte(payload), request); err == nil {
+				t.Fatal("invalid push accepted")
+			}
+		})
 	}
 }
 
@@ -320,9 +342,15 @@ func (provider *fakeNamingGRPC) RequestBiStream(stream grpc.BidiStreamingServer[
 	close(provider.setup)
 	select {
 	case payload := <-provider.push:
+		var serviceInfo map[string]any
+		if json.Unmarshal(payload, &serviceInfo) != nil {
+			return context.Canceled
+		}
+		serviceInfo["name"] = "runtime-b"
+		serviceInfo["groupName"] = "NEKIRO"
+		serviceInfo["clusters"] = "DEFAULT"
 		request := testPayload("NotifySubscriberRequest", map[string]any{
-			"requestId": "push-1", "namespace": "public", "serviceName": "runtime-b", "groupName": "NEKIRO",
-			"module": "naming", "serviceInfo": json.RawMessage(payload),
+			"requestId": "push-1", "module": "naming", "serviceInfo": serviceInfo,
 		})
 		if err := stream.Send(request); err != nil {
 			return err

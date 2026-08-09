@@ -220,19 +220,13 @@ func (stream *grpcPushStream) receive() {
 				return
 			}
 		case "NotifySubscriberRequest":
-			var push struct {
-				RequestID   string          `json:"requestId"`
-				Namespace   string          `json:"namespace"`
-				ServiceName string          `json:"serviceName"`
-				GroupName   string          `json:"groupName"`
-				ServiceInfo json.RawMessage `json:"serviceInfo"`
-			}
-			if json.Unmarshal(payload.GetBody().GetValue(), &push) != nil || push.RequestID == "" || push.Namespace != stream.request.namespaceID || push.ServiceName != stream.request.serviceName || push.GroupName != stream.request.groupName || len(push.ServiceInfo) == 0 {
+			serviceInfo, err := decodeSubscriberPush(payload.GetBody().GetValue(), stream.request)
+			if err != nil {
 				stream.finish(registry.ErrInvalid)
 				return
 			}
 			select {
-			case stream.messages <- grpcPushMessage{request: payload, serviceInfo: append([]byte(nil), push.ServiceInfo...)}:
+			case stream.messages <- grpcPushMessage{request: payload, serviceInfo: serviceInfo}:
 			case <-stream.done:
 				return
 			}
@@ -241,6 +235,26 @@ func (stream *grpcPushStream) receive() {
 			return
 		}
 	}
+}
+
+func decodeSubscriberPush(data []byte, request NamingSubscribeRequest) ([]byte, error) {
+	var push struct {
+		RequestID   string          `json:"requestId"`
+		Module      string          `json:"module"`
+		ServiceInfo json.RawMessage `json:"serviceInfo"`
+	}
+	if json.Unmarshal(data, &push) != nil || push.RequestID == "" || push.Module != "naming" || len(push.ServiceInfo) == 0 {
+		return nil, registry.ErrInvalid
+	}
+	var identity struct {
+		Name      string `json:"name"`
+		GroupName string `json:"groupName"`
+		Clusters  string `json:"clusters"`
+	}
+	if json.Unmarshal(push.ServiceInfo, &identity) != nil || identity.Name != request.serviceName || identity.GroupName != request.groupName || identity.Clusters != request.clusterName {
+		return nil, registry.ErrInvalid
+	}
+	return append([]byte(nil), push.ServiceInfo...), nil
 }
 
 func (stream *grpcPushStream) ack(request *nacosgrpc.Payload, responseType string, success bool) error {
