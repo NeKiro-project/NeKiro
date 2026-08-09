@@ -75,44 +75,9 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("router Ledger schema is not ready: %w", err)
 	}
 	var selector a2atransport.TargetSelector
-	var directory interface {
-		registry.InstanceDirectory
-		api.ReadinessChecker
-	}
-	switch cfg.InstanceRoutingMode {
-	case config.InstanceRoutingConfigCenterFile:
-		reader, openErr := configfile.OpenReader(configfile.ReaderConfig{
-			Root: cfg.ConfigCenterFileRoot, MaxPayloadBytes: cfg.ConfigCenterMaxPayloadBytes, SubscriptionBuffer: 1,
-		})
-		if openErr != nil {
-			return fmt.Errorf("open Router Config Center reader: %w", openErr)
-		}
-		fileDirectory, directoryErr := configdirectory.New(reader, cfg.InstanceDirectoryKey)
-		directory, err = fileDirectory, directoryErr
-		if err != nil {
-			_ = reader.Close()
-			return fmt.Errorf("initialize Router instance directory: %w", err)
-		}
-	case config.InstanceRoutingNacos:
-		nacosClient := newNacosHTTPClient(cfg.NacosRequestTimeout)
-		reader, readerErr := confignacos.NewReader(confignacos.ReaderConfig{
-			APIOrigin: cfg.NacosAPIOrigin, NamespaceID: cfg.NacosNamespaceID, GroupName: cfg.NacosConfigGroup,
-			MaxPayloadBytes: cfg.NacosResponseLimitBytes, AuthMode: cfg.NacosAuthMode,
-			AccessToken: cfg.NacosAccessToken, Executor: nacosClient,
-		})
-		if readerErr != nil {
-			return fmt.Errorf("open Router Nacos Config Center reader: %w", readerErr)
-		}
-		nacosDirectory, directoryErr := nacosdirectory.New(reader, cfg.InstanceDirectoryKey, registrynacos.DirectoryConfig{
-			APIOrigin: cfg.NacosAPIOrigin, NamespaceID: cfg.NacosNamespaceID, PortName: cfg.InstancePortName,
-			MaxResponseBytes: cfg.NacosResponseLimitBytes, AuthMode: cfg.NacosAuthMode,
-			AccessToken: cfg.NacosAccessToken, Executor: nacosClient,
-		})
-		directory, err = nacosDirectory, directoryErr
-		if err != nil {
-			_ = reader.Close()
-			return fmt.Errorf("initialize Router Nacos instance directory: %w", err)
-		}
+	directory, err := openInstanceDirectory(cfg)
+	if err != nil {
+		return err
 	}
 	if directory != nil {
 		defer directory.Close()
@@ -140,6 +105,50 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	return nil
+}
+
+type instanceDirectory interface {
+	registry.InstanceDirectory
+	api.ReadinessChecker
+}
+
+func openInstanceDirectory(cfg config.Config) (instanceDirectory, error) {
+	switch cfg.InstanceRoutingMode {
+	case config.InstanceRoutingConfigCenterFile:
+		reader, openErr := configfile.OpenReader(configfile.ReaderConfig{
+			Root: cfg.ConfigCenterFileRoot, MaxPayloadBytes: cfg.ConfigCenterMaxPayloadBytes, SubscriptionBuffer: 1,
+		})
+		if openErr != nil {
+			return nil, fmt.Errorf("open Router Config Center reader: %w", openErr)
+		}
+		directory, err := configdirectory.New(reader, cfg.InstanceDirectoryKey)
+		if err != nil {
+			_ = reader.Close()
+			return nil, fmt.Errorf("initialize Router instance directory: %w", err)
+		}
+		return directory, nil
+	case config.InstanceRoutingNacos:
+		nacosClient := newNacosHTTPClient(cfg.NacosRequestTimeout)
+		reader, readerErr := confignacos.NewReader(confignacos.ReaderConfig{
+			APIOrigin: cfg.NacosAPIOrigin, NamespaceID: cfg.NacosNamespaceID, GroupName: cfg.NacosConfigGroup,
+			MaxPayloadBytes: cfg.NacosResponseLimitBytes, AuthMode: cfg.NacosAuthMode,
+			AccessToken: cfg.NacosAccessToken, Executor: nacosClient,
+		})
+		if readerErr != nil {
+			return nil, fmt.Errorf("open Router Nacos Config Center reader: %w", readerErr)
+		}
+		directory, err := nacosdirectory.New(reader, cfg.InstanceDirectoryKey, registrynacos.DirectoryConfig{
+			APIOrigin: cfg.NacosAPIOrigin, NamespaceID: cfg.NacosNamespaceID, PortName: cfg.InstancePortName,
+			MaxResponseBytes: cfg.NacosResponseLimitBytes, AuthMode: cfg.NacosAuthMode,
+			AccessToken: cfg.NacosAccessToken, Executor: nacosClient,
+		})
+		if err != nil {
+			_ = reader.Close()
+			return nil, fmt.Errorf("initialize Router Nacos instance directory: %w", err)
+		}
+		return directory, nil
+	}
+	return nil, nil
 }
 
 func newNacosHTTPClient(timeout time.Duration) *http.Client {

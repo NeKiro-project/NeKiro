@@ -18,9 +18,14 @@ func TestDecodeRouterNacosInstanceBindingsV1(t *testing.T) {
 		t.Fatalf("decode valid bindings: value=%#v error=%v", document, err)
 	}
 	for name, payload := range map[string][]byte{
-		"unknown":     []byte(`{"schemaVersion":"1","revision":"stack-1","targets":[],"fallback":true}`),
-		"duplicate":   []byte(`{"schemaVersion":"1","revision":"stack-1","revision":"stack-2","targets":[]}`),
-		"bad service": []byte(`{"schemaVersion":"1","revision":"stack-1","targets":[{"agentId":"runtime-b","agentCardVersion":"1.0.0","releaseId":"release-b","cardDigest":"` + digest + `","canonicalEndpoint":"http://runtime-b:8092/","audience":"http://runtime-b:8092","serviceName":"bad service","groupName":"NEKIRO","clusterName":"DEFAULT"}]}`),
+		"malformed":       []byte(`{`),
+		"unknown":         []byte(`{"schemaVersion":"1","revision":"stack-1","targets":[],"fallback":true}`),
+		"duplicate":       []byte(`{"schemaVersion":"1","revision":"stack-1","revision":"stack-2","targets":[]}`),
+		"trailing value":  []byte(`{"schemaVersion":"1","revision":"stack-1","targets":[]} {}`),
+		"trailing token":  []byte(`{"schemaVersion":"1","revision":"stack-1","targets":[]} !`),
+		"missing targets": []byte(`{"schemaVersion":"1","revision":"stack-1"}`),
+		"bad version":     []byte(`{"schemaVersion":"2","revision":"stack-1","targets":[]}`),
+		"bad service":     []byte(`{"schemaVersion":"1","revision":"stack-1","targets":[{"agentId":"runtime-b","agentCardVersion":"1.0.0","releaseId":"release-b","cardDigest":"` + digest + `","canonicalEndpoint":"http://runtime-b:8092/","audience":"http://runtime-b:8092","serviceName":"bad service","groupName":"NEKIRO","clusterName":"DEFAULT"}]}`),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := DecodeRouterNacosInstanceBindingsV1(payload); err == nil {

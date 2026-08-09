@@ -13,7 +13,9 @@ import (
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/config"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/credential"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/nested"
+	configcenter "github.com/NeKiro-project/NeKiro/config_center"
 	"github.com/NeKiro-project/NeKiro/contracts"
+	"github.com/NeKiro-project/NeKiro/registry"
 )
 
 type failingDoer struct{}
@@ -87,5 +89,64 @@ func TestNewHandlerAssemblesReadinessWithoutDependencyProbe(t *testing.T) {
 	handler.ServeHTTP(readResponse, httptest.NewRequest(http.MethodGet, "/internal/v3/workspaces/workspace-a/invocations/inv-a", nil))
 	if readResponse.Code != http.StatusUnauthorized {
 		t.Fatalf("metadata read route status=%d, want 401", readResponse.Code)
+	}
+}
+
+func TestOpenInstanceDirectoryOwnsEachConfiguredMode(t *testing.T) {
+	key, err := configcenter.ParseKey("router.nacos-bindings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if directory, err := openInstanceDirectory(config.Config{InstanceRoutingMode: config.InstanceRoutingDirect}); err != nil || directory != nil {
+		t.Fatalf("direct directory=%v error=%v", directory, err)
+	}
+	fileDirectory, err := openInstanceDirectory(config.Config{
+		InstanceRoutingMode: config.InstanceRoutingConfigCenterFile, ConfigCenterFileRoot: t.TempDir(),
+		ConfigCenterMaxPayloadBytes: 64, InstanceDirectoryKey: key,
+	})
+	if err != nil || fileDirectory == nil {
+		t.Fatalf("file directory=%v error=%v", fileDirectory, err)
+	}
+	if err := fileDirectory.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := openInstanceDirectory(config.Config{
+		InstanceRoutingMode: config.InstanceRoutingConfigCenterFile, ConfigCenterFileRoot: t.TempDir(),
+		ConfigCenterMaxPayloadBytes: 64,
+	}); err == nil || !strings.Contains(err.Error(), "initialize Router instance directory") {
+		t.Fatalf("invalid file directory error=%v", err)
+	}
+	nacosConfig := config.Config{
+		InstanceRoutingMode: config.InstanceRoutingNacos, InstanceDirectoryKey: key, InstancePortName: "a2a",
+		NacosAPIOrigin: "http://nacos.test/nacos", NacosNamespaceID: "nekiro", NacosConfigGroup: "NEKIRO",
+		NacosAuthMode: config.NacosAuthNone, NacosResponseLimitBytes: 4096, NacosRequestTimeout: time.Second,
+	}
+	nacosDirectory, err := openInstanceDirectory(nacosConfig)
+	if err != nil || nacosDirectory == nil || !nacosDirectory.Capabilities().Supports(registry.CapabilitySnapshot) {
+		t.Fatalf("Nacos directory=%v error=%v", nacosDirectory, err)
+	}
+	if err := nacosDirectory.Close(); err != nil {
+		t.Fatal(err)
+	}
+	invalidReader := nacosConfig
+	invalidReader.NacosAPIOrigin = "http://nacos.test/wrong"
+	if _, err := openInstanceDirectory(invalidReader); err == nil || !strings.Contains(err.Error(), "open Router Nacos Config Center reader") {
+		t.Fatalf("invalid Nacos reader error=%v", err)
+	}
+	invalidDirectory := nacosConfig
+	invalidDirectory.InstancePortName = ""
+	if _, err := openInstanceDirectory(invalidDirectory); err == nil || !strings.Contains(err.Error(), "initialize Router Nacos instance directory") {
+		t.Fatalf("invalid Nacos directory error=%v", err)
+	}
+}
+
+func TestNacosHTTPClientDisablesAmbientNetworkBehavior(t *testing.T) {
+	client := newNacosHTTPClient(750 * time.Millisecond)
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok || transport.Proxy != nil || !transport.DisableKeepAlives || client.Timeout != 750*time.Millisecond {
+		t.Fatalf("client=%#v transport=%#v", client, transport)
+	}
+	if err := client.CheckRedirect(httptest.NewRequest(http.MethodGet, "http://nacos.test/next", nil), nil); err == nil || err.Error() != "Nacos redirects are disabled" {
+		t.Fatalf("redirect error=%v", err)
 	}
 }

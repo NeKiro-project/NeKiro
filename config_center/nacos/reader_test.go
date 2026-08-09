@@ -3,8 +3,10 @@ package nacos
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	configcenter "github.com/NeKiro-project/NeKiro/config_center"
@@ -102,3 +104,72 @@ func TestReaderRejectsImplicitNacosConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func TestReaderClassifiesRequestLifecycleFailures(t *testing.T) {
+	key, _ := configcenter.ParseKey("router.nacos-bindings")
+	base := ReaderConfig{APIOrigin: "http://nacos.test/nacos", NamespaceID: "public", GroupName: "NEKIRO", MaxPayloadBytes: 64, AuthMode: AuthNone}
+	base.Executor = requestExecutorFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("offline") })
+	reader, _ := NewReader(base)
+	if _, err := reader.Get(t.Context(), key); !errors.Is(err, configcenter.ErrUnavailable) {
+		t.Fatalf("unavailable Get error=%v", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	base.Executor = requestExecutorFunc(func(*http.Request) (*http.Response, error) {
+		cancel()
+		return nil, errors.New("canceled")
+	})
+	reader, _ = NewReader(base)
+	if _, err := reader.Get(ctx, key); !errors.Is(err, configcenter.ErrCanceled) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("transport-canceled Get error=%v", err)
+	}
+	base.Executor = requestExecutorFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: failingReadCloser{}}, nil
+	})
+	reader, _ = NewReader(base)
+	if _, err := reader.Get(t.Context(), key); !errors.Is(err, configcenter.ErrUnavailable) {
+		t.Fatalf("read-failed Get error=%v", err)
+	}
+	var closingReader *Reader
+	base.Executor = requestExecutorFunc(func(*http.Request) (*http.Response, error) {
+		_ = closingReader.Close()
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("binding"))}, nil
+	})
+	closingReader, _ = NewReader(base)
+	if _, err := closingReader.Get(t.Context(), key); !errors.Is(err, configcenter.ErrReaderClosed) {
+		t.Fatalf("closed-during-read Get error=%v", err)
+	}
+	if _, err := reader.Get(nil, key); !errors.Is(err, configcenter.ErrInvalid) {
+		t.Fatalf("nil-context Get error=%v", err)
+	}
+	if _, err := reader.Get(t.Context(), configcenter.Key{}); !errors.Is(err, configcenter.ErrInvalid) {
+		t.Fatalf("invalid-key Get error=%v", err)
+	}
+	if err := canceledError(key, configcenter.OperationGet, errors.New("not a context error")); !errors.Is(err, configcenter.ErrCanceled) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("normalized canceled error=%v", err)
+	}
+}
+
+func TestValidDataIDAndConfigurationTextBoundaries(t *testing.T) {
+	if !ValidDataID("A-z_0.:-9") {
+		t.Fatal("safe data ID was rejected")
+	}
+	for _, value := range []string{"", strings.Repeat("a", 129), "router/bindings", "bad value"} {
+		if ValidDataID(value) {
+			t.Fatalf("unsafe data ID %q was accepted", value)
+		}
+	}
+	for _, config := range []ReaderConfig{
+		{APIOrigin: "http://user@nacos.test/nacos", NamespaceID: "public", GroupName: "NEKIRO", MaxPayloadBytes: 1, AuthMode: AuthNone, Executor: http.DefaultClient},
+		{APIOrigin: "http://nacos.test/nacos", NamespaceID: "public\n", GroupName: "NEKIRO", MaxPayloadBytes: 1, AuthMode: AuthNone, Executor: http.DefaultClient},
+		{APIOrigin: "http://nacos.test/nacos", NamespaceID: "public", GroupName: strings.Repeat("g", 257), MaxPayloadBytes: 1, AuthMode: AuthNone, Executor: http.DefaultClient},
+	} {
+		if _, err := NewReader(config); !errors.Is(err, configcenter.ErrInvalid) {
+			t.Fatalf("NewReader(%#v) error=%v", config, err)
+		}
+	}
+}
+
+type failingReadCloser struct{}
+
+func (failingReadCloser) Read([]byte) (int, error) { return 0, errors.New("read failed") }
+func (failingReadCloser) Close() error             { return nil }
