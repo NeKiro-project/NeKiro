@@ -48,6 +48,19 @@ bootstrap configuration. They are not accepted in the instance directory.
    atomically. In Nacos mode, publish the complete binding document after the
    Agent service has registered its ephemeral instance.
 4. Wait for `/readyz` to return `200` with `{"status":"ok"}`.
+
+For an observe-enabled Router, use the configured Router service Bearer
+credential to read `GET /internal/v1/instance-topology/status`. The response is
+safe evidence of topology already consumed by Router; it is not a refresh
+operation. Record the exact target's `localRevision`, `state`, and `observedAt`
+before a lifecycle change. After deregistration, wait for the same Agent,
+version, and Release to report `state=empty` with a greater local revision
+before issuing the fail-closed acceptance Invocation. An `AGENT_UNAVAILABLE`
+response without that status transition does not prove watch consumption.
+
+The status route is absent in direct and snapshot-only modes. Never treat a
+404 there as an empty observed topology. Revisions are local to the current
+Router observation and cannot be compared across restarts or targets.
 5. Invoke through the Control Plane and verify the normal Ledger lineage.
 
 The current selector requires exactly one ready TCP endpoint for the configured

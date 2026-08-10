@@ -13,12 +13,27 @@ import (
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/config"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/credential"
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/nested"
+	a2atransport "github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/transport/a2a"
 	configcenter "github.com/NeKiro-project/NeKiro/config_center"
 	"github.com/NeKiro-project/NeKiro/contracts"
 	"github.com/NeKiro-project/NeKiro/registry"
 )
 
 type failingDoer struct{}
+
+type topologySelectorStub struct{}
+
+func (topologySelectorStub) Select(_ context.Context, target a2atransport.Target, _ a2atransport.ContextHeaders) (a2atransport.Target, error) {
+	return target, nil
+}
+
+func (topologySelectorStub) TopologyStatus() contracts.RouterTopologyStatusV1 {
+	return contracts.RouterTopologyStatusV1{
+		SchemaVersion: contracts.RouterTopologyStatusSchemaVersion,
+		Provider:      "nacos",
+		Observations:  []contracts.RouterTopologyStatusObservationV1{},
+	}
+}
 
 func (failingDoer) Do(*http.Request) (*http.Response, error) {
 	panic("readiness must not probe dependencies")
@@ -89,6 +104,44 @@ func TestNewHandlerAssemblesReadinessWithoutDependencyProbe(t *testing.T) {
 	handler.ServeHTTP(readResponse, httptest.NewRequest(http.MethodGet, "/internal/v3/workspaces/workspace-a/invocations/inv-a", nil))
 	if readResponse.Code != http.StatusUnauthorized {
 		t.Fatalf("metadata read route status=%d, want 401", readResponse.Code)
+	}
+}
+
+func TestNewHandlerRegistersTopologyStatusOnlyForObservedSelector(t *testing.T) {
+	cfg := config.Config{
+		RouterPrincipals:               []auth.Principal{{ID: "router", TokenSHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}},
+		AgentPrincipals:                []nested.AgentPrincipal{{WorkspaceID: "workspace-a", AgentID: "runtime-a", TokenSHA256: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"}},
+		ControlPlaneResolveURL:         "https://control.internal/internal/v2/resolve-agent",
+		ControlPlaneVersionURL:         "https://control.internal/internal/v3/resolve-installed-version",
+		ControlPlaneServiceToken:       "control-token",
+		InternalRequestLimitBytes:      1024,
+		AgentRequestLimitBytes:         1024,
+		ControlPlaneResponseLimitBytes: 2048,
+		AgentResponseLimitBytes:        4096,
+		A2AEventLimitBytes:             4096,
+		SSEEventLimitBytes:             4096,
+		ResolutionDeadline:             time.Second,
+		AgentDeadline:                  time.Second,
+		AgentCredential:                credential.Config{Issuer: "https://a2a-router.nekiro.test", KeyID: "router-key-1", PrivateKey: ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)), TTL: 30 * time.Second},
+	}
+	handler, err := newHandlerWithTargetSelector(cfg, failingDoer{}, &http.Client{}, ledgerAppenderStub{}, topologySelectorStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/internal/v1/instance-topology/status", nil))
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("observed topology route status=%d, want 401", response.Code)
+	}
+
+	direct, err := newHandlerWithTargetSelector(cfg, failingDoer{}, &http.Client{}, ledgerAppenderStub{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response = httptest.NewRecorder()
+	direct.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/internal/v1/instance-topology/status", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("direct topology route status=%d, want 404", response.Code)
 	}
 }
 

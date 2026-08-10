@@ -69,6 +69,7 @@ func TestActiveContractVersionSynchronization(t *testing.T) {
 		{path: "schemas/invocation-result-stream-event.v1.schema.json", property: "schemaVersion", want: InvocationResultStreamEventSchemaVersion},
 		{path: "schemas/a2a-profile.v0.2.schema.json", property: "schemaVersion", want: A2AProfileSchemaVersion},
 		{path: "schemas/public-agent-share.v1.schema.json", property: "schemaVersion", want: PublicAgentShareSchemaVersion},
+		{path: "schemas/router-topology-status.v1.schema.json", property: "schemaVersion", want: RouterTopologyStatusSchemaVersion},
 	}
 	for _, schema := range schemaVersions {
 		t.Run(schema.path, func(t *testing.T) {
@@ -107,6 +108,7 @@ func TestActiveContractVersionSynchronization(t *testing.T) {
 		{path: filepath.Join("openapi", "router-internal.v2.yaml"), want: "2.0.0"},
 		{path: filepath.Join("openapi", "router-metadata.v3.yaml"), want: "3.0.0"},
 		{path: filepath.Join("openapi", "router-internal.v4.yaml"), want: "4.0.0"},
+		{path: filepath.Join("openapi", "router-topology-status.v1.yaml"), want: "1.0.0"},
 	}
 	for _, document := range documents {
 		if actual := loadOpenAPIDocument(t, document.path).Info.Version; actual != document.want {
@@ -390,6 +392,18 @@ func TestActiveRuntimeV4RouterDispatchOwnsExecution(t *testing.T) {
 	}
 	if router.Paths.Find("/internal/v3/invocations") != nil {
 		t.Fatal("Router Internal v4 must not serve the retired v3 dispatch route")
+	}
+}
+
+func TestActiveRouterTopologyStatusOwnsOnlySafeObservationReads(t *testing.T) {
+	topology := loadOpenAPIDocument(t, filepath.Join("openapi", "router-topology-status.v1.yaml"))
+	assertExactStringSlice(t, "Router topology status paths", topology.Paths.Keys(), []string{"/internal/v1/instance-topology/status"})
+	operation := topology.Paths.Find("/internal/v1/instance-topology/status").Get
+	if operation == nil || operation.Security == nil || len(*operation.Security) != 1 {
+		t.Fatal("Router topology status must require one service credential")
+	}
+	if topology.Paths.Find("/internal/v1/instance-topology/register") != nil {
+		t.Fatal("Router topology status API owns registration mutation")
 	}
 }
 

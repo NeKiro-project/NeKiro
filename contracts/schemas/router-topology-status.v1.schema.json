@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.nekiro.dev/router-topology-status/v1",
+  "title": "NeKiro Router Topology Status v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "provider", "observations"],
+  "properties": {
+    "schemaVersion": { "const": "1" },
+    "provider": { "$ref": "#/$defs/safeIdentifier" },
+    "observations": {
+      "type": "array",
+      "maxItems": 65536,
+      "items": { "$ref": "#/$defs/observation" }
+    }
+  },
+  "$defs": {
+    "safeIdentifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,127})$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agentId", "agentCardVersion", "releaseId", "state", "localRevision", "observedAt"],
+      "properties": {
+        "agentId": { "$ref": "#/$defs/safeIdentifier" },
+        "agentCardVersion": { "$ref": "#/$defs/semver" },
+        "releaseId": { "$ref": "#/$defs/safeIdentifier" },
+        "state": { "enum": ["initializing", "missing", "empty", "populated", "unavailable"] },
+        "localRevision": { "type": "integer", "minimum": 0 },
+        "observedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}
