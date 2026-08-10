@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +28,9 @@ const (
 	InstanceRoutingNacos            = "nacos"
 	NacosAuthNone                   = "none"
 	NacosAuthAccessToken            = "access_token"
+	NacosGRPCSecurityInsecure       = "insecure"
+	NacosGRPCSecurityTLS            = "tls"
+	NacosGRPCSecurityMTLS           = "mtls"
 )
 
 type Config struct {
@@ -65,6 +69,10 @@ type Config struct {
 	NacosPendingChanges            int
 	NacosMaxObservations           int
 	NacosGRPCTransportSecurity     string
+	NacosGRPCTLSCAFile             string
+	NacosGRPCTLSServerName         string
+	NacosGRPCTLSClientCertFile     string
+	NacosGRPCTLSClientKeyFile      string
 }
 
 type jsonFrame struct {
@@ -177,6 +185,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	}
 	var fileRoot, portName, nacosOrigin, nacosNamespace, nacosGroup, nacosAuthMode, nacosToken string
 	var nacosGRPCTarget, nacosGRPCClientIP, nacosGRPCSecurity string
+	var nacosGRPCTLSCAFile, nacosGRPCTLSServerName, nacosGRPCTLSClientCertFile, nacosGRPCTLSClientKeyFile string
 	var maxPayload, nacosResponseLimit, nacosTimeoutMS, nacosGRPCTimeoutMS, nacosPendingChanges, nacosMaxObservations int64
 	var nacosObserve bool
 	var directoryKey configcenter.Key
@@ -265,7 +274,18 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 			}
 			nacosObserve = observeText == "true"
 		}
-		grpcNames := []string{"NEKIRO_ROUTER_NACOS_GRPC_TARGET", "NEKIRO_ROUTER_NACOS_GRPC_CLIENT_IP", "NEKIRO_ROUTER_NACOS_GRPC_REQUEST_TIMEOUT_MS", "NEKIRO_ROUTER_NACOS_PENDING_CHANGES", "NEKIRO_ROUTER_NACOS_MAX_OBSERVATIONS", "NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY"}
+		grpcNames := []string{
+			"NEKIRO_ROUTER_NACOS_GRPC_TARGET",
+			"NEKIRO_ROUTER_NACOS_GRPC_CLIENT_IP",
+			"NEKIRO_ROUTER_NACOS_GRPC_REQUEST_TIMEOUT_MS",
+			"NEKIRO_ROUTER_NACOS_PENDING_CHANGES",
+			"NEKIRO_ROUTER_NACOS_MAX_OBSERVATIONS",
+			"NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY",
+			"NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE",
+			"NEKIRO_ROUTER_NACOS_GRPC_TLS_SERVER_NAME",
+			"NEKIRO_ROUTER_NACOS_GRPC_TLS_CLIENT_CERT_FILE",
+			"NEKIRO_ROUTER_NACOS_GRPC_TLS_CLIENT_KEY_FILE",
+		}
 		if !nacosObserve {
 			for _, name := range grpcNames {
 				if _, exists := lookup(name); exists {
@@ -295,7 +315,43 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 				return Config{}, err
 			}
 			nacosGRPCSecurity, err = required(grpcNames[5])
-			if err != nil || nacosGRPCSecurity != "insecure" {
+			if err != nil {
+				return Config{}, err
+			}
+			tlsNames := grpcNames[6:]
+			switch nacosGRPCSecurity {
+			case NacosGRPCSecurityInsecure:
+				for _, name := range tlsNames {
+					if _, exists := lookup(name); exists {
+						return Config{}, errors.New(name + " requires Nacos gRPC TLS")
+					}
+				}
+			case NacosGRPCSecurityTLS, NacosGRPCSecurityMTLS:
+				nacosGRPCTLSCAFile, err = requiredAbsoluteFilePath(lookup, tlsNames[0])
+				if err != nil {
+					return Config{}, err
+				}
+				nacosGRPCTLSServerName, err = required(tlsNames[1])
+				if err != nil || !validTLSServerName(nacosGRPCTLSServerName) {
+					return Config{}, errors.New(tlsNames[1] + " is invalid")
+				}
+				if nacosGRPCSecurity == NacosGRPCSecurityTLS {
+					for _, name := range tlsNames[2:] {
+						if _, exists := lookup(name); exists {
+							return Config{}, errors.New(name + " requires Nacos gRPC mTLS")
+						}
+					}
+				} else {
+					nacosGRPCTLSClientCertFile, err = requiredAbsoluteFilePath(lookup, tlsNames[2])
+					if err != nil {
+						return Config{}, err
+					}
+					nacosGRPCTLSClientKeyFile, err = requiredAbsoluteFilePath(lookup, tlsNames[3])
+					if err != nil {
+						return Config{}, err
+					}
+				}
+			default:
 				return Config{}, errors.New(grpcNames[5] + " is unsupported")
 			}
 		}
@@ -338,7 +394,46 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		NacosPendingChanges:            int(nacosPendingChanges),
 		NacosMaxObservations:           int(nacosMaxObservations),
 		NacosGRPCTransportSecurity:     nacosGRPCSecurity,
+		NacosGRPCTLSCAFile:             nacosGRPCTLSCAFile,
+		NacosGRPCTLSServerName:         nacosGRPCTLSServerName,
+		NacosGRPCTLSClientCertFile:     nacosGRPCTLSClientCertFile,
+		NacosGRPCTLSClientKeyFile:      nacosGRPCTLSClientKeyFile,
 	}, nil
+}
+
+func requiredAbsoluteFilePath(lookup func(string) (string, bool), name string) (string, error) {
+	value, err := requiredEnvFrom(lookup, name)
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(value) || filepath.Clean(value) != value || filepath.Base(value) == "." {
+		return "", errors.New(name + " must be a clean absolute file path")
+	}
+	return value, nil
+}
+
+func validTLSServerName(value string) bool {
+	if parsed := net.ParseIP(value); parsed != nil {
+		return parsed.String() == value
+	}
+	if strings.Trim(value, "0123456789.") == "" {
+		return false
+	}
+	if len(value) < 1 || len(value) > 253 || strings.HasSuffix(value, ".") {
+		return false
+	}
+	for _, label := range strings.Split(value, ".") {
+		if len(label) < 1 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, character := range []byte(label) {
+			if character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || character == '-' {
+				continue
+			}
+			return false
+		}
+	}
+	return true
 }
 
 func validateNacosAPIOrigin(value string) error {

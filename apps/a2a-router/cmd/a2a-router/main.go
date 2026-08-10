@@ -1,13 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/api"
@@ -27,8 +33,11 @@ import (
 	registrynacos "github.com/NeKiro-project/NeKiro/registry/nacos"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+const nacosTLSMaterialLimit = 1 << 20
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
@@ -153,9 +162,14 @@ func openInstanceDirectory(cfg config.Config) (instanceDirectory, error) {
 			if cfg.NacosAuthMode == config.NacosAuthAccessToken {
 				headers = map[string]string{"accessToken": cfg.NacosAccessToken}
 			}
+			transportCredentials, credentialsErr := newNacosGRPCTransportCredentials(cfg)
+			if credentialsErr != nil {
+				_ = reader.Close()
+				return nil, fmt.Errorf("initialize Router Nacos gRPC transport security: %w", credentialsErr)
+			}
 			grpcExecutor, grpcErr := registrynacos.NewGRPCExecutor(registrynacos.GRPCExecutorConfig{
 				Target: cfg.NacosGRPCTarget, ClientIP: cfg.NacosGRPCClientIP,
-				RequestTimeout: cfg.NacosGRPCRequestTimeout, TransportCredentials: insecure.NewCredentials(),
+				RequestTimeout: cfg.NacosGRPCRequestTimeout, TransportCredentials: transportCredentials,
 				RequestHeaders: headers,
 			})
 			if grpcErr != nil {
@@ -177,6 +191,116 @@ func openInstanceDirectory(cfg config.Config) (instanceDirectory, error) {
 		return directory, nil
 	}
 	return nil, nil
+}
+
+func newNacosGRPCTransportCredentials(cfg config.Config) (credentials.TransportCredentials, error) {
+	switch cfg.NacosGRPCTransportSecurity {
+	case config.NacosGRPCSecurityInsecure:
+		if cfg.NacosGRPCTLSCAFile != "" || cfg.NacosGRPCTLSServerName != "" ||
+			cfg.NacosGRPCTLSClientCertFile != "" || cfg.NacosGRPCTLSClientKeyFile != "" {
+			return nil, errors.New("Nacos gRPC insecure mode cannot include TLS material")
+		}
+		return insecure.NewCredentials(), nil
+	case config.NacosGRPCSecurityTLS:
+		if cfg.NacosGRPCTLSClientCertFile != "" || cfg.NacosGRPCTLSClientKeyFile != "" {
+			return nil, errors.New("Nacos gRPC TLS mode cannot include a client certificate")
+		}
+	case config.NacosGRPCSecurityMTLS:
+		if cfg.NacosGRPCTLSClientCertFile == "" || cfg.NacosGRPCTLSClientKeyFile == "" {
+			return nil, errors.New("Nacos gRPC mTLS client certificate and key are required")
+		}
+	default:
+		return nil, errors.New("Nacos gRPC transport security mode is unsupported")
+	}
+	if cfg.NacosGRPCTLSServerName == "" {
+		return nil, errors.New("Nacos gRPC TLS server name is required")
+	}
+
+	caPEM, err := readNacosTLSMaterial(cfg.NacosGRPCTLSCAFile, "CA bundle")
+	if err != nil {
+		return nil, err
+	}
+	defer clear(caPEM)
+	roots, err := newNacosTLSCertPool(caPEM)
+	if err != nil {
+		return nil, err
+	}
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    roots,
+		ServerName: cfg.NacosGRPCTLSServerName,
+	}
+
+	if cfg.NacosGRPCTransportSecurity == config.NacosGRPCSecurityTLS {
+		return credentials.NewTLS(tlsConfig), nil
+	}
+	certificatePEM, err := readNacosTLSMaterial(cfg.NacosGRPCTLSClientCertFile, "client certificate")
+	if err != nil {
+		return nil, err
+	}
+	defer clear(certificatePEM)
+	keyPEM, err := readNacosTLSMaterial(cfg.NacosGRPCTLSClientKeyFile, "client key")
+	if err != nil {
+		return nil, err
+	}
+	defer clear(keyPEM)
+	clientCertificate, err := tls.X509KeyPair(certificatePEM, keyPEM)
+	if err != nil {
+		return nil, errors.New("Nacos gRPC mTLS client certificate or key is invalid")
+	}
+	tlsConfig.Certificates = []tls.Certificate{clientCertificate}
+	return credentials.NewTLS(tlsConfig), nil
+}
+
+func newNacosTLSCertPool(caPEM []byte) (*x509.CertPool, error) {
+	pool := x509.NewCertPool()
+	remaining := caPEM
+	certificates := 0
+	for len(bytes.TrimSpace(remaining)) > 0 {
+		remaining = bytes.TrimSpace(remaining)
+		if !bytes.HasPrefix(remaining, []byte("-----BEGIN CERTIFICATE-----")) {
+			return nil, errors.New("Nacos gRPC TLS CA bundle is invalid")
+		}
+		block, rest := pem.Decode(remaining)
+		if block == nil || block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
+			return nil, errors.New("Nacos gRPC TLS CA bundle is invalid")
+		}
+		certificate, err := x509.ParseCertificate(block.Bytes)
+		if err != nil || !certificate.IsCA || certificate.KeyUsage&x509.KeyUsageCertSign == 0 {
+			return nil, errors.New("Nacos gRPC TLS CA bundle is invalid")
+		}
+		pool.AddCert(certificate)
+		certificates++
+		remaining = rest
+	}
+	if certificates == 0 {
+		return nil, errors.New("Nacos gRPC TLS CA bundle is invalid")
+	}
+	return pool, nil
+}
+
+func readNacosTLSMaterial(path, label string) ([]byte, error) {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return nil, fmt.Errorf("Nacos gRPC TLS %s path is invalid", label)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("Nacos gRPC TLS %s is unreadable", label)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("Nacos gRPC TLS %s is not a regular file", label)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, nacosTLSMaterialLimit+1))
+	if err != nil || len(data) == 0 {
+		return nil, fmt.Errorf("Nacos gRPC TLS %s is unreadable", label)
+	}
+	if len(data) > nacosTLSMaterialLimit {
+		clear(data)
+		return nil, fmt.Errorf("Nacos gRPC TLS %s exceeds the byte limit", label)
+	}
+	return data, nil
 }
 
 func newNacosHTTPClient(timeout time.Duration) *http.Client {
