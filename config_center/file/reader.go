@@ -7,7 +7,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"runtime"
 	"sync"
 
@@ -208,23 +207,20 @@ func (reader *Reader) readStateLocked(key configcenter.Key, operation configcent
 	if err != nil {
 		return fileState{}, fileError(configcenter.CodeInvalid, key, operation)
 	}
-	info, err := reader.root.Lstat(leaf)
+	info, err := reader.operations.rootLeafLstat(reader.root, leaf)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) || os.IsNotExist(err) {
 			return fileState{}, nil
 		}
 		if runtime.GOOS == "windows" {
-			// Windows can report a sharing violation while Lstat opens a
-			// reparse-point leaf through os.Root. Recheck the pinned pathname
-			// only to preserve the unsafe-state classification; reads still use
-			// the confined root handle below.
-			if code := rootIdentityCode(reader.rootPath, reader.root, reader.rootIdentity, reader.operations); code != "" {
-				return fileState{}, fileError(code, key, operation)
+			// Windows can report a sharing violation while os.Root inspects a
+			// reparse-point leaf. Classify the pathname object without following
+			// it; successful reads still use only the confined root handle.
+			missing, mappedErr := reader.mapLeafAccessFailure(key, operation, leaf, err)
+			if missing {
+				return fileState{}, nil
 			}
-			if fallback, fallbackErr := os.Lstat(filepath.Join(reader.rootPath, leaf)); fallbackErr == nil &&
-				(fallback.Mode()&os.ModeSymlink != 0 || !fallback.Mode().IsRegular()) {
-				return fileState{}, fileError(configcenter.CodeUnsafeState, key, operation)
-			}
+			return fileState{}, mappedErr
 		}
 		return fileState{}, mapLeafFilesystemError(key, operation, err)
 	}
@@ -235,10 +231,17 @@ func (reader *Reader) readStateLocked(key configcenter.Key, operation configcent
 		return fileState{}, fileError(configcenter.CodePayloadTooLarge, key, operation)
 	}
 
-	opened, err := reader.root.Open(leaf)
+	opened, err := reader.operations.rootLeafOpen(reader.root, leaf)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) || os.IsNotExist(err) {
 			return fileState{}, nil
+		}
+		if runtime.GOOS == "windows" {
+			missing, mappedErr := reader.mapLeafAccessFailure(key, operation, leaf, err)
+			if missing {
+				return fileState{}, nil
+			}
+			return fileState{}, mappedErr
 		}
 		return fileState{}, mapLeafFilesystemError(key, operation, err)
 	}
@@ -254,6 +257,32 @@ func (reader *Reader) readStateLocked(key configcenter.Key, operation configcent
 		return fileState{}, fileError(configcenter.CodePayloadTooLarge, key, operation)
 	}
 	return fileState{present: true, content: bytes.Clone(content)}, nil
+}
+
+type leafFailureState uint8
+
+const (
+	leafFailureUnknown leafFailureState = iota
+	leafFailureMissing
+	leafFailureUnsafe
+)
+
+func (reader *Reader) mapLeafAccessFailure(key configcenter.Key, operation configcenter.Operation, leaf string, err error) (bool, error) {
+	if code := rootIdentityCode(reader.rootPath, reader.root, reader.rootIdentity, reader.operations); code != "" {
+		return false, fileError(code, key, operation)
+	}
+	return mapLeafAccessFailure(key, operation, reader.rootPath, leaf, err)
+}
+
+func mapLeafAccessFailure(key configcenter.Key, operation configcenter.Operation, rootPath, leaf string, err error) (bool, error) {
+	switch leafStateAfterAccessFailure(rootPath, leaf) {
+	case leafFailureMissing:
+		return true, nil
+	case leafFailureUnsafe:
+		return false, fileError(configcenter.CodeUnsafeState, key, operation)
+	default:
+		return false, mapLeafFilesystemError(key, operation, err)
+	}
 }
 
 func readBounded(file *os.File, maximum int64) ([]byte, bool, error) {
