@@ -1,0 +1,56 @@
+openapi: 3.1.0
+info:
+  title: NeKiro Router Topology Status API
+  version: 1.0.0
+  description: >-
+    Authenticated read-only projection of topology already observed by the
+    Router. Reads never probe, reconnect, retry, or mutate observation state.
+servers:
+  - url: https://a2a-router.internal.nekiro.dev
+    description: Explicit internal destination; no localhost fallback
+paths:
+  /internal/v1/instance-topology/status:
+    get:
+      operationId: getRouterTopologyStatus
+      security: [{ serviceBearerAuth: [] }]
+      responses:
+        "200":
+          description: Safe current Router observation projection
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: ../schemas/router-topology-status.v1.schema.json }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+components:
+  securitySchemes:
+    serviceBearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-service-credential
+      description: Explicit Router service principal; Agent credentials are not accepted.
+  schemas:
+    PreCorrelationPlatformError:
+      $ref: ../schemas/platform-error.v4.schema.json#/$defs/preCorrelation
+  responses:
+    Unauthenticated:
+      description: Missing or malformed Router service credential
+      x-platform-error-codes: [UNAUTHENTICATED]
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/PreCorrelationPlatformError" }
+    Forbidden:
+      description: Unknown Router service credential
+      x-platform-error-codes: [FORBIDDEN]
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/PreCorrelationPlatformError" }
+    Unavailable:
+      description: Router topology projection is internally invalid
+      x-platform-error-codes: [DEPENDENCY_ERROR]
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/PreCorrelationPlatformError" }

@@ -2,6 +2,7 @@ package routing
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"strings"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/transport/a2a"
+	"github.com/NeKiro-project/NeKiro/contracts"
 	"github.com/NeKiro-project/NeKiro/registry"
 	"github.com/NeKiro-project/NeKiro/registry/testkit"
 )
@@ -29,6 +31,19 @@ type mismatchedInitialDirectory struct {
 	capabilityDirectory
 	initial registry.InstanceSnapshot
 	watch   registry.InstanceWatch
+}
+
+type blockingObserveDirectory struct {
+	capabilityDirectory
+	started     chan struct{}
+	release     chan struct{}
+	observation registry.InstanceObservation
+}
+
+func (directory *blockingObserveDirectory) Observe(context.Context, registry.ReleaseTarget) (registry.InstanceObservation, error) {
+	close(directory.started)
+	<-directory.release
+	return directory.observation, nil
 }
 
 func (directory *mismatchedInitialDirectory) Observe(context.Context, registry.ReleaseTarget) (registry.InstanceObservation, error) {
@@ -53,7 +68,7 @@ func (directory *countingDirectory) Snapshot(ctx context.Context, target registr
 func TestWatchSelectorSharesObservationAndAppliesChanges(t *testing.T) {
 	target, initial := selectionFixture(t, []string{"runtime-b-old"})
 	directory := newCountingDirectory(t, target, initial)
-	selector, err := NewWatchSelector(directory, "a2a", 4)
+	selector, err := NewWatchSelector(directory, "nacos", "a2a", 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +121,7 @@ func TestWatchSelectorSharesObservationAndAppliesChanges(t *testing.T) {
 func TestWatchSelectorFailsClosedAfterWatchTermination(t *testing.T) {
 	target, initial := selectionFixture(t, []string{"runtime-b-old"})
 	directory := newCountingDirectory(t, target, initial)
-	selector, _ := NewWatchSelector(directory, "a2a", 1)
+	selector, _ := NewWatchSelector(directory, "nacos", "a2a", 1)
 	defer selector.Close()
 	input := a2aTarget(target)
 	if _, err := selector.Select(t.Context(), input, a2a.ContextHeaders{}); err != nil {
@@ -119,6 +134,10 @@ func TestWatchSelectorFailsClosedAfterWatchTermination(t *testing.T) {
 		_, selectErr := selector.Select(t.Context(), input, a2a.ContextHeaders{})
 		return selectErr != nil
 	})
+	status := selector.TopologyStatus()
+	if len(status.Observations) != 1 || status.Observations[0].State != contracts.RouterTopologyStateUnavailable || status.Observations[0].LocalRevision != 0 {
+		t.Fatalf("terminal observation status = %#v", status)
+	}
 	if directory.snapshots.Load() != 0 {
 		t.Fatalf("terminal watch fell back to Snapshot %d times", directory.snapshots.Load())
 	}
@@ -131,7 +150,7 @@ func TestWatchSelectorEnforcesObservationLimitAndClose(t *testing.T) {
 	if err := directory.Bind(second, secondSnapshot); err != nil {
 		t.Fatal(err)
 	}
-	selector, _ := NewWatchSelector(directory, "a2a", 1)
+	selector, _ := NewWatchSelector(directory, "nacos", "a2a", 1)
 	if _, err := selector.Select(t.Context(), a2aTarget(first), a2a.ContextHeaders{}); err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +171,7 @@ func TestWatchSelectorEnforcesObservationLimitAndClose(t *testing.T) {
 func TestWatchSelectorLatchesInitializationFailure(t *testing.T) {
 	capabilities, _ := registry.NewCapabilities(registry.CapabilityObserve)
 	directory := &failingObserveDirectory{capabilityDirectory: capabilityDirectory{capabilities: capabilities}}
-	selector, _ := NewWatchSelector(directory, "a2a", 1)
+	selector, _ := NewWatchSelector(directory, "nacos", "a2a", 1)
 	defer selector.Close()
 	target, _ := selectionFixture(t, []string{"runtime-b-old"})
 	for range 2 {
@@ -180,7 +199,7 @@ func TestWatchSelectorRejectsMismatchedInitialSnapshot(t *testing.T) {
 		initial: otherInitial,
 		watch:   watch,
 	}
-	selector, err := NewWatchSelector(directory, "a2a", 1)
+	selector, err := NewWatchSelector(directory, "nacos", "a2a", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +212,7 @@ func TestWatchSelectorRejectsMismatchedInitialSnapshot(t *testing.T) {
 func TestObservationSessionRejectsRevisionGap(t *testing.T) {
 	target, initial := selectionFixture(t, []string{"runtime-b-old"})
 	session := &observationSession{snapshot: initial, available: true}
-	if session.apply(target, replacementChangeAtOrder(t, target, initial, "runtime-b-new", 2)) {
+	if session.apply(target, replacementChangeAtOrder(t, target, initial, "runtime-b-new", 2), time.Now()) {
 		t.Fatal("revision gap was applied")
 	}
 	current, available := session.current()
@@ -204,15 +223,25 @@ func TestObservationSessionRejectsRevisionGap(t *testing.T) {
 
 func TestWatchSelectorValidatesDependenciesAndContext(t *testing.T) {
 	capabilities, _ := registry.NewCapabilities(registry.CapabilitySnapshot)
-	if _, err := NewWatchSelector(capabilityDirectory{capabilities: capabilities}, "a2a", 1); err == nil {
+	if _, err := NewWatchSelector(capabilityDirectory{capabilities: capabilities}, "nacos", "a2a", 1); err == nil {
 		t.Fatal("directory without observe capability accepted")
 	}
-	if _, err := NewWatchSelector(nil, "a2a", 1); err == nil {
+	if _, err := NewWatchSelector(nil, "nacos", "a2a", 1); err == nil {
 		t.Fatal("nil directory accepted")
+	}
+	observeCapabilities, _ := registry.NewCapabilities(registry.CapabilityObserve)
+	if _, err := NewWatchSelector(capabilityDirectory{capabilities: observeCapabilities}, "nacos", "a2a", contracts.RouterTopologyStatusObservationMaximum+1); err == nil {
+		t.Fatal("observation limit beyond status contract accepted")
+	}
+	if _, err := NewWatchSelector(capabilityDirectory{capabilities: func() registry.Capabilities {
+		capabilities, _ := registry.NewCapabilities(registry.CapabilityObserve)
+		return capabilities
+	}()}, "not safe", "a2a", 1); err == nil {
+		t.Fatal("invalid provider accepted")
 	}
 	target, initial := selectionFixture(t, []string{"runtime-b-old"})
 	directory := newCountingDirectory(t, target, initial)
-	selector, _ := NewWatchSelector(directory, "a2a", 1)
+	selector, _ := NewWatchSelector(directory, "nacos", "a2a", 1)
 	defer selector.Close()
 	if _, err := selector.Select(nil, a2aTarget(target), a2a.ContextHeaders{}); err == nil {
 		t.Fatal("nil context accepted")
@@ -224,6 +253,142 @@ func TestWatchSelectorValidatesDependenciesAndContext(t *testing.T) {
 	}
 	if directory.observes.Load() != 0 {
 		t.Fatal("canceled selection established an observation")
+	}
+}
+
+func TestWatchSelectorTopologyStatusTracksSafeSortedState(t *testing.T) {
+	first, firstInitial := selectionFixture(t, []string{"runtime-b-old"})
+	directory := newCountingDirectory(t, first, firstInitial)
+	second, secondInitial := releaseFixture(t, "runtime-a", "release-a", "runtime-a-old", 8091)
+	if err := directory.Bind(second, secondInitial); err != nil {
+		t.Fatal(err)
+	}
+	third, thirdInitial := releaseFixture(t, "runtime-a", "release-a2", "runtime-a-second", 8091)
+	if err := directory.Bind(third, thirdInitial); err != nil {
+		t.Fatal(err)
+	}
+	fourth, fourthInitial := releaseFixtureVersion(t, "runtime-a", "2.0.0", "release-a3", "runtime-a-v2", 8091)
+	if err := directory.Bind(fourth, fourthInitial); err != nil {
+		t.Fatal(err)
+	}
+	selector, err := NewWatchSelector(directory, "nacos", "a2a", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer selector.Close()
+	var clock atomic.Int64
+	clock.Store(time.Date(2026, 8, 10, 5, 0, 0, 0, time.UTC).UnixNano())
+	selector.now = func() time.Time { return time.Unix(0, clock.Load()).UTC() }
+
+	if _, err := selector.Select(t.Context(), a2aTarget(first), a2a.ContextHeaders{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := selector.Select(t.Context(), a2aTarget(second), a2a.ContextHeaders{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := selector.Select(t.Context(), a2aTarget(third), a2a.ContextHeaders{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := selector.Select(t.Context(), a2aTarget(fourth), a2a.ContextHeaders{}); err != nil {
+		t.Fatal(err)
+	}
+	status := selector.TopologyStatus()
+	if err := contracts.ValidateRouterTopologyStatusV1(status); err != nil {
+		t.Fatalf("status contract invalid: %v", err)
+	}
+	if status.Provider != "nacos" || len(status.Observations) != 4 || status.Observations[0].ReleaseID != "release-a" ||
+		status.Observations[1].ReleaseID != "release-a2" || status.Observations[2].AgentCardVersion != "2.0.0" ||
+		status.Observations[3].AgentID != first.AgentID() || status.Observations[3].State != contracts.RouterTopologyStatePopulated {
+		t.Fatalf("initial sorted status = %#v", status)
+	}
+
+	clock.Store(time.Date(2026, 8, 10, 5, 1, 0, 0, time.UTC).UnixNano())
+	if err := directory.Emit(first, emptyChange(t, first, firstInitial)); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, func() bool {
+		current := selector.TopologyStatus()
+		return len(current.Observations) == 4 && current.Observations[3].State == contracts.RouterTopologyStateEmpty &&
+			current.Observations[3].LocalRevision == 1 && current.Observations[3].ObservedAt.Equal(time.Unix(0, clock.Load()).UTC())
+	})
+
+	encoded, err := json.Marshal(selector.TopologyStatus())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"runtime-b-old", "stack-1", "cardDigest", "canonicalEndpoint", "audience", "instanceId"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("topology status leaked %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestWatchSelectorTopologyStatusIsReadOnly(t *testing.T) {
+	target, initial := selectionFixture(t, []string{"runtime-b-old"})
+	directory := newCountingDirectory(t, target, initial)
+	selector, err := NewWatchSelector(directory, "nacos", "a2a", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer selector.Close()
+	for range 3 {
+		status := selector.TopologyStatus()
+		if status.Observations == nil || len(status.Observations) != 0 {
+			t.Fatalf("unobserved status = %#v", status)
+		}
+	}
+	if directory.observes.Load() != 0 || directory.snapshots.Load() != 0 {
+		t.Fatalf("status read touched directory: observe=%d snapshot=%d", directory.observes.Load(), directory.snapshots.Load())
+	}
+}
+
+func TestWatchSelectorTopologyStatusExposesInitializingWithoutProbing(t *testing.T) {
+	target, initial := selectionFixture(t, []string{"runtime-b-old"})
+	watch, _, err := registry.NewInstanceWatch(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := registry.NewInstanceObservation(initial, watch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capabilities, _ := registry.NewCapabilities(registry.CapabilityObserve)
+	directory := &blockingObserveDirectory{
+		capabilityDirectory: capabilityDirectory{capabilities: capabilities},
+		started:             make(chan struct{}), release: make(chan struct{}), observation: observation,
+	}
+	selector, err := NewWatchSelector(directory, "nacos", "a2a", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer selector.Close()
+	result := make(chan error, 1)
+	go func() {
+		_, selectErr := selector.Select(t.Context(), a2aTarget(target), a2a.ContextHeaders{})
+		result <- selectErr
+	}()
+	<-directory.started
+	status := selector.TopologyStatus()
+	if len(status.Observations) != 1 || status.Observations[0].State != contracts.RouterTopologyStateInitializing ||
+		status.Observations[0].LocalRevision != 0 || status.Observations[0].ObservedAt.IsZero() {
+		t.Fatalf("initializing status = %#v", status)
+	}
+	close(directory.release)
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTopologyObservationStateMapping(t *testing.T) {
+	for input, want := range map[registry.SnapshotState]contracts.RouterTopologyObservationState{
+		registry.SnapshotStateMissing:     contracts.RouterTopologyStateMissing,
+		registry.SnapshotStateEmpty:       contracts.RouterTopologyStateEmpty,
+		registry.SnapshotStatePopulated:   contracts.RouterTopologyStatePopulated,
+		registry.SnapshotState("invalid"): contracts.RouterTopologyStateUnavailable,
+	} {
+		if got := topologyObservationState(input); got != want {
+			t.Fatalf("state %q mapped to %q, want %q", input, got, want)
+		}
 	}
 }
 
@@ -263,10 +428,36 @@ func replacementChangeAtOrder(t *testing.T, target registry.ReleaseTarget, previ
 	return change
 }
 
+func emptyChange(t *testing.T, target registry.ReleaseTarget, previous registry.InstanceSnapshot) registry.InstanceChange {
+	t.Helper()
+	revision, err := registry.NewRevision(registry.RevisionInput{SourceTokens: []string{"provider-secret-revision"}, LocalOrder: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := registry.NewInstanceSnapshot(registry.InstanceSnapshotInput{
+		Target: target, Revision: revision, State: registry.SnapshotStateEmpty, Instances: []registry.Instance{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	change, err := registry.NewInstanceChange(registry.InstanceChangeInput{
+		Kind: registry.InstanceChangeInstancesChanged, Revision: revision,
+		DeletedInstanceIDs: []string{previous.Instances()[0].ID()}, Snapshot: snapshot,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return change
+}
+
 func releaseFixture(t *testing.T, agentID, releaseID, address string, port int) (registry.ReleaseTarget, registry.InstanceSnapshot) {
+	return releaseFixtureVersion(t, agentID, "1.0.0", releaseID, address, port)
+}
+
+func releaseFixtureVersion(t *testing.T, agentID, version, releaseID, address string, port int) (registry.ReleaseTarget, registry.InstanceSnapshot) {
 	t.Helper()
 	target, err := registry.NewReleaseTarget(registry.ReleaseTargetInput{
-		AgentID: agentID, AgentCardVersion: "1.0.0", ReleaseID: releaseID, CardDigest: strings.Repeat("b", 64),
+		AgentID: agentID, AgentCardVersion: version, ReleaseID: releaseID, CardDigest: strings.Repeat("b", 64),
 		CanonicalEndpoint: "http://" + agentID + ":" + strconv.Itoa(port) + "/",
 		Audience:          "http://" + agentID + ":" + strconv.Itoa(port),
 	})

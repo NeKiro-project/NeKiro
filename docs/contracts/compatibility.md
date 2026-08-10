@@ -28,6 +28,7 @@ consumers and must not redefine their semantics.
 | A2A Profile Schema | `0.1` | `0.2` | Breaking profile metadata and conformance requirements |
 | Public Agent Share | none | `v1` | New anonymous, secrecy-safe public identity and exact published Release projection |
 | Router Invocation Credential | none | `v1` | New companion contract: exact Ed25519 Router-to-Agent request authentication |
+| Router Topology Status | none | `v1` | New authenticated, read-only, secrecy-safe projection of Router-local watched topology |
 | A2A protocol | `0.3.0` | `0.3.0` | Unchanged wire protocol |
 
 Spec 011 adds invocation-runtime targets without replacing the active Catalog
@@ -58,6 +59,17 @@ or Invocation Ledger facts. The complete `router-internal.v3.yaml` is
 historical evidence and is not an active dependency.
 Agent-to-Router nested credentials remain
 the existing opaque Workspace/Agent binding in the opposite direction.
+
+Router Topology Status `v1` is a separately versioned internal read contract at
+`GET /internal/v1/instance-topology/status`. It is additive because no prior
+status endpoint or client existed. The response contains only the selected
+provider, exact Agent/version/Release identity, safe observation state,
+observation-local revision, and Router observation timestamp. It never exposes
+endpoints, source tokens, instance metadata, Card/config payloads, credentials,
+or Agent inputs/results. Reads do not establish an observation, probe a
+provider, retry, reconnect, refresh, or mutate state. Future field removal,
+requiredness changes, state reinterpretation, or new exhaustive state values
+require a new contract version or explicit consumer-impact review.
 
 ## Catalog v2 Completion
 

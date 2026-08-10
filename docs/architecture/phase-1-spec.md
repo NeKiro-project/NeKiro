@@ -70,6 +70,9 @@ Cross-language contracts are owned by language-neutral artifacts:
   Invocation and Trace Northbound API.
 - `contracts/openapi/control-plane-internal.v2.yaml` defines Router-to-Control Plane exact Agent resolution; `control-plane-internal.v3.yaml` defines nested installed-version resolution.
 - `contracts/openapi/router-internal.v4.yaml` defines active Control Plane-to-Router dispatch and result transport; `router-metadata.v3.yaml` is the active Workspace-scoped Invocation/Trace read contract, while the complete `router-internal.v3.yaml` is historical migration evidence.
+- `contracts/openapi/router-topology-status.v1.yaml` defines the authenticated,
+  read-only Router-local watched-topology status used to prove exact-Release
+  lifecycle consumption without exposing endpoints or provider revision tokens.
 - `contracts/a2a-profile/v0.3.0/profile.v0.2.json` pins the active supported A2A subset and context headers.
 - `contracts/router-agent-credential/v1/` and
   `contracts/schemas/router-agent-credential.v1.schema.json` define the

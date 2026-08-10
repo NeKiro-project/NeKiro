@@ -83,7 +83,7 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 	if directory != nil {
 		defer directory.Close()
 		if cfg.NacosObserveEnabled {
-			watchSelector, watchErr := routing.NewWatchSelector(directory, cfg.InstancePortName, cfg.NacosMaxObservations)
+			watchSelector, watchErr := routing.NewWatchSelector(directory, cfg.InstanceRoutingMode, cfg.InstancePortName, cfg.NacosMaxObservations)
 			if watchErr != nil {
 				return fmt.Errorf("initialize Router watch selector: %w", watchErr)
 			}
@@ -272,6 +272,15 @@ func newHandlerWithTargetSelector(cfg config.Config, doer resolution.HTTPDoer, a
 	agentHandler.RegisterRoutes(mux)
 	if err := ledgerHandler.RegisterRoutes(mux, authenticator); err != nil {
 		return nil, err
+	}
+	if topologyReader, ok := selector.(api.TopologyStatusReader); ok {
+		topologyHandler, err := api.NewTopologyStatusHandler(topologyReader)
+		if err != nil {
+			return nil, err
+		}
+		if err := topologyHandler.RegisterRoutes(mux, authenticator); err != nil {
+			return nil, err
+		}
 	}
 	return mux, nil
 }

@@ -3,9 +3,12 @@ package routing
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
+	"time"
 
 	"github.com/NeKiro-project/NeKiro/apps/a2a-router/internal/transport/a2a"
+	"github.com/NeKiro-project/NeKiro/contracts"
 	"github.com/NeKiro-project/NeKiro/registry"
 )
 
@@ -14,8 +17,10 @@ import (
 // pinned to the selected endpoint for its complete lifecycle.
 type WatchSelector struct {
 	directory       registry.InstanceDirectory
+	provider        string
 	portName        string
 	maxObservations int
+	now             func() time.Time
 	ctx             context.Context
 	cancel          context.CancelFunc
 
@@ -29,19 +34,28 @@ type observationSession struct {
 	ready     chan struct{}
 	readyOnce sync.Once
 
-	mu        sync.RWMutex
-	snapshot  registry.InstanceSnapshot
-	available bool
-	watch     registry.InstanceWatch
+	mu         sync.RWMutex
+	snapshot   registry.InstanceSnapshot
+	available  bool
+	watch      registry.InstanceWatch
+	state      contracts.RouterTopologyObservationState
+	revision   uint64
+	observedAt time.Time
 }
 
-func NewWatchSelector(directory registry.InstanceDirectory, portName string, maxObservations int) (*WatchSelector, error) {
-	if directory == nil || portName == "" || maxObservations <= 0 || !directory.Capabilities().Supports(registry.CapabilityObserve) {
+func NewWatchSelector(directory registry.InstanceDirectory, provider, portName string, maxObservations int) (*WatchSelector, error) {
+	status := contracts.RouterTopologyStatusV1{
+		SchemaVersion: contracts.RouterTopologyStatusSchemaVersion, Provider: provider,
+		Observations: []contracts.RouterTopologyStatusObservationV1{},
+	}
+	if directory == nil || contracts.ValidateRouterTopologyStatusV1(status) != nil || portName == "" ||
+		maxObservations <= 0 || maxObservations > contracts.RouterTopologyStatusObservationMaximum ||
+		!directory.Capabilities().Supports(registry.CapabilityObserve) {
 		return nil, errors.New("watch selector dependencies are required")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &WatchSelector{
-		directory: directory, portName: portName, maxObservations: maxObservations,
+		directory: directory, provider: provider, portName: portName, maxObservations: maxObservations, now: time.Now,
 		ctx: ctx, cancel: cancel, sessions: make(map[registry.ReleaseTarget]*observationSession),
 	}, nil
 }
@@ -85,7 +99,10 @@ func (selector *WatchSelector) session(target registry.ReleaseTarget) (*observat
 	if len(selector.sessions) >= selector.maxObservations {
 		return nil, errors.New("instance observation limit reached")
 	}
-	session := &observationSession{ready: make(chan struct{})}
+	session := &observationSession{
+		ready: make(chan struct{}), state: contracts.RouterTopologyStateInitializing,
+		observedAt: selector.now().UTC(),
+	}
 	selector.sessions[target] = session
 	selector.wg.Add(1)
 	go selector.observe(target, session)
@@ -96,18 +113,20 @@ func (selector *WatchSelector) observe(target registry.ReleaseTarget, session *o
 	defer selector.wg.Done()
 	observation, err := selector.directory.Observe(selector.ctx, target)
 	if err != nil {
-		session.fail()
+		session.fail(selector.now().UTC())
 		return
 	}
 	watch := observation.Watch()
-	if !session.initialize(target, observation.Initial(), watch) {
-		_ = watch.Close()
+	if !session.initialize(target, observation.Initial(), watch, selector.now().UTC()) {
+		if watch != nil {
+			_ = watch.Close()
+		}
 		return
 	}
 	for {
 		change, err := watch.Next(selector.ctx)
-		if err != nil || !session.apply(target, change) {
-			session.fail()
+		if err != nil || !session.apply(target, change, selector.now().UTC()) {
+			session.fail(selector.now().UTC())
 			_ = watch.Close()
 			return
 		}
@@ -135,21 +154,54 @@ func (selector *WatchSelector) Close() error {
 	return nil
 }
 
-func (session *observationSession) initialize(target registry.ReleaseTarget, snapshot registry.InstanceSnapshot, watch registry.InstanceWatch) bool {
+func (selector *WatchSelector) TopologyStatus() contracts.RouterTopologyStatusV1 {
+	selector.mu.Lock()
+	observations := make([]contracts.RouterTopologyStatusObservationV1, 0, len(selector.sessions))
+	for target, session := range selector.sessions {
+		state, revision, observedAt := session.status()
+		observations = append(observations, contracts.RouterTopologyStatusObservationV1{
+			AgentID: target.AgentID(), AgentCardVersion: target.AgentCardVersion(), ReleaseID: target.ReleaseID(),
+			State: state, LocalRevision: revision, ObservedAt: observedAt,
+		})
+	}
+	provider := selector.provider
+	selector.mu.Unlock()
+	sort.Slice(observations, func(i, j int) bool {
+		if observations[i].AgentID != observations[j].AgentID {
+			return observations[i].AgentID < observations[j].AgentID
+		}
+		if observations[i].AgentCardVersion != observations[j].AgentCardVersion {
+			return observations[i].AgentCardVersion < observations[j].AgentCardVersion
+		}
+		return observations[i].ReleaseID < observations[j].ReleaseID
+	})
+	return contracts.RouterTopologyStatusV1{
+		SchemaVersion: contracts.RouterTopologyStatusSchemaVersion,
+		Provider:      provider,
+		Observations:  observations,
+	}
+}
+
+func (session *observationSession) initialize(target registry.ReleaseTarget, snapshot registry.InstanceSnapshot, watch registry.InstanceWatch, observedAt time.Time) bool {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	if watch == nil || snapshot.Validate() != nil || !snapshot.Target().Equal(target) || snapshot.Revision().LocalOrder() != 0 {
+		session.state = contracts.RouterTopologyStateUnavailable
+		session.observedAt = observedAt
 		session.readyOnce.Do(func() { close(session.ready) })
 		return false
 	}
 	session.snapshot = snapshot
 	session.available = true
 	session.watch = watch
+	session.state = topologyObservationState(snapshot.State())
+	session.revision = snapshot.Revision().LocalOrder()
+	session.observedAt = observedAt
 	session.readyOnce.Do(func() { close(session.ready) })
 	return true
 }
 
-func (session *observationSession) apply(target registry.ReleaseTarget, change registry.InstanceChange) bool {
+func (session *observationSession) apply(target registry.ReleaseTarget, change registry.InstanceChange, observedAt time.Time) bool {
 	if change.Validate() != nil {
 		return false
 	}
@@ -160,6 +212,9 @@ func (session *observationSession) apply(target registry.ReleaseTarget, change r
 		return false
 	}
 	session.snapshot = next
+	session.state = topologyObservationState(next.State())
+	session.revision = next.Revision().LocalOrder()
+	session.observedAt = observedAt
 	return true
 }
 
@@ -169,12 +224,20 @@ func (session *observationSession) current() (registry.InstanceSnapshot, bool) {
 	return session.snapshot, session.available
 }
 
-func (session *observationSession) fail() {
+func (session *observationSession) fail(observedAt time.Time) {
 	session.mu.Lock()
 	session.snapshot = registry.InstanceSnapshot{}
 	session.available = false
+	session.state = contracts.RouterTopologyStateUnavailable
+	session.observedAt = observedAt
 	session.mu.Unlock()
 	session.readyOnce.Do(func() { close(session.ready) })
+}
+
+func (session *observationSession) status() (contracts.RouterTopologyObservationState, uint64, time.Time) {
+	session.mu.RLock()
+	defer session.mu.RUnlock()
+	return session.state, session.revision, session.observedAt
 }
 
 func (session *observationSession) closeWatch() {
@@ -187,3 +250,16 @@ func (session *observationSession) closeWatch() {
 }
 
 var _ a2a.TargetSelector = (*WatchSelector)(nil)
+
+func topologyObservationState(state registry.SnapshotState) contracts.RouterTopologyObservationState {
+	switch state {
+	case registry.SnapshotStateMissing:
+		return contracts.RouterTopologyStateMissing
+	case registry.SnapshotStateEmpty:
+		return contracts.RouterTopologyStateEmpty
+	case registry.SnapshotStatePopulated:
+		return contracts.RouterTopologyStatePopulated
+	default:
+		return contracts.RouterTopologyStateUnavailable
+	}
+}
