@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -234,6 +235,7 @@ func TestLoadFromRequiresExplicitNacosRoutingInputs(t *testing.T) {
 			candidate["NEKIRO_ROUTER_NACOS_GRPC_CLIENT_IP"] = "172.30.88.12"
 			candidate["NEKIRO_ROUTER_NACOS_GRPC_REQUEST_TIMEOUT_MS"] = "5000"
 			candidate["NEKIRO_ROUTER_NACOS_PENDING_CHANGES"] = "8"
+			candidate["NEKIRO_ROUTER_NACOS_MAX_OBSERVATIONS"] = "16"
 			candidate["NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY"] = "insecure"
 			if test.value == nil {
 				delete(candidate, test.key)
@@ -361,6 +363,22 @@ func TestLoadFromValidatesNacosGRPCTLSModes(t *testing.T) {
 		{name: "noncanonical IP server name", mode: NacosGRPCSecurityTLS, mutate: func(env map[string]string) {
 			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE"] = abs("ca.pem")
 			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_SERVER_NAME"] = "127.00.0.1"
+		}},
+		{name: "empty DNS label", mode: NacosGRPCSecurityTLS, mutate: func(env map[string]string) {
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE"] = abs("ca.pem")
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_SERVER_NAME"] = "nacos..internal"
+		}},
+		{name: "hyphenated DNS edge", mode: NacosGRPCSecurityTLS, mutate: func(env map[string]string) {
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE"] = abs("ca.pem")
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_SERVER_NAME"] = "-nacos.internal"
+		}},
+		{name: "invalid DNS character", mode: NacosGRPCSecurityTLS, mutate: func(env map[string]string) {
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE"] = abs("ca.pem")
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_SERVER_NAME"] = "nacos_internal"
+		}},
+		{name: "oversized DNS label", mode: NacosGRPCSecurityTLS, mutate: func(env map[string]string) {
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE"] = abs("ca.pem")
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_SERVER_NAME"] = strings.Repeat("a", 64) + ".internal"
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

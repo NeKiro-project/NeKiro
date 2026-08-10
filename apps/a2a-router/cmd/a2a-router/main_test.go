@@ -304,6 +304,8 @@ func TestNacosGRPCTransportCredentialsHandshake(t *testing.T) {
 func TestNacosGRPCTLSMaterialFailsClosedWithoutPathLeakage(t *testing.T) {
 	material := newTLSMaterial(t)
 	missing := filepath.Join(t.TempDir(), "private-ca.pem")
+	missingClientCertificate := filepath.Join(t.TempDir(), "client.pem")
+	missingClientKey := filepath.Join(t.TempDir(), "client-key.pem")
 	directory := t.TempDir()
 	empty := filepath.Join(t.TempDir(), "empty.pem")
 	malformed := filepath.Join(t.TempDir(), "malformed.pem")
@@ -332,12 +334,15 @@ func TestNacosGRPCTLSMaterialFailsClosedWithoutPathLeakage(t *testing.T) {
 		forbidden []string
 	}{
 		{name: "missing", cfg: tlsCredentialConfig(missing), forbidden: []string{missing}},
+		{name: "relative path", cfg: tlsCredentialConfig("private-ca.pem"), forbidden: []string{"private-ca.pem"}},
 		{name: "directory", cfg: tlsCredentialConfig(directory), forbidden: []string{directory}},
 		{name: "empty", cfg: tlsCredentialConfig(empty), forbidden: []string{empty}},
 		{name: "oversized", cfg: tlsCredentialConfig(oversized), forbidden: []string{oversized}},
 		{name: "malformed CA", cfg: tlsCredentialConfig(malformed), forbidden: []string{malformed, "private-marker"}},
 		{name: "malformed CA tail", cfg: tlsCredentialConfig(malformedTail), forbidden: []string{malformedTail, "private-marker"}},
 		{name: "mismatched key pair", cfg: config.Config{NacosGRPCTransportSecurity: config.NacosGRPCSecurityMTLS, NacosGRPCTLSCAFile: material.caFile, NacosGRPCTLSServerName: "nacos.internal", NacosGRPCTLSClientCertFile: material.clientCertFile, NacosGRPCTLSClientKeyFile: newTLSMaterial(t).clientKeyFile}, forbidden: []string{material.clientCertFile}},
+		{name: "missing client certificate file", cfg: config.Config{NacosGRPCTransportSecurity: config.NacosGRPCSecurityMTLS, NacosGRPCTLSCAFile: material.caFile, NacosGRPCTLSServerName: "nacos.internal", NacosGRPCTLSClientCertFile: missingClientCertificate, NacosGRPCTLSClientKeyFile: material.clientKeyFile}, forbidden: []string{missingClientCertificate}},
+		{name: "missing client key file", cfg: config.Config{NacosGRPCTransportSecurity: config.NacosGRPCSecurityMTLS, NacosGRPCTLSCAFile: material.caFile, NacosGRPCTLSServerName: "nacos.internal", NacosGRPCTLSClientCertFile: material.clientCertFile, NacosGRPCTLSClientKeyFile: missingClientKey}, forbidden: []string{missingClientKey}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := newNacosGRPCTransportCredentials(test.cfg)
@@ -356,11 +361,32 @@ func TestNacosGRPCTLSMaterialFailsClosedWithoutPathLeakage(t *testing.T) {
 		{NacosGRPCTransportSecurity: config.NacosGRPCSecurityInsecure, NacosGRPCTLSCAFile: material.caFile},
 		{NacosGRPCTransportSecurity: config.NacosGRPCSecurityTLS, NacosGRPCTLSCAFile: material.caFile, NacosGRPCTLSServerName: "nacos.internal", NacosGRPCTLSClientCertFile: material.clientCertFile},
 		{NacosGRPCTransportSecurity: config.NacosGRPCSecurityMTLS, NacosGRPCTLSCAFile: material.caFile, NacosGRPCTLSServerName: "nacos.internal"},
+		{NacosGRPCTransportSecurity: config.NacosGRPCSecurityTLS, NacosGRPCTLSCAFile: material.caFile},
 		{NacosGRPCTransportSecurity: "ambient"},
 	} {
 		if _, err := newNacosGRPCTransportCredentials(cfg); err == nil {
 			t.Fatalf("invalid transport config accepted: %#v", cfg)
 		}
+	}
+}
+
+func TestNacosTLSCertPoolRejectsEveryInvalidBlock(t *testing.T) {
+	material := newTLSMaterial(t)
+	for _, test := range []struct {
+		name string
+		pem  []byte
+	}{
+		{name: "empty", pem: nil},
+		{name: "wrong block type", pem: pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: []byte("invalid")})},
+		{name: "PEM headers", pem: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Headers: map[string]string{"Private": "marker"}, Bytes: material.serverCertificate.Certificate[0]})},
+		{name: "non-CA certificate", pem: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: material.serverCertificate.Certificate[0]})},
+		{name: "invalid certificate DER", pem: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("invalid")})},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := newNacosTLSCertPool(test.pem); err == nil || strings.Contains(err.Error(), "marker") {
+				t.Fatalf("invalid CA block error=%v", err)
+			}
+		})
 	}
 }
 
