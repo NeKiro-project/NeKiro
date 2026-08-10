@@ -29,6 +29,10 @@ func TestRegistrationCopiesExactTargetAndInstance(t *testing.T) {
 	if _, err := NewRegistration(RegistrationInput{}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("invalid registration error=%v", err)
 	}
+	unavailable, _ := NewInstance(InstanceInput{ID: "runtime-a", Endpoints: []NetworkEndpoint{endpoint}})
+	if _, err := NewRegistration(RegistrationInput{Target: target, Instance: unavailable}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unavailable registration error=%v", err)
+	}
 	if err := (Registration{}).Validate(); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("zero registration error=%v", err)
 	}

@@ -18,14 +18,14 @@ type Registration struct {
 }
 
 func NewRegistration(input RegistrationInput) (Registration, error) {
-	if input.Target.Validate() != nil || input.Instance.Validate() != nil {
+	if input.Target.Validate() != nil || input.Instance.Validate() != nil || input.Instance.State() != InstanceStateReady {
 		return Registration{}, ErrInvalid
 	}
 	return Registration{target: input.Target, instance: cloneRegistrationInstance(input.Instance)}, nil
 }
 
 func (r Registration) Validate() error {
-	if r.target.Validate() != nil || r.instance.Validate() != nil {
+	if r.target.Validate() != nil || r.instance.Validate() != nil || r.instance.State() != InstanceStateReady {
 		return ErrInvalid
 	}
 	return nil

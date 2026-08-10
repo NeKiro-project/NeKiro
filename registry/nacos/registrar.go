@@ -116,7 +116,9 @@ func (registrar *Registrar) Register(ctx context.Context, registration registry.
 	registrar.registering = false
 	if registrar.closed {
 		registrar.mu.Unlock()
-		cleanupErr := session.execute(ctx, http.MethodDelete, false)
+		cleanupContext, cancelCleanup := context.WithTimeout(context.Background(), registrar.heartbeatInterval)
+		cleanupErr := session.execute(cleanupContext, http.MethodDelete, false)
+		cancelCleanup()
 		lease.Terminate(registry.ErrClosed)
 		return nil, errors.Join(registry.ErrClosed, cleanupErr)
 	}

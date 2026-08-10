@@ -3,6 +3,7 @@ package nacos
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -150,27 +151,33 @@ func TestRegistrarCloseDuringInitialRegistrationDoesNotPublishLease(t *testing.T
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	methods := make(chan string, 2)
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	defer server.Close()
+	executor := requestExecutorFunc(func(request *http.Request) (*http.Response, error) {
 		methods <- request.Method
 		if request.Method == http.MethodPost {
 			close(entered)
 			<-release
 		}
-		_, _ = writer.Write([]byte("ok"))
-	}))
-	defer server.Close()
-	registrar, registration := testRegistrar(t, server, server.Client())
+		if request.Method == http.MethodDelete && request.Context().Err() != nil {
+			return nil, request.Context().Err()
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("ok"))}, nil
+	})
+	registrar, registration := testRegistrar(t, server, executor)
+	registerContext, cancelRegister := context.WithCancel(t.Context())
 	result := make(chan error, 1)
 	go func() {
-		_, err := registrar.Register(t.Context(), registration)
+		_, err := registrar.Register(registerContext, registration)
 		result <- err
 	}()
 	<-entered
 	if err := registrar.Close(); err != nil {
 		t.Fatal(err)
 	}
+	cancelRegister()
 	close(release)
-	if err := <-result; !errors.Is(err, registry.ErrClosed) {
+	if err := <-result; !errors.Is(err, registry.ErrClosed) || errors.Is(err, registry.ErrCanceled) {
 		t.Fatalf("Register error=%v", err)
 	}
 	if first, second := <-methods, <-methods; first != http.MethodPost || second != http.MethodDelete {
