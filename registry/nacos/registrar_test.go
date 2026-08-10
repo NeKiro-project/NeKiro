@@ -204,11 +204,18 @@ func TestRegistrarCloseDuringInitialRegistrationDoesNotPublishLease(t *testing.T
 		result <- err
 	}()
 	<-entered
-	if err := registrar.Close(); err != nil {
-		t.Fatal(err)
+	closeResult := make(chan error, 1)
+	go func() { closeResult <- registrar.Close() }()
+	select {
+	case err := <-closeResult:
+		t.Fatalf("Registrar.Close returned before initial registration cleanup: %v", err)
+	case <-time.After(25 * time.Millisecond):
 	}
 	cancelRegister()
 	close(release)
+	if err := <-closeResult; err != nil {
+		t.Fatal(err)
+	}
 	if err := <-result; !errors.Is(err, registry.ErrClosed) || errors.Is(err, registry.ErrCanceled) {
 		t.Fatalf("Register error=%v", err)
 	}

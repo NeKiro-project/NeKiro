@@ -56,6 +56,7 @@ type Registrar struct {
 	mu          sync.Mutex
 	closed      bool
 	registering bool
+	registerWG  sync.WaitGroup
 	sessions    map[*registrationSession]struct{}
 }
 
@@ -115,7 +116,9 @@ func (registrar *Registrar) Register(ctx context.Context, registration registry.
 		return nil, registry.ErrInvalid
 	}
 	registrar.registering = true
+	registrar.registerWG.Add(1)
 	registrar.mu.Unlock()
+	defer registrar.registerWG.Done()
 	session := &registrationSession{registrar: registrar, registration: registration, endpoint: endpoint, stop: make(chan struct{}), stopped: make(chan struct{})}
 	lease, _ := registry.NewLease(session.close)
 	session.lease = lease
@@ -155,6 +158,7 @@ func (registrar *Registrar) Close() error {
 		sessions = append(sessions, session)
 	}
 	registrar.mu.Unlock()
+	registrar.registerWG.Wait()
 	var result error
 	for _, session := range sessions {
 		ctx, cancel := context.WithTimeout(context.Background(), registrar.heartbeatInterval)
