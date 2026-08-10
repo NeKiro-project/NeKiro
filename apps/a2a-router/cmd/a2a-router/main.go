@@ -82,7 +82,16 @@ func serve(ctx context.Context, logger *slog.Logger) error {
 	}
 	if directory != nil {
 		defer directory.Close()
-		selector, err = routing.NewSnapshotSelector(directory, cfg.InstancePortName)
+		if cfg.NacosObserveEnabled {
+			watchSelector, watchErr := routing.NewWatchSelector(directory, cfg.InstancePortName, cfg.NacosMaxObservations)
+			if watchErr != nil {
+				return fmt.Errorf("initialize Router watch selector: %w", watchErr)
+			}
+			defer watchSelector.Close()
+			selector = watchSelector
+		} else {
+			selector, err = routing.NewSnapshotSelector(directory, cfg.InstancePortName)
+		}
 		if err != nil {
 			return fmt.Errorf("initialize Router instance selector: %w", err)
 		}
