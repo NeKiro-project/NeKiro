@@ -296,6 +296,20 @@ func TestLoadFromValidatesNacosGRPCTLSModes(t *testing.T) {
 	load := func(env map[string]string) (Config, error) {
 		return LoadFrom(func(name string) (string, bool) { value, ok := env[name]; return value, ok })
 	}
+	t.Run("missing security mode", func(t *testing.T) {
+		env := base()
+		delete(env, "NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY")
+		if _, err := load(env); err == nil {
+			t.Fatal("missing Nacos gRPC security mode accepted")
+		}
+	})
+	t.Run("unsupported routing mode", func(t *testing.T) {
+		env := validNacosEnv()
+		env["NEKIRO_ROUTER_INSTANCE_ROUTING_MODE"] = "ambient"
+		if _, err := load(env); err == nil {
+			t.Fatal("unsupported routing mode accepted")
+		}
+	})
 
 	t.Run("tls", func(t *testing.T) {
 		env := base()
