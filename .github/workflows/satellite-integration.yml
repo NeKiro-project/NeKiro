@@ -62,8 +62,9 @@ jobs:
 
   stack:
     needs: resolve
-    uses: NeKiro-project/NeKiro-Stack/.github/workflows/core-integration.yml@ab4bc5248da41f6f752fc50cbf27414e947b2ef4
+    uses: NeKiro-project/NeKiro-Stack/.github/workflows/core-integration.yml@12a651e887079b0b3ad40fa7c2fd21371d2ee935
     with:
+      stack_sha: 12a651e887079b0b3ad40fa7c2fd21371d2ee935
       core_sha: ${{ needs.resolve.outputs.core_sha }}
     permissions:
       contents: read
