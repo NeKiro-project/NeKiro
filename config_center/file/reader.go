@@ -207,7 +207,7 @@ func (reader *Reader) readStateLocked(key configcenter.Key, operation configcent
 	if err != nil {
 		return fileState{}, fileError(configcenter.CodeInvalid, key, operation)
 	}
-	info, err := reader.root.Lstat(leaf)
+	info, err := reader.operations.rootLeafLstat(reader.root, leaf)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) || os.IsNotExist(err) {
 			return fileState{}, nil
@@ -231,7 +231,7 @@ func (reader *Reader) readStateLocked(key configcenter.Key, operation configcent
 		return fileState{}, fileError(configcenter.CodePayloadTooLarge, key, operation)
 	}
 
-	opened, err := reader.root.Open(leaf)
+	opened, err := reader.operations.rootLeafOpen(reader.root, leaf)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) || os.IsNotExist(err) {
 			return fileState{}, nil

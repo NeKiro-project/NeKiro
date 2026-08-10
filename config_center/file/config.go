@@ -35,9 +35,11 @@ const fileProvider = configcenter.ProviderID("file")
 // platform implementation; package-local tests can make pathname races
 // deterministic without adding a production control surface.
 type fileOperations struct {
-	lstat    func(string) (fs.FileInfo, error)
-	openRoot func(string) (*os.Root, error)
-	rootStat func(*os.Root, string) (fs.FileInfo, error)
+	lstat         func(string) (fs.FileInfo, error)
+	openRoot      func(string) (*os.Root, error)
+	rootStat      func(*os.Root, string) (fs.FileInfo, error)
+	rootLeafLstat func(*os.Root, string) (fs.FileInfo, error)
+	rootLeafOpen  func(*os.Root, string) (*os.File, error)
 
 	afterInitialRootLstat  func()
 	afterWatcherAdd        func()
@@ -51,6 +53,12 @@ func productionFileOperations() fileOperations {
 		openRoot: os.OpenRoot,
 		rootStat: func(root *os.Root, name string) (fs.FileInfo, error) {
 			return root.Stat(name)
+		},
+		rootLeafLstat: func(root *os.Root, name string) (fs.FileInfo, error) {
+			return root.Lstat(name)
+		},
+		rootLeafOpen: func(root *os.Root, name string) (*os.File, error) {
+			return root.Open(name)
 		},
 	}
 }
