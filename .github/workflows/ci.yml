@@ -193,6 +193,13 @@ jobs:
       - name: Test Config Center
         run: go test -count=1 ./config_center/...
 
+      - name: Repeat Windows unsafe-state classification
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: >-
+          go test -count=20 ./config_center/file
+          -run 'Test(EventStateFailureCarriesOnlySafeCauseKind|LeafAccessPermissionOnReparsePointIsUnsafeState|LeafAccessReplacementWindowCanRemainMissing|LeafAccessPermissionOnRegularFileRemainsUnauthorized)$'
+
   registry:
     name: Test / Registry
     runs-on: ubuntu-latest
