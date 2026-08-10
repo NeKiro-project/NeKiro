@@ -33,6 +33,13 @@ const (
 	NacosGRPCSecurityMTLS           = "mtls"
 )
 
+var nacosHTTPTLSEnvNames = [...]string{
+	"NEKIRO_ROUTER_NACOS_HTTP_TLS_CA_FILE",
+	"NEKIRO_ROUTER_NACOS_HTTP_TLS_SERVER_NAME",
+	"NEKIRO_ROUTER_NACOS_HTTP_TLS_CLIENT_CERT_FILE",
+	"NEKIRO_ROUTER_NACOS_HTTP_TLS_CLIENT_KEY_FILE",
+}
+
 type Config struct {
 	ListenAddress                  string
 	RouterPrincipals               []auth.Principal
@@ -62,6 +69,10 @@ type Config struct {
 	NacosAccessToken               string
 	NacosResponseLimitBytes        int64
 	NacosRequestTimeout            time.Duration
+	NacosHTTPTLSCAFile             string
+	NacosHTTPTLSServerName         string
+	NacosHTTPTLSClientCertFile     string
+	NacosHTTPTLSClientKeyFile      string
 	NacosObserveEnabled            bool
 	NacosGRPCTarget                string
 	NacosGRPCClientIP              string
@@ -184,11 +195,19 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, err
 	}
 	var fileRoot, portName, nacosOrigin, nacosNamespace, nacosGroup, nacosAuthMode, nacosToken string
+	var nacosHTTPTLSCAFile, nacosHTTPTLSServerName, nacosHTTPTLSClientCertFile, nacosHTTPTLSClientKeyFile string
 	var nacosGRPCTarget, nacosGRPCClientIP, nacosGRPCSecurity string
 	var nacosGRPCTLSCAFile, nacosGRPCTLSServerName, nacosGRPCTLSClientCertFile, nacosGRPCTLSClientKeyFile string
 	var maxPayload, nacosResponseLimit, nacosTimeoutMS, nacosGRPCTimeoutMS, nacosPendingChanges, nacosMaxObservations int64
 	var nacosObserve bool
 	var directoryKey configcenter.Key
+	if routingMode != InstanceRoutingNacos {
+		for _, name := range nacosHTTPTLSEnvNames {
+			if _, exists := lookup(name); exists {
+				return Config{}, errors.New(name + " requires Nacos instance routing")
+			}
+		}
+	}
 	switch routingMode {
 	case InstanceRoutingDirect:
 	case InstanceRoutingConfigCenterFile:
@@ -219,6 +238,10 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		nacosOrigin, err = required("NEKIRO_ROUTER_NACOS_API_ORIGIN")
 		if err != nil || validateNacosAPIOrigin(nacosOrigin) != nil {
 			return Config{}, errors.New("NEKIRO_ROUTER_NACOS_API_ORIGIN is invalid")
+		}
+		nacosHTTPTLSCAFile, nacosHTTPTLSServerName, nacosHTTPTLSClientCertFile, nacosHTTPTLSClientKeyFile, err = loadNacosHTTPTLS(lookup, nacosOrigin)
+		if err != nil {
+			return Config{}, err
 		}
 		nacosNamespace, err = required("NEKIRO_ROUTER_NACOS_NAMESPACE_ID")
 		if err != nil {
@@ -387,6 +410,10 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		NacosAccessToken:               nacosToken,
 		NacosResponseLimitBytes:        nacosResponseLimit,
 		NacosRequestTimeout:            time.Duration(nacosTimeoutMS) * time.Millisecond,
+		NacosHTTPTLSCAFile:             nacosHTTPTLSCAFile,
+		NacosHTTPTLSServerName:         nacosHTTPTLSServerName,
+		NacosHTTPTLSClientCertFile:     nacosHTTPTLSClientCertFile,
+		NacosHTTPTLSClientKeyFile:      nacosHTTPTLSClientKeyFile,
 		NacosObserveEnabled:            nacosObserve,
 		NacosGRPCTarget:                nacosGRPCTarget,
 		NacosGRPCClientIP:              nacosGRPCClientIP,
@@ -401,11 +428,58 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	}, nil
 }
 
+func loadNacosHTTPTLS(lookup func(string) (string, bool), origin string) (caFile, serverName, clientCertFile, clientKeyFile string, returnErr error) {
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return "", "", "", "", errors.New("NEKIRO_ROUTER_NACOS_API_ORIGIN is invalid")
+	}
+	if parsed.Scheme == "http" {
+		for _, name := range nacosHTTPTLSEnvNames {
+			if _, exists := lookup(name); exists {
+				return "", "", "", "", errors.New(name + " requires an HTTPS Nacos API origin")
+			}
+		}
+		return "", "", "", "", nil
+	}
+	if parsed.Scheme != "https" {
+		return "", "", "", "", errors.New("NEKIRO_ROUTER_NACOS_API_ORIGIN is invalid")
+	}
+	caFile, err = requiredAbsoluteFilePath(lookup, nacosHTTPTLSEnvNames[0])
+	if err != nil {
+		return "", "", "", "", err
+	}
+	serverName, err = requiredEnvFrom(lookup, nacosHTTPTLSEnvNames[1])
+	if err != nil || !validTLSServerName(serverName) {
+		return "", "", "", "", errors.New(nacosHTTPTLSEnvNames[1] + " is invalid")
+	}
+	clientCertValue, hasClientCert := lookup(nacosHTTPTLSEnvNames[2])
+	clientKeyValue, hasClientKey := lookup(nacosHTTPTLSEnvNames[3])
+	if hasClientCert != hasClientKey {
+		return "", "", "", "", errors.New("Nacos HTTP mTLS client certificate and key must be configured together")
+	}
+	if !hasClientCert {
+		return caFile, serverName, "", "", nil
+	}
+	clientCertFile, err = validateAbsoluteFilePathValue(nacosHTTPTLSEnvNames[2], clientCertValue)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	clientKeyFile, err = validateAbsoluteFilePathValue(nacosHTTPTLSEnvNames[3], clientKeyValue)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	return caFile, serverName, clientCertFile, clientKeyFile, nil
+}
+
 func requiredAbsoluteFilePath(lookup func(string) (string, bool), name string) (string, error) {
 	value, err := requiredEnvFrom(lookup, name)
 	if err != nil {
 		return "", err
 	}
+	return validateAbsoluteFilePathValue(name, value)
+}
+
+func validateAbsoluteFilePathValue(name, value string) (string, error) {
 	if !filepath.IsAbs(value) || filepath.Clean(value) != value || filepath.Base(value) == "." {
 		return "", errors.New(name + " must be a clean absolute file path")
 	}

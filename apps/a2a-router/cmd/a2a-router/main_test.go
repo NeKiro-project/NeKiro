@@ -194,6 +194,23 @@ func TestOpenInstanceDirectoryOwnsEachConfiguredMode(t *testing.T) {
 	if err := nacosDirectory.Close(); err != nil {
 		t.Fatal(err)
 	}
+	tlsMaterial := newTLSMaterial(t)
+	httpsConfig := nacosConfig
+	httpsConfig.NacosAPIOrigin = "https://nacos.internal:8848/nacos"
+	httpsConfig.NacosHTTPTLSCAFile = tlsMaterial.caFile
+	httpsConfig.NacosHTTPTLSServerName = "nacos.internal"
+	httpsDirectory, err := openInstanceDirectory(httpsConfig)
+	if err != nil || httpsDirectory == nil || !httpsDirectory.Capabilities().Supports(registry.CapabilitySnapshot) {
+		t.Fatalf("HTTPS Nacos directory=%v error=%v", httpsDirectory, err)
+	}
+	if err := httpsDirectory.Close(); err != nil {
+		t.Fatal(err)
+	}
+	invalidHTTPSTLS := httpsConfig
+	invalidHTTPSTLS.NacosHTTPTLSCAFile = filepath.Join(t.TempDir(), "missing.pem")
+	if _, err := openInstanceDirectory(invalidHTTPSTLS); err == nil || !strings.Contains(err.Error(), "initialize Router Nacos HTTP transport security") || strings.Contains(err.Error(), invalidHTTPSTLS.NacosHTTPTLSCAFile) {
+		t.Fatalf("invalid Nacos HTTPS error=%v", err)
+	}
 	observedConfig := nacosConfig
 	observedConfig.NacosObserveEnabled = true
 	observedConfig.NacosGRPCTarget = "nacos.test:9848"
@@ -208,7 +225,6 @@ func TestOpenInstanceDirectoryOwnsEachConfiguredMode(t *testing.T) {
 	if err := observedDirectory.Close(); err != nil {
 		t.Fatal(err)
 	}
-	tlsMaterial := newTLSMaterial(t)
 	tlsObservedConfig := observedConfig
 	tlsObservedConfig.NacosGRPCTransportSecurity = config.NacosGRPCSecurityTLS
 	tlsObservedConfig.NacosGRPCTLSCAFile = tlsMaterial.caFile
@@ -243,13 +259,156 @@ func TestOpenInstanceDirectoryOwnsEachConfiguredMode(t *testing.T) {
 }
 
 func TestNacosHTTPClientDisablesAmbientNetworkBehavior(t *testing.T) {
-	client := newNacosHTTPClient(750 * time.Millisecond)
+	client, err := newNacosHTTPClient(config.Config{NacosAPIOrigin: "http://nacos.test/nacos", NacosRequestTimeout: 750 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
 	transport, ok := client.Transport.(*http.Transport)
-	if !ok || transport.Proxy != nil || !transport.DisableKeepAlives || client.Timeout != 750*time.Millisecond {
+	if !ok || transport.Proxy != nil || transport.TLSClientConfig != nil || !transport.DisableKeepAlives || client.Timeout != 750*time.Millisecond {
 		t.Fatalf("client=%#v transport=%#v", client, transport)
 	}
 	if err := client.CheckRedirect(httptest.NewRequest(http.MethodGet, "http://nacos.test/next", nil), nil); err == nil || err.Error() != "Nacos redirects are disabled" {
 		t.Fatalf("redirect error=%v", err)
+	}
+}
+
+func TestNacosHTTPClientAuthenticatesPrivateCAAndOptionalClient(t *testing.T) {
+	material := newTLSMaterial(t)
+
+	for _, test := range []struct {
+		name         string
+		config       config.Config
+		serverConfig *tls.Config
+		wantError    bool
+	}{
+		{
+			name:         "TLS",
+			config:       config.Config{NacosAPIOrigin: "https://nacos.internal:8848/nacos", NacosRequestTimeout: 2 * time.Second, NacosHTTPTLSCAFile: material.caFile, NacosHTTPTLSServerName: "nacos.internal"},
+			serverConfig: material.serverTLS(false),
+		},
+		{
+			name:         "mTLS",
+			config:       config.Config{NacosAPIOrigin: "https://nacos.internal:8848/nacos", NacosRequestTimeout: 2 * time.Second, NacosHTTPTLSCAFile: material.caFile, NacosHTTPTLSServerName: "nacos.internal", NacosHTTPTLSClientCertFile: material.clientCertFile, NacosHTTPTLSClientKeyFile: material.clientKeyFile},
+			serverConfig: material.serverTLS(true),
+		},
+		{
+			name:         "wrong CA",
+			config:       config.Config{NacosAPIOrigin: "https://nacos.internal:8848/nacos", NacosRequestTimeout: 2 * time.Second, NacosHTTPTLSCAFile: newTLSMaterial(t).caFile, NacosHTTPTLSServerName: "nacos.internal"},
+			serverConfig: material.serverTLS(false), wantError: true,
+		},
+		{
+			name:         "wrong server name",
+			config:       config.Config{NacosAPIOrigin: "https://nacos.internal:8848/nacos", NacosRequestTimeout: 2 * time.Second, NacosHTTPTLSCAFile: material.caFile, NacosHTTPTLSServerName: "other.internal"},
+			serverConfig: material.serverTLS(false), wantError: true,
+		},
+		{
+			name:         "missing client certificate",
+			config:       config.Config{NacosAPIOrigin: "https://nacos.internal:8848/nacos", NacosRequestTimeout: 2 * time.Second, NacosHTTPTLSCAFile: material.caFile, NacosHTTPTLSServerName: "nacos.internal"},
+			serverConfig: material.serverTLS(true), wantError: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+				response.WriteHeader(http.StatusNoContent)
+			}))
+			server.TLS = test.serverConfig
+			server.StartTLS()
+			defer server.Close()
+
+			client, err := newNacosHTTPClient(test.config)
+			if err != nil {
+				t.Fatalf("construct Nacos HTTP client: %v", err)
+			}
+			response, err := client.Get(server.URL)
+			if response != nil {
+				_ = response.Body.Close()
+			}
+			if (err != nil) != test.wantError {
+				t.Fatalf("HTTPS request error=%v wantError=%v", err, test.wantError)
+			}
+			if !test.wantError && response.StatusCode != http.StatusNoContent {
+				t.Fatalf("HTTPS status=%d", response.StatusCode)
+			}
+		})
+	}
+}
+
+func TestOpenInstanceDirectoryUsesAuthenticatedHTTPSForBindingAndSnapshot(t *testing.T) {
+	material := newTLSMaterial(t)
+	digest := strings.Repeat("a", 64)
+	binding := `{"schemaVersion":"1","revision":"test-1","targets":[{"agentId":"runtime-a","agentCardVersion":"1.0.0","releaseId":"release-a","cardDigest":"` + digest + `","canonicalEndpoint":"http://runtime-a:8091/","audience":"http://runtime-a:8091","serviceName":"runtime-a","groupName":"NEKIRO","clusterName":"DEFAULT"}]}`
+	requests := map[string]int{}
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		requests[request.URL.Path]++
+		switch request.URL.Path {
+		case "/nacos/v1/cs/configs":
+			query := request.URL.Query()
+			if query.Get("dataId") != "router.nacos-bindings" || query.Get("group") != "NEKIRO" || query.Get("tenant") != "public" {
+				t.Errorf("binding query=%s", request.URL.RawQuery)
+			}
+			_, _ = response.Write([]byte(binding))
+		case "/nacos/v1/ns/instance/list":
+			query := request.URL.Query()
+			if query.Get("serviceName") != "runtime-a" || query.Get("groupName") != "NEKIRO" || query.Get("clusters") != "DEFAULT" || query.Get("namespaceId") != "public" {
+				t.Errorf("snapshot query=%s", request.URL.RawQuery)
+			}
+			_, _ = response.Write([]byte(`{"name":"NEKIRO@@runtime-a","groupName":"NEKIRO","clusters":"DEFAULT","hosts":[{"instanceId":"provider-generated","ip":"127.0.0.1","port":8091,"healthy":true,"enabled":true,"ephemeral":true,"clusterName":"DEFAULT","metadata":{"nekiro.instanceId":"runtime-a-1"}}]}`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	server.TLS = material.serverTLS(false)
+	server.StartTLS()
+	defer server.Close()
+	key, err := configcenter.ParseKey("router.nacos-bindings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory, err := openInstanceDirectory(config.Config{
+		InstanceRoutingMode:     config.InstanceRoutingNacos,
+		InstanceDirectoryKey:    key,
+		InstancePortName:        "a2a",
+		NacosAPIOrigin:          server.URL + "/nacos",
+		NacosNamespaceID:        "public",
+		NacosConfigGroup:        "NEKIRO",
+		NacosAuthMode:           config.NacosAuthNone,
+		NacosResponseLimitBytes: 4096,
+		NacosRequestTimeout:     2 * time.Second,
+		NacosHTTPTLSCAFile:      material.caFile,
+		NacosHTTPTLSServerName:  "nacos.internal",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer directory.Close()
+	target, err := registry.NewReleaseTarget(registry.ReleaseTargetInput{
+		AgentID: "runtime-a", AgentCardVersion: "1.0.0", ReleaseID: "release-a",
+		CardDigest: digest, CanonicalEndpoint: "http://runtime-a:8091/", Audience: "http://runtime-a:8091",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := directory.Snapshot(t.Context(), target)
+	if err != nil || snapshot.State() != registry.SnapshotStatePopulated || len(snapshot.Instances()) != 1 || snapshot.Instances()[0].ID() != "runtime-a-1" {
+		t.Fatalf("snapshot=%#v error=%v", snapshot, err)
+	}
+	if requests["/nacos/v1/cs/configs"] != 1 || requests["/nacos/v1/ns/instance/list"] != 1 {
+		t.Fatalf("HTTPS requests=%v", requests)
+	}
+}
+
+func TestNacosHTTPClientRejectsSchemeAndTLSFieldMismatch(t *testing.T) {
+	material := newTLSMaterial(t)
+	for _, cfg := range []config.Config{
+		{NacosAPIOrigin: "://invalid"},
+		{NacosAPIOrigin: "ftp://nacos.internal/nacos"},
+		{NacosAPIOrigin: "http://nacos.internal/nacos", NacosHTTPTLSCAFile: material.caFile},
+		{NacosAPIOrigin: "https://nacos.internal/nacos", NacosHTTPTLSCAFile: material.caFile},
+		{NacosAPIOrigin: "https://nacos.internal/nacos", NacosHTTPTLSCAFile: material.caFile, NacosHTTPTLSServerName: "nacos.internal", NacosHTTPTLSClientCertFile: material.clientCertFile},
+	} {
+		if _, err := newNacosHTTPClient(cfg); err == nil {
+			t.Fatalf("invalid Nacos HTTP transport accepted: %#v", cfg)
+		}
 	}
 }
 

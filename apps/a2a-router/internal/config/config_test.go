@@ -256,6 +256,22 @@ func TestLoadFromRequiresExplicitNacosRoutingInputs(t *testing.T) {
 	if _, err := LoadFrom(func(name string) (string, bool) { value, ok := env[name]; return value, ok }); err == nil {
 		t.Fatal("Nacos access-token auth accepted a missing token")
 	}
+	for _, mode := range []string{InstanceRoutingDirect, InstanceRoutingConfigCenterFile} {
+		t.Run(mode+" rejects Nacos HTTP TLS", func(t *testing.T) {
+			env := validEnv()
+			env["NEKIRO_ROUTER_INSTANCE_ROUTING_MODE"] = mode
+			if mode == InstanceRoutingConfigCenterFile {
+				env["NEKIRO_ROUTER_CONFIG_CENTER_FILE_ROOT"] = t.TempDir()
+				env["NEKIRO_ROUTER_CONFIG_CENTER_MAX_PAYLOAD_BYTES"] = "65536"
+				env["NEKIRO_ROUTER_INSTANCE_DIRECTORY_KEY"] = "router/instance-directory"
+				env["NEKIRO_ROUTER_INSTANCE_PORT_NAME"] = "a2a"
+			}
+			env["NEKIRO_ROUTER_NACOS_HTTP_TLS_CA_FILE"] = filepath.Join(t.TempDir(), "ca.pem")
+			if _, err := LoadFrom(func(name string) (string, bool) { value, ok := env[name]; return value, ok }); err == nil {
+				t.Fatal("non-Nacos routing accepted Nacos HTTP TLS configuration")
+			}
+		})
+	}
 
 	for _, test := range []struct {
 		name  string
@@ -418,6 +434,90 @@ func TestLoadFromValidatesNacosGRPCTLSModes(t *testing.T) {
 				t.Fatalf("snapshot-only mode accepted %s", name)
 			}
 		})
+	}
+}
+
+func TestLoadFromValidatesNacosHTTPTLSByOriginScheme(t *testing.T) {
+	abs := func(name string) string { return filepath.Join(t.TempDir(), name) }
+	load := func(env map[string]string) (Config, error) {
+		return LoadFrom(func(name string) (string, bool) { value, ok := env[name]; return value, ok })
+	}
+	httpsEnv := func() map[string]string {
+		env := validNacosEnv()
+		env["NEKIRO_ROUTER_NACOS_API_ORIGIN"] = "https://nacos.internal:8848/nacos"
+		env["NEKIRO_ROUTER_NACOS_HTTP_TLS_CA_FILE"] = abs("ca.pem")
+		env["NEKIRO_ROUTER_NACOS_HTTP_TLS_SERVER_NAME"] = "nacos.internal"
+		return env
+	}
+
+	t.Run("private CA TLS", func(t *testing.T) {
+		env := httpsEnv()
+		loaded, err := load(env)
+		if err != nil || loaded.NacosHTTPTLSCAFile != env["NEKIRO_ROUTER_NACOS_HTTP_TLS_CA_FILE"] || loaded.NacosHTTPTLSServerName != "nacos.internal" || loaded.NacosHTTPTLSClientCertFile != "" || loaded.NacosHTTPTLSClientKeyFile != "" {
+			t.Fatalf("HTTPS config=%#v error=%v", loaded, err)
+		}
+	})
+
+	t.Run("mTLS", func(t *testing.T) {
+		env := httpsEnv()
+		env["NEKIRO_ROUTER_NACOS_HTTP_TLS_CLIENT_CERT_FILE"] = abs("client.pem")
+		env["NEKIRO_ROUTER_NACOS_HTTP_TLS_CLIENT_KEY_FILE"] = abs("client-key.pem")
+		loaded, err := load(env)
+		if err != nil || loaded.NacosHTTPTLSClientCertFile == "" || loaded.NacosHTTPTLSClientKeyFile == "" {
+			t.Fatalf("HTTPS mTLS config=%#v error=%v", loaded, err)
+		}
+	})
+
+	for _, name := range []string{
+		"NEKIRO_ROUTER_NACOS_HTTP_TLS_CA_FILE",
+		"NEKIRO_ROUTER_NACOS_HTTP_TLS_SERVER_NAME",
+		"NEKIRO_ROUTER_NACOS_HTTP_TLS_CLIENT_CERT_FILE",
+		"NEKIRO_ROUTER_NACOS_HTTP_TLS_CLIENT_KEY_FILE",
+	} {
+		t.Run("HTTP rejects "+name, func(t *testing.T) {
+			env := validNacosEnv()
+			env[name] = "configured"
+			if _, err := load(env); err == nil {
+				t.Fatalf("HTTP origin accepted %s", name)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name   string
+		mutate func(map[string]string)
+	}{
+		{name: "missing CA", mutate: func(env map[string]string) { delete(env, "NEKIRO_ROUTER_NACOS_HTTP_TLS_CA_FILE") }},
+		{name: "missing server name", mutate: func(env map[string]string) { delete(env, "NEKIRO_ROUTER_NACOS_HTTP_TLS_SERVER_NAME") }},
+		{name: "relative CA", mutate: func(env map[string]string) { env["NEKIRO_ROUTER_NACOS_HTTP_TLS_CA_FILE"] = "ca.pem" }},
+		{name: "invalid server name", mutate: func(env map[string]string) { env["NEKIRO_ROUTER_NACOS_HTTP_TLS_SERVER_NAME"] = "NACOS.internal" }},
+		{name: "client certificate only", mutate: func(env map[string]string) { env["NEKIRO_ROUTER_NACOS_HTTP_TLS_CLIENT_CERT_FILE"] = abs("client.pem") }},
+		{name: "client key only", mutate: func(env map[string]string) {
+			env["NEKIRO_ROUTER_NACOS_HTTP_TLS_CLIENT_KEY_FILE"] = abs("client-key.pem")
+		}},
+		{name: "relative client certificate", mutate: func(env map[string]string) {
+			env["NEKIRO_ROUTER_NACOS_HTTP_TLS_CLIENT_CERT_FILE"] = "client.pem"
+			env["NEKIRO_ROUTER_NACOS_HTTP_TLS_CLIENT_KEY_FILE"] = abs("client-key.pem")
+		}},
+		{name: "relative client key", mutate: func(env map[string]string) {
+			env["NEKIRO_ROUTER_NACOS_HTTP_TLS_CLIENT_CERT_FILE"] = abs("client.pem")
+			env["NEKIRO_ROUTER_NACOS_HTTP_TLS_CLIENT_KEY_FILE"] = "client-key.pem"
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			env := httpsEnv()
+			test.mutate(env)
+			if _, err := load(env); err == nil {
+				t.Fatal("invalid Nacos HTTPS configuration accepted")
+			}
+		})
+	}
+
+	if _, _, _, _, err := loadNacosHTTPTLS(func(string) (string, bool) { return "", false }, "://invalid"); err == nil {
+		t.Fatal("invalid Nacos HTTP origin accepted by TLS loader")
+	}
+	if _, _, _, _, err := loadNacosHTTPTLS(func(string) (string, bool) { return "", false }, "ftp://nacos.internal/nacos"); err == nil {
+		t.Fatal("unsupported Nacos HTTP origin scheme accepted by TLS loader")
 	}
 }
 
