@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io/fs"
+	"strconv"
 	"testing"
 	"time"
 
@@ -70,6 +71,12 @@ func TestRouterTopologyStatusSchemaAndOpenAPIMatchGo(t *testing.T) {
 	}
 	if err := schema.Validate(value); err != nil {
 		t.Fatalf("schema rejected Go mapping: %v", err)
+	}
+	schemaObject := readContractJSONObject(t, "schemas/router-topology-status.v1.schema.json")
+	observations := requiredJSONObject(t, requiredJSONObject(t, schemaObject, "properties"), "observations")
+	maximum, ok := observations["maxItems"].(json.Number)
+	if !ok || maximum.String() != strconv.Itoa(RouterTopologyStatusObservationMaximum) {
+		t.Fatalf("schema observation maximum = %#v, want %d", observations["maxItems"], RouterTopologyStatusObservationMaximum)
 	}
 
 	document := loadOpenAPIDocument(t, "openapi/router-topology-status.v1.yaml")

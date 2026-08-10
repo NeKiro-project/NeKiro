@@ -290,7 +290,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 			if err != nil {
 				return Config{}, err
 			}
-			nacosMaxObservations, err = requiredNumber(grpcNames[4], 1, 65536)
+			nacosMaxObservations, err = requiredNumber(grpcNames[4], 1, int64(contracts.RouterTopologyStatusObservationMaximum))
 			if err != nil {
 				return Config{}, err
 			}

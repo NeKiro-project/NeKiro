@@ -43,8 +43,10 @@ not that Router consumed it.
    the session unavailable. It is freshness evidence for that local projection,
    not Provider health, Nacos server time, lease expiry time, or an SLO claim.
 7. A terminal watch failure changes the state to `unavailable`, preserves the
-   last accepted local revision, and advances `observedAt`. It does not retain a
-   selectable snapshot or create stale success.
+   last accepted local revision, and records the terminal Router observation
+   time. Wall-clock timestamps are not ordering evidence; consumers use local
+   revision only within the same observation session. Failure does not retain
+   a selectable snapshot or create stale success.
 8. The route is registered only when the configured selector implements
    continuous observation. Direct and snapshot-only routing do not return an
    empty status as if observation were enabled.
