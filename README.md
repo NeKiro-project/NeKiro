@@ -11,6 +11,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 
 [Documentation](https://nekiro-project.github.io/NeKiro/) ·
+[简体中文](README.zh-CN.md) ·
 [Architecture](docs/architecture/platform-direction.md) ·
 [Contracts](docs/contracts/compatibility.md) ·
 [Samples](https://github.com/NeKiro-project/NeKiro-Samples) ·
