@@ -27,9 +27,27 @@ requires all of `NEKIRO_ROUTER_NACOS_GRPC_TARGET`,
 `NEKIRO_ROUTER_NACOS_GRPC_REQUEST_TIMEOUT_MS`,
 `NEKIRO_ROUTER_NACOS_PENDING_CHANGES`,
 `NEKIRO_ROUTER_NACOS_MAX_OBSERVATIONS`, and the explicit
-`NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY=insecure` together with
-`NEKIRO_ROUTER_NACOS_OBSERVE_ENABLED=true`. Partial gRPC configuration is
-rejected. The executor opens one connection and never retries, reconnects,
+`NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY` together with
+`NEKIRO_ROUTER_NACOS_OBSERVE_ENABLED=true`. Transport security must be exactly
+one of:
+
+- `insecure`: explicit plaintext for local or controlled deployments. All TLS
+  fields must be absent.
+- `tls`: requires `NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE` as a clean absolute
+  path and `NEKIRO_ROUTER_NACOS_GRPC_TLS_SERVER_NAME` as a canonical lowercase
+  DNS name or canonical IP address.
+- `mtls`: requires the TLS fields plus clean absolute
+  `NEKIRO_ROUTER_NACOS_GRPC_TLS_CLIENT_CERT_FILE` and
+  `NEKIRO_ROUTER_NACOS_GRPC_TLS_CLIENT_KEY_FILE` paths.
+
+TLS files must be regular, non-empty, at most 1 MiB, and valid for their role.
+The CA bundle supplies the complete private trust pool; system roots are not
+used, hostname verification stays enabled, and client certificate fields are
+accepted only in mTLS mode. TLS material is read only during Router bootstrap,
+so rotation requires a Router restart. Partial or mode-incompatible gRPC/TLS
+configuration is rejected. Errors never include a configured path, PEM data,
+private-key bytes, or file contents. The executor opens one connection and
+never falls back to plaintext, retries, reconnects,
 polls, switches authority, or serves cached topology after failure. The first
 Invocation for an exact Release atomically establishes its observation and
 uses the initial snapshot. Later Invocations read the latest immutable watched

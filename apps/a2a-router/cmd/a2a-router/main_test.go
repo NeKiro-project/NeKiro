@@ -3,8 +3,17 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +26,10 @@ import (
 	configcenter "github.com/NeKiro-project/NeKiro/config_center"
 	"github.com/NeKiro-project/NeKiro/contracts"
 	"github.com/NeKiro-project/NeKiro/registry"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/health"
+	healthv1 "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 type failingDoer struct{}
@@ -195,6 +208,23 @@ func TestOpenInstanceDirectoryOwnsEachConfiguredMode(t *testing.T) {
 	if err := observedDirectory.Close(); err != nil {
 		t.Fatal(err)
 	}
+	tlsMaterial := newTLSMaterial(t)
+	tlsObservedConfig := observedConfig
+	tlsObservedConfig.NacosGRPCTransportSecurity = config.NacosGRPCSecurityTLS
+	tlsObservedConfig.NacosGRPCTLSCAFile = tlsMaterial.caFile
+	tlsObservedConfig.NacosGRPCTLSServerName = "nacos.internal"
+	tlsObservedDirectory, err := openInstanceDirectory(tlsObservedConfig)
+	if err != nil || tlsObservedDirectory == nil || !tlsObservedDirectory.Capabilities().Supports(registry.CapabilityObserve) {
+		t.Fatalf("TLS-observed Nacos directory=%v error=%v", tlsObservedDirectory, err)
+	}
+	if err := tlsObservedDirectory.Close(); err != nil {
+		t.Fatal(err)
+	}
+	invalidTLS := tlsObservedConfig
+	invalidTLS.NacosGRPCTLSCAFile = filepath.Join(t.TempDir(), "missing.pem")
+	if _, err := openInstanceDirectory(invalidTLS); err == nil || !strings.Contains(err.Error(), "initialize Router Nacos gRPC transport security") || strings.Contains(err.Error(), invalidTLS.NacosGRPCTLSCAFile) {
+		t.Fatalf("invalid Nacos TLS error=%v", err)
+	}
 	invalidGRPC := observedConfig
 	invalidGRPC.NacosGRPCTarget = ""
 	if _, err := openInstanceDirectory(invalidGRPC); err == nil || !strings.Contains(err.Error(), "initialize Router Nacos gRPC executor") {
@@ -221,4 +251,216 @@ func TestNacosHTTPClientDisablesAmbientNetworkBehavior(t *testing.T) {
 	if err := client.CheckRedirect(httptest.NewRequest(http.MethodGet, "http://nacos.test/next", nil), nil); err == nil || err.Error() != "Nacos redirects are disabled" {
 		t.Fatalf("redirect error=%v", err)
 	}
+}
+
+func TestNacosGRPCTransportCredentialsHandshake(t *testing.T) {
+	material := newTLSMaterial(t)
+
+	for _, test := range []struct {
+		name         string
+		config       config.Config
+		serverConfig *tls.Config
+		wantError    bool
+	}{
+		{
+			name:         "TLS",
+			config:       config.Config{NacosGRPCTransportSecurity: config.NacosGRPCSecurityTLS, NacosGRPCTLSCAFile: material.caFile, NacosGRPCTLSServerName: "nacos.internal"},
+			serverConfig: material.serverTLS(false),
+		},
+		{
+			name:         "mTLS",
+			config:       config.Config{NacosGRPCTransportSecurity: config.NacosGRPCSecurityMTLS, NacosGRPCTLSCAFile: material.caFile, NacosGRPCTLSServerName: "nacos.internal", NacosGRPCTLSClientCertFile: material.clientCertFile, NacosGRPCTLSClientKeyFile: material.clientKeyFile},
+			serverConfig: material.serverTLS(true),
+		},
+		{
+			name:         "wrong server name",
+			config:       config.Config{NacosGRPCTransportSecurity: config.NacosGRPCSecurityTLS, NacosGRPCTLSCAFile: material.caFile, NacosGRPCTLSServerName: "other.internal"},
+			serverConfig: material.serverTLS(false), wantError: true,
+		},
+		{
+			name:         "private CA mismatch",
+			config:       config.Config{NacosGRPCTransportSecurity: config.NacosGRPCSecurityTLS, NacosGRPCTLSCAFile: newTLSMaterial(t).caFile, NacosGRPCTLSServerName: "nacos.internal"},
+			serverConfig: material.serverTLS(false), wantError: true,
+		},
+		{
+			name:         "server requires client certificate",
+			config:       config.Config{NacosGRPCTransportSecurity: config.NacosGRPCSecurityTLS, NacosGRPCTLSCAFile: material.caFile, NacosGRPCTLSServerName: "nacos.internal"},
+			serverConfig: material.serverTLS(true), wantError: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transportCredentials, err := newNacosGRPCTransportCredentials(test.config)
+			if err != nil {
+				t.Fatalf("construct credentials: %v", err)
+			}
+			err = handshakeNacosTLS(transportCredentials, test.serverConfig)
+			if (err != nil) != test.wantError {
+				t.Fatalf("handshake error=%v wantError=%v", err, test.wantError)
+			}
+		})
+	}
+}
+
+func TestNacosGRPCTLSMaterialFailsClosedWithoutPathLeakage(t *testing.T) {
+	material := newTLSMaterial(t)
+	missing := filepath.Join(t.TempDir(), "private-ca.pem")
+	directory := t.TempDir()
+	empty := filepath.Join(t.TempDir(), "empty.pem")
+	malformed := filepath.Join(t.TempDir(), "malformed.pem")
+	malformedTail := filepath.Join(t.TempDir(), "malformed-tail.pem")
+	oversized := filepath.Join(t.TempDir(), "oversized.pem")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(malformed, []byte("private-marker"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	validCA, err := os.ReadFile(material.caFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(malformedTail, append(validCA, []byte("private-marker")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oversized, make([]byte, nacosTLSMaterialLimit+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		name      string
+		cfg       config.Config
+		forbidden []string
+	}{
+		{name: "missing", cfg: tlsCredentialConfig(missing), forbidden: []string{missing}},
+		{name: "directory", cfg: tlsCredentialConfig(directory), forbidden: []string{directory}},
+		{name: "empty", cfg: tlsCredentialConfig(empty), forbidden: []string{empty}},
+		{name: "oversized", cfg: tlsCredentialConfig(oversized), forbidden: []string{oversized}},
+		{name: "malformed CA", cfg: tlsCredentialConfig(malformed), forbidden: []string{malformed, "private-marker"}},
+		{name: "malformed CA tail", cfg: tlsCredentialConfig(malformedTail), forbidden: []string{malformedTail, "private-marker"}},
+		{name: "mismatched key pair", cfg: config.Config{NacosGRPCTransportSecurity: config.NacosGRPCSecurityMTLS, NacosGRPCTLSCAFile: material.caFile, NacosGRPCTLSServerName: "nacos.internal", NacosGRPCTLSClientCertFile: material.clientCertFile, NacosGRPCTLSClientKeyFile: newTLSMaterial(t).clientKeyFile}, forbidden: []string{material.clientCertFile}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := newNacosGRPCTransportCredentials(test.cfg)
+			if err == nil {
+				t.Fatal("invalid TLS material accepted")
+			}
+			for _, value := range test.forbidden {
+				if strings.Contains(err.Error(), value) {
+					t.Fatalf("error leaks forbidden material: %v", err)
+				}
+			}
+		})
+	}
+
+	for _, cfg := range []config.Config{
+		{NacosGRPCTransportSecurity: config.NacosGRPCSecurityInsecure, NacosGRPCTLSCAFile: material.caFile},
+		{NacosGRPCTransportSecurity: config.NacosGRPCSecurityTLS, NacosGRPCTLSCAFile: material.caFile, NacosGRPCTLSServerName: "nacos.internal", NacosGRPCTLSClientCertFile: material.clientCertFile},
+		{NacosGRPCTransportSecurity: config.NacosGRPCSecurityMTLS, NacosGRPCTLSCAFile: material.caFile, NacosGRPCTLSServerName: "nacos.internal"},
+		{NacosGRPCTransportSecurity: "ambient"},
+	} {
+		if _, err := newNacosGRPCTransportCredentials(cfg); err == nil {
+			t.Fatalf("invalid transport config accepted: %#v", cfg)
+		}
+	}
+}
+
+func tlsCredentialConfig(caFile string) config.Config {
+	return config.Config{NacosGRPCTransportSecurity: config.NacosGRPCSecurityTLS, NacosGRPCTLSCAFile: caFile, NacosGRPCTLSServerName: "nacos.internal"}
+}
+
+type tlsMaterial struct {
+	caFile, clientCertFile, clientKeyFile string
+	serverCertificate                     tls.Certificate
+	caPool                                *x509.CertPool
+}
+
+func newTLSMaterial(t *testing.T) tlsMaterial {
+	t.Helper()
+	directory := t.TempDir()
+	caPublic, caPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	caTemplate := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "NeKiro test CA"}, NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, caPublic, caPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caCertificate, err := x509.ParseCertificate(caDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
+	caFile := filepath.Join(directory, "ca.pem")
+	if err := os.WriteFile(caFile, caPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	issue := func(name string, serial int64, usage x509.ExtKeyUsage, dnsNames []string) (string, string, tls.Certificate) {
+		public, private, keyErr := ed25519.GenerateKey(rand.Reader)
+		if keyErr != nil {
+			t.Fatal(keyErr)
+		}
+		template := &x509.Certificate{SerialNumber: big.NewInt(serial), Subject: pkix.Name{CommonName: name}, DNSNames: dnsNames, NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{usage}}
+		der, createErr := x509.CreateCertificate(rand.Reader, template, caCertificate, public, caPrivate)
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		certificatePEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+		keyBytes, marshalErr := x509.MarshalPKCS8PrivateKey(private)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyBytes})
+		certificate, pairErr := tls.X509KeyPair(certificatePEM, keyPEM)
+		if pairErr != nil {
+			t.Fatal(pairErr)
+		}
+		certificateFile := filepath.Join(directory, name+".pem")
+		keyFile := filepath.Join(directory, name+"-key.pem")
+		if writeErr := os.WriteFile(certificateFile, certificatePEM, 0o600); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+		if writeErr := os.WriteFile(keyFile, keyPEM, 0o600); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+		return certificateFile, keyFile, certificate
+	}
+	_, _, serverCertificate := issue("server", 2, x509.ExtKeyUsageServerAuth, []string{"nacos.internal"})
+	clientCertificateFile, clientKeyFile, _ := issue("client", 3, x509.ExtKeyUsageClientAuth, nil)
+	pool := x509.NewCertPool()
+	pool.AddCert(caCertificate)
+	return tlsMaterial{caFile: caFile, clientCertFile: clientCertificateFile, clientKeyFile: clientKeyFile, serverCertificate: serverCertificate, caPool: pool}
+}
+
+func (material tlsMaterial) serverTLS(requireClient bool) *tls.Config {
+	configuration := &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{material.serverCertificate}, NextProtos: []string{"h2"}}
+	if requireClient {
+		configuration.ClientAuth = tls.RequireAndVerifyClientCert
+		configuration.ClientCAs = material.caPool
+	}
+	return configuration
+}
+
+func handshakeNacosTLS(transportCredentials credentials.TransportCredentials, serverConfig *tls.Config) error {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return err
+	}
+	tlsListener := tls.NewListener(listener, serverConfig)
+	server := grpc.NewServer()
+	healthv1.RegisterHealthServer(server, health.NewServer())
+	go func() { _ = server.Serve(tlsListener) }()
+	defer server.Stop()
+
+	client, err := grpc.NewClient(listener.Addr().String(), grpc.WithTransportCredentials(transportCredentials))
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err = healthv1.NewHealthClient(client).Check(ctx, &healthv1.HealthCheckRequest{})
+	return err
 }

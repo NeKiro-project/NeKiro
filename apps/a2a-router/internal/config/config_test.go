@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -224,7 +225,7 @@ func TestLoadFromRequiresExplicitNacosRoutingInputs(t *testing.T) {
 		{name: "invalid client IP", key: "NEKIRO_ROUTER_NACOS_GRPC_CLIENT_IP", value: ptr("localhost")},
 		{name: "zero gRPC timeout", key: "NEKIRO_ROUTER_NACOS_GRPC_REQUEST_TIMEOUT_MS", value: ptr("0")},
 		{name: "zero pending changes", key: "NEKIRO_ROUTER_NACOS_PENDING_CHANGES", value: ptr("0")},
-		{name: "unsupported security", key: "NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY", value: ptr("tls")},
+		{name: "unsupported security", key: "NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY", value: ptr("ambient")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			candidate := validNacosEnv()
@@ -273,6 +274,116 @@ func TestLoadFromRequiresExplicitNacosRoutingInputs(t *testing.T) {
 			invalid[test.key] = test.value
 			if _, err := LoadFrom(func(name string) (string, bool) { value, ok := invalid[name]; return value, ok }); err == nil {
 				t.Fatalf("invalid %s=%q was accepted", test.key, test.value)
+			}
+		})
+	}
+}
+
+func TestLoadFromValidatesNacosGRPCTLSModes(t *testing.T) {
+	abs := func(name string) string { return filepath.Join(t.TempDir(), name) }
+	base := func() map[string]string {
+		env := validNacosEnv()
+		env["NEKIRO_ROUTER_NACOS_OBSERVE_ENABLED"] = "true"
+		env["NEKIRO_ROUTER_NACOS_GRPC_TARGET"] = "nacos:9848"
+		env["NEKIRO_ROUTER_NACOS_GRPC_CLIENT_IP"] = "127.0.0.1"
+		env["NEKIRO_ROUTER_NACOS_GRPC_REQUEST_TIMEOUT_MS"] = "5000"
+		env["NEKIRO_ROUTER_NACOS_PENDING_CHANGES"] = "8"
+		env["NEKIRO_ROUTER_NACOS_MAX_OBSERVATIONS"] = "16"
+		return env
+	}
+	load := func(env map[string]string) (Config, error) {
+		return LoadFrom(func(name string) (string, bool) { value, ok := env[name]; return value, ok })
+	}
+
+	t.Run("tls", func(t *testing.T) {
+		env := base()
+		env["NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY"] = NacosGRPCSecurityTLS
+		env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE"] = abs("ca.pem")
+		env["NEKIRO_ROUTER_NACOS_GRPC_TLS_SERVER_NAME"] = "nacos.internal"
+		loaded, err := load(env)
+		if err != nil || loaded.NacosGRPCTLSCAFile != env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE"] || loaded.NacosGRPCTLSServerName != "nacos.internal" {
+			t.Fatalf("TLS config=%#v error=%v", loaded, err)
+		}
+	})
+
+	t.Run("mtls", func(t *testing.T) {
+		env := base()
+		env["NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY"] = NacosGRPCSecurityMTLS
+		env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE"] = abs("ca.pem")
+		env["NEKIRO_ROUTER_NACOS_GRPC_TLS_SERVER_NAME"] = "127.0.0.1"
+		env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CLIENT_CERT_FILE"] = abs("client.pem")
+		env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CLIENT_KEY_FILE"] = abs("client-key.pem")
+		loaded, err := load(env)
+		if err != nil || loaded.NacosGRPCTLSClientCertFile == "" || loaded.NacosGRPCTLSClientKeyFile == "" {
+			t.Fatalf("mTLS config=%#v error=%v", loaded, err)
+		}
+	})
+
+	for _, test := range []struct {
+		name   string
+		mode   string
+		mutate func(map[string]string)
+	}{
+		{name: "insecure rejects CA", mode: NacosGRPCSecurityInsecure, mutate: func(env map[string]string) { env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE"] = abs("ca.pem") }},
+		{name: "TLS requires CA", mode: NacosGRPCSecurityTLS, mutate: func(env map[string]string) { env["NEKIRO_ROUTER_NACOS_GRPC_TLS_SERVER_NAME"] = "nacos.internal" }},
+		{name: "TLS requires server name", mode: NacosGRPCSecurityTLS, mutate: func(env map[string]string) { env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE"] = abs("ca.pem") }},
+		{name: "TLS rejects client certificate", mode: NacosGRPCSecurityTLS, mutate: func(env map[string]string) {
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE"] = abs("ca.pem")
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_SERVER_NAME"] = "nacos.internal"
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CLIENT_CERT_FILE"] = abs("client.pem")
+		}},
+		{name: "mTLS requires client key", mode: NacosGRPCSecurityMTLS, mutate: func(env map[string]string) {
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE"] = abs("ca.pem")
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_SERVER_NAME"] = "nacos.internal"
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CLIENT_CERT_FILE"] = abs("client.pem")
+		}},
+		{name: "mTLS requires client certificate", mode: NacosGRPCSecurityMTLS, mutate: func(env map[string]string) {
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE"] = abs("ca.pem")
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_SERVER_NAME"] = "nacos.internal"
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CLIENT_KEY_FILE"] = abs("client-key.pem")
+		}},
+		{name: "relative CA path", mode: NacosGRPCSecurityTLS, mutate: func(env map[string]string) {
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE"] = "ca.pem"
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_SERVER_NAME"] = "nacos.internal"
+		}},
+		{name: "dirty CA path", mode: NacosGRPCSecurityTLS, mutate: func(env map[string]string) {
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE"] = abs("certs") + string(filepath.Separator) + ".." + string(filepath.Separator) + "ca.pem"
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_SERVER_NAME"] = "nacos.internal"
+		}},
+		{name: "uppercase server name", mode: NacosGRPCSecurityTLS, mutate: func(env map[string]string) {
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE"] = abs("ca.pem")
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_SERVER_NAME"] = "NACOS.internal"
+		}},
+		{name: "trailing-dot server name", mode: NacosGRPCSecurityTLS, mutate: func(env map[string]string) {
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE"] = abs("ca.pem")
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_SERVER_NAME"] = "nacos.internal."
+		}},
+		{name: "noncanonical IP server name", mode: NacosGRPCSecurityTLS, mutate: func(env map[string]string) {
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE"] = abs("ca.pem")
+			env["NEKIRO_ROUTER_NACOS_GRPC_TLS_SERVER_NAME"] = "127.00.0.1"
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			env := base()
+			env["NEKIRO_ROUTER_NACOS_GRPC_TRANSPORT_SECURITY"] = test.mode
+			test.mutate(env)
+			if _, err := load(env); err == nil {
+				t.Fatal("invalid TLS configuration accepted")
+			}
+		})
+	}
+
+	for _, name := range []string{
+		"NEKIRO_ROUTER_NACOS_GRPC_TLS_CA_FILE",
+		"NEKIRO_ROUTER_NACOS_GRPC_TLS_SERVER_NAME",
+		"NEKIRO_ROUTER_NACOS_GRPC_TLS_CLIENT_CERT_FILE",
+		"NEKIRO_ROUTER_NACOS_GRPC_TLS_CLIENT_KEY_FILE",
+	} {
+		t.Run("snapshot only "+name, func(t *testing.T) {
+			env := validNacosEnv()
+			env[name] = "configured"
+			if _, err := load(env); err == nil {
+				t.Fatalf("snapshot-only mode accepted %s", name)
 			}
 		})
 	}
