@@ -345,17 +345,41 @@ func testRegistrar(t *testing.T, server *httptest.Server, executor RequestExecut
 
 func assertRegistrationRequest(t *testing.T, request *http.Request) {
 	t.Helper()
+
 	query := request.URL.Query()
-	if request.URL.Path != "/nacos/v1/ns/instance" && request.URL.Path != "/nacos/v1/ns/instance/beat" ||
-		query.Get("namespaceId") != "public" || query.Get("serviceName") != "NEKIRO@@runtime-b" ||
-		query.Get("groupName") != "NEKIRO" || query.Get("clusterName") != "DEFAULT" ||
-		query.Get("ip") != "127.0.0.1" || query.Get("port") != strconv.Itoa(8092) || query.Get("ephemeral") != "true" ||
-		query.Get("enable") != "true" || query.Get("healthy") != "true" || query.Get("weight") != "100" ||
-		!strings.Contains(query.Get("metadata"), "runtime-b-instance") || !strings.Contains(query.Get("metadata"), heartbeatTimeoutMetadataKey) {
-		t.Errorf("registration request=%s", request.URL.String())
+	if got := request.URL.Path; got != "/nacos/v1/ns/instance" && got != "/nacos/v1/ns/instance/beat" {
+		t.Errorf("request path=%q", got)
+	}
+
+	expectedQuery := []struct {
+		name string
+		want string
+	}{
+		{name: "namespaceId", want: "public"},
+		{name: "serviceName", want: "NEKIRO@@runtime-b"},
+		{name: "groupName", want: "NEKIRO"},
+		{name: "clusterName", want: "DEFAULT"},
+		{name: "ip", want: "127.0.0.1"},
+		{name: "port", want: strconv.Itoa(8092)},
+		{name: "ephemeral", want: "true"},
+		{name: "enable", want: "true"},
+		{name: "healthy", want: "true"},
+		{name: "weight", want: "100"},
+	}
+	for _, expected := range expectedQuery {
+		if got := query.Get(expected.name); got != expected.want {
+			t.Errorf("query parameter %q=%q, want %q", expected.name, got, expected.want)
+		}
+	}
+
+	metadata := query.Get("metadata")
+	for _, want := range []string{"runtime-b-instance", heartbeatTimeoutMetadataKey} {
+		if !strings.Contains(metadata, want) {
+			t.Errorf("metadata does not contain %q: %s", want, metadata)
+		}
 	}
 	if request.Method == http.MethodPut && !strings.Contains(query.Get("beat"), "runtime-b-instance") {
-		t.Errorf("heartbeat request=%s", request.URL.String())
+		t.Errorf("heartbeat payload does not contain instance ID: %s", query.Get("beat"))
 	}
 }
 

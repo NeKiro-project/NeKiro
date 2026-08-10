@@ -75,23 +75,42 @@ type registrationSession struct {
 
 func NewRegistrar(config RegistrarConfig) (*Registrar, error) {
 	origin, err := url.Parse(config.APIOrigin)
-	if err != nil || origin.Scheme != "http" && origin.Scheme != "https" || origin.Host == "" || origin.User != nil || origin.Path != "/nacos" || origin.RawQuery != "" || origin.Fragment != "" ||
-		!validText(config.NamespaceID) || config.Binding.target.Validate() != nil || !validText(config.PortName) ||
-		math.IsNaN(config.Weight) || math.IsInf(config.Weight, 0) || config.Weight <= 0 || config.Weight > 10000 ||
-		config.HeartbeatInterval < time.Second || config.HeartbeatInterval > time.Minute ||
-		config.HeartbeatTimeout <= config.HeartbeatInterval || config.HeartbeatTimeout > 5*time.Minute ||
-		config.IPDeleteTimeout <= config.HeartbeatTimeout || config.IPDeleteTimeout > 10*time.Minute || isNilInterface(config.Executor) {
+	if err != nil {
 		return nil, registry.ErrInvalid
 	}
-	if config.AuthMode != AuthNone && config.AuthMode != AuthAccessToken || config.AuthMode == AuthNone && config.AccessToken != "" || config.AuthMode == AuthAccessToken && !validText(config.AccessToken) {
+
+	invalidOrigin := (origin.Scheme != "http" && origin.Scheme != "https") ||
+		origin.Host == "" || origin.User != nil || origin.Path != "/nacos" ||
+		origin.RawQuery != "" || origin.Fragment != ""
+	invalidIdentity := !validText(config.NamespaceID) ||
+		config.Binding.target.Validate() != nil || !validText(config.PortName)
+	invalidWeight := math.IsNaN(config.Weight) || math.IsInf(config.Weight, 0) ||
+		config.Weight <= 0 || config.Weight > 10000
+	invalidHeartbeat := config.HeartbeatInterval < time.Second || config.HeartbeatInterval > time.Minute ||
+		config.HeartbeatTimeout <= config.HeartbeatInterval || config.HeartbeatTimeout > 5*time.Minute ||
+		config.IPDeleteTimeout <= config.HeartbeatTimeout || config.IPDeleteTimeout > 10*time.Minute
+	invalidAuth := (config.AuthMode != AuthNone && config.AuthMode != AuthAccessToken) ||
+		(config.AuthMode == AuthNone && config.AccessToken != "") ||
+		(config.AuthMode == AuthAccessToken && !validText(config.AccessToken))
+
+	if invalidOrigin || invalidIdentity || invalidWeight || invalidHeartbeat || invalidAuth || isNilInterface(config.Executor) {
 		return nil, registry.ErrInvalid
 	}
 	capabilities, _ := registry.NewCapabilities(registry.CapabilityRegistration, registry.CapabilityDeregistration, registry.CapabilityLease, registry.CapabilityHeartbeat)
 	return &Registrar{
-		origin: origin, namespaceID: config.NamespaceID, binding: config.Binding, portName: config.PortName, weight: config.Weight,
-		heartbeatInterval: config.HeartbeatInterval, heartbeatTimeout: config.HeartbeatTimeout, ipDeleteTimeout: config.IPDeleteTimeout,
-		authMode: config.AuthMode, accessToken: config.AccessToken,
-		executor: config.Executor, capabilities: capabilities, sessions: make(map[*registrationSession]struct{}),
+		origin:            origin,
+		namespaceID:       config.NamespaceID,
+		binding:           config.Binding,
+		portName:          config.PortName,
+		weight:            config.Weight,
+		heartbeatInterval: config.HeartbeatInterval,
+		heartbeatTimeout:  config.HeartbeatTimeout,
+		ipDeleteTimeout:   config.IPDeleteTimeout,
+		authMode:          config.AuthMode,
+		accessToken:       config.AccessToken,
+		executor:          config.Executor,
+		capabilities:      capabilities,
+		sessions:          make(map[*registrationSession]struct{}),
 	}, nil
 }
 
