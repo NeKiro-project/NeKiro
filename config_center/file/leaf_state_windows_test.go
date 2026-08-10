@@ -49,3 +49,29 @@ func TestLeafAccessReplacementWindowCanRemainMissing(t *testing.T) {
 		t.Fatalf("replacement-window result missing=%v error=%v, want missing", missing, mapped)
 	}
 }
+
+func TestLeafStateAfterAccessFailureClassifiesNativePathStates(t *testing.T) {
+	root := t.TempDir()
+	regular := "regular.value"
+	if err := os.WriteFile(filepath.Join(root, regular), []byte("value"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name string
+		leaf string
+		want leafFailureState
+	}{
+		{name: "invalid UTF-16 path", leaf: "invalid\x00.value", want: leafFailureUnknown},
+		{name: "missing leaf", leaf: "missing.value", want: leafFailureMissing},
+		{name: "directory leaf", leaf: ".", want: leafFailureUnsafe},
+		{name: "regular leaf", leaf: regular, want: leafFailureUnknown},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := leafStateAfterAccessFailure(root, test.leaf); got != test.want {
+				t.Fatalf("leaf state = %v, want %v", got, test.want)
+			}
+		})
+	}
+}

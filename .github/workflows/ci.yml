@@ -191,7 +191,21 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Test Config Center
+        if: runner.os != 'Windows'
         run: go test -count=1 ./config_center/...
+
+      - name: Test Config Center with Windows coverage
+        if: runner.os == 'Windows'
+        run: go test -count=1 -covermode=atomic -coverprofile=coverage_windows ./config_center/...
+
+      - name: Upload Windows Config Center coverage to Codecov
+        if: runner.os == 'Windows'
+        uses: codecov/codecov-action@e53489f4d376d79066609109e7a95a29eb3740b1 # v7.0.0
+        with:
+          files: coverage_windows
+          flags: go-windows-config-center
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Repeat Windows unsafe-state classification
         if: runner.os == 'Windows'
