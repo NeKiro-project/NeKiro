@@ -49,9 +49,11 @@ Register request -> active lease -> periodic heartbeat
 ## Nacos Mapping
 
 The adapter publishes an ephemeral instance to one explicit namespace, group,
-service, and cluster. The configured weight and the exact instance identity in
-`nekiro.instanceId` are sent on registration and heartbeat. Only allowlisted
-instance metadata is copied. The access token remains bootstrap-only.
+service, and cluster. Weight, heartbeat interval, heartbeat timeout, IP delete
+timeout, and the exact instance identity in `nekiro.instanceId` are sent on
+registration and heartbeat. Caller-provided `preserved.*` metadata is rejected
+so it cannot override the lease policy. Only safe instance metadata is copied.
+The access token remains bootstrap-only.
 
 HTTP 401/403 is `unauthorized`; cancellation is `canceled`; transport, rate,
 and other non-success statuses are `unavailable`; malformed acknowledgements

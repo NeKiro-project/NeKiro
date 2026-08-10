@@ -35,9 +35,11 @@ Runtime that owns the advertised process and endpoint.
    deregistration attempt. Cancellation and deregistration failure remain
    visible; they are not converted into success.
 6. The Nacos registrar is configured with one exact binding, namespace,
-   advertised port name, positive weight, heartbeat interval, API origin,
-   authentication mode, and injected request executor. No value is inferred
-   from Directory state or provider defaults.
+   advertised port name, positive weight, heartbeat interval, heartbeat
+   timeout, IP deletion timeout, API origin, authentication mode, and injected
+   request executor. No value is inferred from Directory state or provider
+   defaults. Provider attempts to replace the configured heartbeat interval
+   terminate the lease.
 7. Registration publishes only safe instance metadata plus the exact
    `nekiro.instanceId`. Authentication tokens and provider response bodies are
    never exposed through public errors or status.

@@ -108,11 +108,43 @@ func TestRegistrarRejectsInvalidAndCanceledRegistration(t *testing.T) {
 	if _, err := registrar.Register(t.Context(), other); !errors.Is(err, registry.ErrInvalid) {
 		t.Fatalf("mismatched target error=%v", err)
 	}
+	reservedInstance, _ := registry.NewInstance(registry.InstanceInput{
+		ID: "runtime-b-instance", Endpoints: registration.Instance().Endpoints(), Ready: true, Serving: true,
+		Metadata: map[string]string{heartbeatTimeoutMetadataKey: "1"},
+	})
+	reserved, _ := registry.NewRegistration(registry.RegistrationInput{Target: registration.Target(), Instance: reservedInstance})
+	if _, err := registrar.Register(t.Context(), reserved); !errors.Is(err, registry.ErrInvalid) {
+		t.Fatalf("reserved metadata error=%v", err)
+	}
 	if err := registrar.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := registrar.Register(t.Context(), registration); !errors.Is(err, registry.ErrClosed) {
 		t.Fatalf("closed registrar error=%v", err)
+	}
+}
+
+func TestRegistrarRejectsProviderHeartbeatIntervalOverride(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodPut {
+			_, _ = writer.Write([]byte(`{"clientBeatInterval":2000}`))
+			return
+		}
+		_, _ = writer.Write([]byte("ok"))
+	}))
+	defer server.Close()
+	registrar, registration := testRegistrar(t, server, server.Client())
+	lease, err := registrar.Register(t.Context(), registration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-lease.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("heartbeat interval override did not terminate lease")
+	}
+	if !errors.Is(lease.Err(), registry.ErrInvalid) {
+		t.Fatalf("lease terminal=%v", lease.Err())
 	}
 }
 
@@ -250,18 +282,21 @@ func TestNewRegistrarRequiresExplicitLifecycleConfiguration(t *testing.T) {
 	binding, _ := NewBinding(BindingInput{Target: target, ServiceName: "runtime-b", GroupName: "NEKIRO", ClusterName: "DEFAULT"})
 	base := RegistrarConfig{
 		APIOrigin: "http://nacos.test/nacos", NamespaceID: "public", Binding: binding, PortName: "a2a",
-		Weight: 100, HeartbeatInterval: time.Second, AuthMode: AuthNone, Executor: http.DefaultClient,
+		Weight: 100, HeartbeatInterval: time.Second, HeartbeatTimeout: 3 * time.Second, IPDeleteTimeout: 6 * time.Second,
+		AuthMode: AuthNone, Executor: http.DefaultClient,
 	}
 	for name, mutate := range map[string]func(*RegistrarConfig){
-		"origin":      func(config *RegistrarConfig) { config.APIOrigin = "http://nacos.test/other" },
-		"namespace":   func(config *RegistrarConfig) { config.NamespaceID = "" },
-		"binding":     func(config *RegistrarConfig) { config.Binding = Binding{} },
-		"port":        func(config *RegistrarConfig) { config.PortName = "" },
-		"weight":      func(config *RegistrarConfig) { config.Weight = 0 },
-		"heartbeat":   func(config *RegistrarConfig) { config.HeartbeatInterval = 0 },
-		"executor":    func(config *RegistrarConfig) { config.Executor = nil },
-		"auth mode":   func(config *RegistrarConfig) { config.AuthMode = "implicit" },
-		"auth secret": func(config *RegistrarConfig) { config.AuthMode = AuthAccessToken; config.AccessToken = "" },
+		"origin":            func(config *RegistrarConfig) { config.APIOrigin = "http://nacos.test/other" },
+		"namespace":         func(config *RegistrarConfig) { config.NamespaceID = "" },
+		"binding":           func(config *RegistrarConfig) { config.Binding = Binding{} },
+		"port":              func(config *RegistrarConfig) { config.PortName = "" },
+		"weight":            func(config *RegistrarConfig) { config.Weight = 0 },
+		"heartbeat":         func(config *RegistrarConfig) { config.HeartbeatInterval = 0 },
+		"heartbeat timeout": func(config *RegistrarConfig) { config.HeartbeatTimeout = config.HeartbeatInterval },
+		"delete timeout":    func(config *RegistrarConfig) { config.IPDeleteTimeout = config.HeartbeatTimeout },
+		"executor":          func(config *RegistrarConfig) { config.Executor = nil },
+		"auth mode":         func(config *RegistrarConfig) { config.AuthMode = "implicit" },
+		"auth secret":       func(config *RegistrarConfig) { config.AuthMode = AuthAccessToken; config.AccessToken = "" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := base
@@ -291,7 +326,8 @@ func testRegistrar(t *testing.T, server *httptest.Server, executor RequestExecut
 	registration, _ := registry.NewRegistration(registry.RegistrationInput{Target: target, Instance: instance})
 	registrar, err := NewRegistrar(RegistrarConfig{
 		APIOrigin: server.URL + "/nacos", NamespaceID: "public", Binding: binding, PortName: "a2a",
-		Weight: 100, HeartbeatInterval: time.Second, AuthMode: AuthNone, Executor: executor,
+		Weight: 100, HeartbeatInterval: time.Second, HeartbeatTimeout: 3 * time.Second, IPDeleteTimeout: 6 * time.Second,
+		AuthMode: AuthNone, Executor: executor,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -308,7 +344,7 @@ func assertRegistrationRequest(t *testing.T, request *http.Request) {
 		query.Get("groupName") != "NEKIRO" || query.Get("clusterName") != "DEFAULT" ||
 		query.Get("ip") != "127.0.0.1" || query.Get("port") != strconv.Itoa(8092) || query.Get("ephemeral") != "true" ||
 		query.Get("enable") != "true" || query.Get("healthy") != "true" || query.Get("weight") != "100" ||
-		!strings.Contains(query.Get("metadata"), "runtime-b-instance") {
+		!strings.Contains(query.Get("metadata"), "runtime-b-instance") || !strings.Contains(query.Get("metadata"), heartbeatTimeoutMetadataKey) {
 		t.Errorf("registration request=%s", request.URL.String())
 	}
 	if request.Method == http.MethodPut && !strings.Contains(query.Get("beat"), "runtime-b-instance") {

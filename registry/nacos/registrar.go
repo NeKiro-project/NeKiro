@@ -19,6 +19,12 @@ import (
 
 const registrationResponseLimit = 256
 
+const (
+	heartbeatIntervalMetadataKey = "preserved.heart.beat.interval"
+	heartbeatTimeoutMetadataKey  = "preserved.heart.beat.timeout"
+	ipDeleteTimeoutMetadataKey   = "preserved.ip.delete.timeout"
+)
+
 type RegistrarConfig struct {
 	APIOrigin         string
 	NamespaceID       string
@@ -26,6 +32,8 @@ type RegistrarConfig struct {
 	PortName          string
 	Weight            float64
 	HeartbeatInterval time.Duration
+	HeartbeatTimeout  time.Duration
+	IPDeleteTimeout   time.Duration
 	AuthMode          string
 	AccessToken       string
 	Executor          RequestExecutor
@@ -38,6 +46,8 @@ type Registrar struct {
 	portName          string
 	weight            float64
 	heartbeatInterval time.Duration
+	heartbeatTimeout  time.Duration
+	ipDeleteTimeout   time.Duration
 	authMode          string
 	accessToken       string
 	executor          RequestExecutor
@@ -67,7 +77,9 @@ func NewRegistrar(config RegistrarConfig) (*Registrar, error) {
 	if err != nil || origin.Scheme != "http" && origin.Scheme != "https" || origin.Host == "" || origin.User != nil || origin.Path != "/nacos" || origin.RawQuery != "" || origin.Fragment != "" ||
 		!validText(config.NamespaceID) || config.Binding.target.Validate() != nil || !validText(config.PortName) ||
 		math.IsNaN(config.Weight) || math.IsInf(config.Weight, 0) || config.Weight <= 0 || config.Weight > 10000 ||
-		config.HeartbeatInterval < time.Second || config.HeartbeatInterval > time.Minute || isNilInterface(config.Executor) {
+		config.HeartbeatInterval < time.Second || config.HeartbeatInterval > time.Minute ||
+		config.HeartbeatTimeout <= config.HeartbeatInterval || config.HeartbeatTimeout > 5*time.Minute ||
+		config.IPDeleteTimeout <= config.HeartbeatTimeout || config.IPDeleteTimeout > 10*time.Minute || isNilInterface(config.Executor) {
 		return nil, registry.ErrInvalid
 	}
 	if config.AuthMode != AuthNone && config.AuthMode != AuthAccessToken || config.AuthMode == AuthNone && config.AccessToken != "" || config.AuthMode == AuthAccessToken && !validText(config.AccessToken) {
@@ -76,7 +88,8 @@ func NewRegistrar(config RegistrarConfig) (*Registrar, error) {
 	capabilities, _ := registry.NewCapabilities(registry.CapabilityRegistration, registry.CapabilityDeregistration, registry.CapabilityLease, registry.CapabilityHeartbeat)
 	return &Registrar{
 		origin: origin, namespaceID: config.NamespaceID, binding: config.Binding, portName: config.PortName, weight: config.Weight,
-		heartbeatInterval: config.HeartbeatInterval, authMode: config.AuthMode, accessToken: config.AccessToken,
+		heartbeatInterval: config.HeartbeatInterval, heartbeatTimeout: config.HeartbeatTimeout, ipDeleteTimeout: config.IPDeleteTimeout,
+		authMode: config.AuthMode, accessToken: config.AccessToken,
 		executor: config.Executor, capabilities: capabilities, sessions: make(map[*registrationSession]struct{}),
 	}, nil
 }
@@ -227,10 +240,18 @@ func (session *registrationSession) execute(ctx context.Context, method string, 
 	if metadataValues == nil {
 		metadataValues = make(map[string]string)
 	}
-	if reserved, exists := metadataValues[instanceIDMetadataKey]; exists && reserved != instance.ID() {
+	for key := range metadataValues {
+		if strings.HasPrefix(key, "preserved.") {
+			return registry.ErrInvalid
+		}
+	}
+	if identity, exists := metadataValues[instanceIDMetadataKey]; exists && identity != instance.ID() {
 		return registry.ErrInvalid
 	}
 	metadataValues[instanceIDMetadataKey] = instance.ID()
+	metadataValues[heartbeatIntervalMetadataKey] = strconv.FormatInt(session.registrar.heartbeatInterval.Milliseconds(), 10)
+	metadataValues[heartbeatTimeoutMetadataKey] = strconv.FormatInt(session.registrar.heartbeatTimeout.Milliseconds(), 10)
+	metadataValues[ipDeleteTimeoutMetadataKey] = strconv.FormatInt(session.registrar.ipDeleteTimeout.Milliseconds(), 10)
 	metadata, _ := json.Marshal(metadataValues)
 	query.Set("metadata", string(metadata))
 	query.Set("ephemeral", "true")
@@ -275,7 +296,7 @@ func (session *registrationSession) execute(ctx context.Context, method string, 
 		var response struct {
 			ClientBeatInterval int64 `json:"clientBeatInterval"`
 		}
-		if json.Unmarshal(data, &response) != nil || response.ClientBeatInterval < int64(time.Second/time.Millisecond) || response.ClientBeatInterval > int64(time.Minute/time.Millisecond) {
+		if json.Unmarshal(data, &response) != nil || response.ClientBeatInterval != session.registrar.heartbeatInterval.Milliseconds() {
 			return registry.ErrInvalid
 		}
 	} else if strings.TrimSpace(string(data)) != "ok" {
