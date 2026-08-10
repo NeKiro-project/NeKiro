@@ -21,6 +21,28 @@ prefix, maps to `nekiro.key.v1.` followed by the unpadded Base64URL encoding of
 the complete key. This mapping is collision-free; the existing
 `router.nacos-bindings` dataId remains unchanged.
 
+The scheme in `NEKIRO_ROUTER_NACOS_API_ORIGIN` explicitly selects the HTTP
+transport used for both the Config Center binding read and the initial Naming
+snapshot:
+
+- `http` selects controlled plaintext. All
+  `NEKIRO_ROUTER_NACOS_HTTP_TLS_*` fields must be absent.
+- `https` requires `NEKIRO_ROUTER_NACOS_HTTP_TLS_CA_FILE` as a clean absolute
+  private CA bundle path and `NEKIRO_ROUTER_NACOS_HTTP_TLS_SERVER_NAME` as a
+  canonical lowercase DNS name or canonical IP address.
+- HTTPS uses mTLS when both
+  `NEKIRO_ROUTER_NACOS_HTTP_TLS_CLIENT_CERT_FILE` and
+  `NEKIRO_ROUTER_NACOS_HTTP_TLS_CLIENT_KEY_FILE` are present. Supplying only
+  one is invalid.
+
+The HTTP client uses only the configured private CA, keeps hostname
+verification enabled, and disables environment proxies and redirects. It does
+not use system roots, downgrade HTTPS, or switch authority. HTTP and gRPC TLS
+files share the same bootstrap rules: regular and non-empty, at most 1 MiB,
+strictly valid for their role, and read only when Router starts. Rotation
+requires a Router restart. Errors do not expose paths, PEM/key bytes, file
+contents, or parser details.
+
 Nacos Naming observation is optional and disabled by default. Enabling it
 requires all of `NEKIRO_ROUTER_NACOS_GRPC_TARGET`,
 `NEKIRO_ROUTER_NACOS_GRPC_CLIENT_IP`,
