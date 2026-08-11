@@ -135,270 +135,13 @@ Runtime B -> Router -> Runtime A
 
 ## 快速开始
 
-下面的例子会运行真实的 **Runtime B -> Router -> Runtime A** 链路。Runtime A
-先向 Nacos 发布租约，Router 通过初始 snapshot 和持续 watch 观察到该实例。Runtime B
-只使用 Agent ID 和 capability 调用 A，不会获得 A 的地址。
+### 1. 先运行真实产品链路
 
-```text
-Runtime A --lease--> Nacos --snapshot/watch--> Router
-Runtime B --Agent ID + capability--> Router --> Runtime A
-                                      |
-                                      +--> Invocation Ledger
-```
-
-生产实现位于 [NeKiro-Samples](https://github.com/NeKiro-project/NeKiro-Samples)。
-下面两个完整的 `package main` 程序需要放在该模块内运行。它们通过一层很薄的
-Samples adapter 使用 Core 的
-[`registry`](https://pkg.go.dev/github.com/NeKiro-project/NeKiro/registry) 和
-[`registry/nacos`](https://pkg.go.dev/github.com/NeKiro-project/NeKiro/registry/nacos)：
-
-```text
-Runtime main
-  -> Samples 环境变量 + TLS/mTLS adapter
-  -> Core registry model + registry/nacos Registrar
-  -> Nacos
-```
-
-注册、heartbeat、lease 和 deregister 语义都由 Core 负责。Samples adapter 只把
-显式的 `RUNTIME_A_*` / `RUNTIME_B_*` 部署配置映射为 Core model，构造安全 HTTP
-transport，并将 lease 接入进程 readiness 与 shutdown。程序中的 endpoint ownership
-challenge 是一条独立的可信发布校验，不属于实例注册。由于程序引用了 Samples 的
-`internal` package，其他 Agent 模块应复用这种接入模式，而不能直接 import 这些包。
-
-Runtime A 启动托管 A2A endpoint，注册精确实例，持续维护 lease，并在退出时注销：
-
-```go
-package main
-
-import (
-    "context"
-    "errors"
-    "log"
-    "net/http"
-    "os"
-    "os/signal"
-    "syscall"
-    "time"
-
-    "github.com/NeKiro-project/NeKiro-Samples/internal/challengeproof"
-    "github.com/NeKiro-project/NeKiro-Samples/internal/nacosregistration"
-    runtimea "github.com/NeKiro-project/NeKiro-Samples/runtime-a"
-)
-
-func main() {
-    if err := run(); err != nil {
-        log.Fatal(err)
-    }
-}
-
-func run() error {
-    config, err := runtimea.LoadConfig(os.LookupEnv)
-    if err != nil {
-        return err
-    }
-    registrationConfig, err := nacosregistration.Load(
-        os.LookupEnv, "RUNTIME_A", config.AgentID, config.InstanceID,
-    )
-    if err != nil {
-        return err
-    }
-    registrationClient, err := nacosregistration.NewHTTPClient(registrationConfig)
-    if err != nil {
-        return err
-    }
-    registration, err := nacosregistration.New(registrationConfig, registrationClient)
-    if err != nil {
-        return err
-    }
-
-    handler, err := runtimea.NewHandler(config, http.DefaultClient)
-    if err != nil {
-        return err
-    }
-    application, err := challengeproof.NewHandler(
-        runtimea.NewHTTPHandlerWithReadiness(handler, registration),
-        os.LookupEnv,
-    )
-    if err != nil {
-        return err
-    }
-    if err := registration.Register(context.Background()); err != nil {
-        return err
-    }
-
-    ctx, stop := signal.NotifyContext(
-        context.Background(), os.Interrupt, syscall.SIGTERM,
-    )
-    defer stop()
-    server := &http.Server{Addr: config.ListenAddress, Handler: application}
-    serverErrors := make(chan error, 1)
-    go func() {
-        err := server.ListenAndServe()
-        if errors.Is(err, http.ErrServerClosed) {
-            err = nil
-        }
-        serverErrors <- err
-    }()
-    registrationErrors := make(chan error, 1)
-    go func() { registrationErrors <- registration.Run(ctx) }()
-
-    var runErr error
-    registrationStopped := false
-    select {
-    case <-ctx.Done():
-    case runErr = <-serverErrors:
-    case runErr = <-registrationErrors:
-        registrationStopped = true
-    }
-    stop()
-
-    shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-    defer cancel()
-    shutdownErr := server.Shutdown(shutdownContext)
-    if !registrationStopped {
-        select {
-        case registrationErr := <-registrationErrors:
-            runErr = errors.Join(runErr, registrationErr)
-        case <-shutdownContext.Done():
-            runErr = errors.Join(runErr, shutdownContext.Err())
-        }
-    }
-    deregisterErr := registration.Deregister(shutdownContext)
-    return errors.Join(runErr, shutdownErr, deregisterErr)
-}
-```
-
-B 使用同样的方式注册，在入站 A2A endpoint 校验 Router 签发的凭证，并使用 Router
-URL 和 Agent token 创建 handler。B 收到 Sample 的 `nested` 请求时，
-`NewConfiguredHandler` 使用公共 Agent SDK 按 Agent ID 与 capability 调用 A；B
-不会自行解析或直连 A。
-
-```go
-package main
-
-import (
-    "context"
-    "errors"
-    "log"
-    "net/http"
-    "os"
-    "os/signal"
-    "syscall"
-    "time"
-
-    "github.com/NeKiro-project/NeKiro-Samples/internal/challengeproof"
-    "github.com/NeKiro-project/NeKiro-Samples/internal/nacosregistration"
-    runtimeb "github.com/NeKiro-project/NeKiro-Samples/runtime-b"
-    "github.com/NeKiro-project/nekiro-sdk-go/agent/routerauth"
-)
-
-func main() {
-    if err := run(); err != nil {
-        log.Fatal(err)
-    }
-}
-
-func run() error {
-    address, err := runtimeb.ListenAddressFromEnvironment(os.LookupEnv)
-    if err != nil {
-        return err
-    }
-    config, err := runtimeb.LoadConfig(os.LookupEnv)
-    if err != nil {
-        return err
-    }
-    authenticationConfig, err := routerauth.LoadConfig(os.LookupEnv)
-    if err != nil {
-        return err
-    }
-    registrationConfig, err := runtimeb.LoadRegistrationConfig(
-        os.LookupEnv, config.AgentID, config.InstanceID,
-    )
-    if err != nil {
-        return err
-    }
-    registrationClient, err := nacosregistration.NewHTTPClient(registrationConfig)
-    if err != nil {
-        return err
-    }
-    registration, err := runtimeb.NewNacosRegistration(
-        registrationConfig, registrationClient,
-    )
-    if err != nil {
-        return err
-    }
-
-    handler, err := runtimeb.NewConfiguredHandler(config, http.DefaultClient)
-    if err != nil {
-        return err
-    }
-    execution, err := runtimeb.NewHTTPHandlerWithAuthAndReadiness(
-        handler, authenticationConfig, registration,
-    )
-    if err != nil {
-        return err
-    }
-    application, err := challengeproof.NewHandler(execution, os.LookupEnv)
-    if err != nil {
-        return err
-    }
-    if err := registration.Register(context.Background()); err != nil {
-        return err
-    }
-
-    ctx, stop := signal.NotifyContext(
-        context.Background(), os.Interrupt, syscall.SIGTERM,
-    )
-    defer stop()
-    server := &http.Server{Addr: address, Handler: application}
-    serverErrors := make(chan error, 1)
-    go func() {
-        err := server.ListenAndServe()
-        if errors.Is(err, http.ErrServerClosed) {
-            err = nil
-        }
-        serverErrors <- err
-    }()
-    registrationErrors := make(chan error, 1)
-    go func() { registrationErrors <- registration.Run(ctx) }()
-
-    var runErr error
-    registrationStopped := false
-    select {
-    case <-ctx.Done():
-    case runErr = <-serverErrors:
-    case runErr = <-registrationErrors:
-        registrationStopped = true
-    }
-    stop()
-
-    shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-    defer cancel()
-    shutdownErr := server.Shutdown(shutdownContext)
-    if !registrationStopped {
-        select {
-        case registrationErr := <-registrationErrors:
-            runErr = errors.Join(runErr, registrationErr)
-        case <-shutdownContext.Done():
-            runErr = errors.Join(runErr, shutdownContext.Err())
-        }
-    }
-    deregisterErr := registration.Deregister(shutdownContext)
-    return errors.Join(runErr, shutdownErr, deregisterErr)
-}
-```
-
-Handler 只会在 `routerauth` 验证 Router 凭证后提取 `PlatformContext`，再通过
-`agentsdk.Client.Invoke` 和 `TargetAgentID: "runtime-a"` 发起调用。完整实现见
-[B -> A 调用代码](https://github.com/NeKiro-project/NeKiro-Samples/blob/main/runtime-b/nested.go)。
-
-### 运行完整场景
-
-固定全部组件 revision 的
-[NeKiro-Stack](https://github.com/NeKiro-project/NeKiro-Stack) 会补齐上面刻意省略的
-可信 Card/Release 发布、Workspace 安装与权限、Router 凭证、PostgreSQL、安全
-Nacos、精确组件版本和 Ledger 断言。以下命令需要 Git、Go 1.26+、Docker、Bash
-和网络访问：
+如果你想先看到 NeKiro 跑起来，从这里开始。固定精确组件版本的
+[NeKiro-Stack](https://github.com/NeKiro-project/NeKiro-Stack) 会准备 Core、SDK、
+Samples 和 transport，启动 PostgreSQL 与安全 Nacos，并验证完整的 **Register ->
+Discover -> Install -> Invoke -> Record** 闭环。需要 Git、Go 1.26+、Docker、Bash
+（Windows 可以使用 Git Bash 或 WSL）和网络访问。
 
 ```bash
 git clone https://github.com/NeKiro-project/NeKiro-Stack.git
@@ -435,9 +178,234 @@ docker compose --project-name "$NEKIRO_E2E_COMPOSE_PROJECT" \
   down --volumes --remove-orphans
 ```
 
-验收通过表示：A 已注册，Router 发现了 A 对应精确 Release 的实例，B 只通过 Router
-到达 A，并且 Ledger 中父子记录共享 `root_task_id` 和 `trace_id`。同一套验收还会
-覆盖 A -> B、实例下线、失败关闭路由和替换实例后的恢复。
+最后一条测试会一次性证明：
+
+| 检查 | 验收证据 |
+| --- | --- |
+| Register | Runtime A 向 Nacos 发布 ready、精确 Release 的实例 lease。 |
+| Discover | Router 读取 initial snapshot，并持续 watch 实例生命周期。 |
+| Invoke | Runtime B 只通过 Router，按 Agent ID 和 capability 到达 A。 |
+| Nested invoke | A -> B 与 B -> A 都会再次进入 Router；双方都拿不到对方地址。 |
+| Record | Ledger 中父子 metadata 共享 `root_task_id` 与 `trace_id`。 |
+| Recovery | 实例移除后路由失败关闭，替换实例上线后恢复。 |
+
+### 2. 看懂调用拓扑
+
+```text
+Runtime A --lease--> Nacos --snapshot/watch--> Router
+Runtime B --Agent ID + capability--> Router --> Runtime A
+                                      |
+                                      +--> Invocation Ledger
+
+Runtime A <---- managed A2A ----> Router <---- managed A2A ----> Runtime B
+```
+
+Consumer 不会自行解析或直连 Provider 地址。Core 通过
+[`registry`](https://pkg.go.dev/github.com/NeKiro-project/NeKiro/registry) 和
+[`registry/nacos`](https://pkg.go.dev/github.com/NeKiro-project/NeKiro/registry/nacos)
+拥有注册、heartbeat、lease 与 deregistration 语义。Samples adapter 只映射显式的
+`RUNTIME_A_*` / `RUNTIME_B_*` 配置，构造安全 HTTP transport，并把 lease readiness
+接入进程生命周期。Endpoint ownership challenge 是另一条可信发布校验。由于示例
+使用 Samples `internal` package，其他 Agent 模块应复制这种接入模式，而不能直接
+import 这些包。
+
+完整生产源码见 [Runtime A main](https://github.com/NeKiro-project/NeKiro-Samples/blob/main/runtime-a/cmd/runtime-a/main.go)、
+[Runtime B main](https://github.com/NeKiro-project/NeKiro-Samples/blob/main/runtime-b/cmd/runtime-b/main.go)
+和 [B -> A 嵌套调用](https://github.com/NeKiro-project/NeKiro-Samples/blob/main/runtime-b/nested.go)。
+
+### 3. 复制完整 Runtime main
+
+下面是完整的 `package main` 入口。Runtime 配置、Router 鉴权、TLS/mTLS、challenge
+proof 和 handler 仍由 Samples 拥有；
+[`agent/host`](https://pkg.go.dev/github.com/NeKiro-project/nekiro-sdk-go/agent/host)
+统一负责 HTTP serving、lease observation、有界 shutdown 和 deregistration。
+
+<details>
+<summary>Runtime A：注册、启动、观察 lease，并在退出时注销</summary>
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "net/http"
+    "os"
+    "syscall"
+    "time"
+
+    "github.com/NeKiro-project/NeKiro-Samples/internal/challengeproof"
+    "github.com/NeKiro-project/NeKiro-Samples/internal/nacosregistration"
+    runtimea "github.com/NeKiro-project/NeKiro-Samples/runtime-a"
+    agenthost "github.com/NeKiro-project/nekiro-sdk-go/agent/host"
+)
+
+func main() {
+    if err := run(); err != nil {
+        log.Fatal(err)
+    }
+}
+
+func run() error {
+    return runWithLookup(os.LookupEnv)
+}
+
+func runWithLookup(lookup func(string) (string, bool)) error {
+    config, err := runtimea.LoadConfig(lookup)
+    if err != nil {
+        return agenthost.Wrap(agenthost.StageConfig, "load Runtime A configuration", err)
+    }
+    registrationConfig, err := nacosregistration.Load(lookup, "RUNTIME_A", config.AgentID, config.InstanceID)
+    if err != nil {
+        return agenthost.Wrap(agenthost.StageConfig, "load Runtime A registration configuration", err)
+    }
+    var registration agenthost.Registration
+    var readiness runtimea.Readiness = ready(true)
+    if registrationConfig.Mode == nacosregistration.ModeNacos {
+        registrationClient, clientErr := nacosregistration.NewHTTPClient(registrationConfig)
+        if clientErr != nil {
+            return agenthost.Wrap(agenthost.StageRegistration, "create Runtime A Nacos transport", clientErr)
+        }
+        runtimeRegistration, err := nacosregistration.New(registrationConfig, registrationClient)
+        if err != nil {
+            return agenthost.Wrap(agenthost.StageRegistration, "create Runtime A registration", err)
+        }
+        registration = runtimeRegistration
+        readiness = runtimeRegistration
+    }
+    handler, err := runtimea.NewHandler(config, http.DefaultClient)
+    if err != nil {
+        return agenthost.Wrap(agenthost.StageHandler, "create Runtime A handler", err)
+    }
+    application, err := challengeproof.NewHandler(runtimea.NewHTTPHandlerWithReadiness(handler, readiness), lookup)
+    if err != nil {
+        return agenthost.Wrap(agenthost.StageHandler, "configure Runtime A endpoint challenge", err)
+    }
+    shutdownTimeout := 5 * time.Second
+    if registrationConfig.RequestTimeout > 0 {
+        shutdownTimeout = registrationConfig.RequestTimeout
+    }
+    runtimeHost, err := agenthost.New(agenthost.Config{
+        Address:         config.ListenAddress,
+        Handler:         application,
+        Registration:    registration,
+        ShutdownTimeout: shutdownTimeout,
+        Signals:         []os.Signal{os.Interrupt, syscall.SIGTERM},
+    })
+    if err != nil {
+        return err
+    }
+    return runtimeHost.Run(context.Background())
+}
+
+type ready bool
+
+func (value ready) Ready() bool { return bool(value) }
+```
+
+</details>
+
+<details>
+<summary>Runtime B：校验 Router 调用，并按 capability 调用 A</summary>
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "net/http"
+    "os"
+    "syscall"
+    "time"
+
+    "github.com/NeKiro-project/NeKiro-Samples/internal/challengeproof"
+    "github.com/NeKiro-project/NeKiro-Samples/internal/nacosregistration"
+    runtimeb "github.com/NeKiro-project/NeKiro-Samples/runtime-b"
+    agenthost "github.com/NeKiro-project/nekiro-sdk-go/agent/host"
+    "github.com/NeKiro-project/nekiro-sdk-go/agent/routerauth"
+)
+
+func main() {
+    if err := run(); err != nil {
+        log.Fatal(err)
+    }
+}
+
+func run() error {
+    return runWithLookup(os.LookupEnv)
+}
+
+func runWithLookup(lookup func(string) (string, bool)) error {
+    address, err := runtimeb.ListenAddressFromEnvironment(lookup)
+    if err != nil {
+        return agenthost.Wrap(agenthost.StageConfig, "load Runtime B listen address", err)
+    }
+    authenticationConfig, err := routerauth.LoadConfig(lookup)
+    if err != nil {
+        return agenthost.Wrap(agenthost.StageConfig, "load Runtime B authentication configuration", err)
+    }
+    config, err := runtimeb.LoadConfig(lookup)
+    if err != nil {
+        return agenthost.Wrap(agenthost.StageConfig, "load Runtime B configuration", err)
+    }
+    registrationConfig, err := runtimeb.LoadRegistrationConfig(lookup, config.AgentID, config.InstanceID)
+    if err != nil {
+        return agenthost.Wrap(agenthost.StageConfig, "load Runtime B registration configuration", err)
+    }
+    var registration agenthost.Registration
+    var readiness runtimeb.Readiness = ready(true)
+    if registrationConfig.Mode == runtimeb.RegistrationModeNacos {
+        registrationClient, clientErr := nacosregistration.NewHTTPClient(registrationConfig)
+        if clientErr != nil {
+            return agenthost.Wrap(agenthost.StageRegistration, "create Runtime B Nacos transport", clientErr)
+        }
+        runtimeRegistration, err := runtimeb.NewNacosRegistration(registrationConfig, registrationClient)
+        if err != nil {
+            return agenthost.Wrap(agenthost.StageRegistration, "create Runtime B registration", err)
+        }
+        registration = runtimeRegistration
+        readiness = runtimeRegistration
+    }
+    handler, err := runtimeb.NewConfiguredHandler(config, http.DefaultClient)
+    if err != nil {
+        return agenthost.Wrap(agenthost.StageHandler, "create Runtime B handler", err)
+    }
+    execution, err := runtimeb.NewHTTPHandlerWithAuthAndReadiness(handler, authenticationConfig, readiness)
+    if err != nil {
+        return agenthost.Wrap(agenthost.StageHandler, "configure Runtime B authentication", err)
+    }
+    application, err := challengeproof.NewHandler(execution, lookup)
+    if err != nil {
+        return agenthost.Wrap(agenthost.StageHandler, "configure Runtime B endpoint challenge", err)
+    }
+    shutdownTimeout := 5 * time.Second
+    if registrationConfig.RequestTimeout > 0 {
+        shutdownTimeout = registrationConfig.RequestTimeout
+    }
+    runtimeHost, err := agenthost.New(agenthost.Config{
+        Address:         address,
+        Handler:         application,
+        Registration:    registration,
+        ShutdownTimeout: shutdownTimeout,
+        Signals:         []os.Signal{os.Interrupt, syscall.SIGTERM},
+    })
+    if err != nil {
+        return err
+    }
+    return runtimeHost.Run(context.Background())
+}
+
+type ready bool
+
+func (value ready) Ready() bool { return bool(value) }
+```
+
+</details>
+
+B 会先校验 Router 签发的凭证，再提取 `PlatformContext`。`nested` handler 随后使用
+公共 Agent SDK 和 `TargetAgentID: "runtime-a"` 发起调用；它不会读取 Nacos endpoint
+或直接连接 A。
 
 ### 开发 Core
 
