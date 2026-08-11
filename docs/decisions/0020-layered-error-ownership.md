@@ -1,7 +1,7 @@
 # ADR 0020: Layered Error Ownership
 
-- Status: Proposed for issue #116
-- Date: 2026-08-11
+- Status: Accepted for issue #116
+- Date: 2026-08-12
 - Decision owner: Platform Architecture
 - Related: `nekiro-sdk-go#3`, `nekiro-sdk-go#4`, `NeKiro-Samples#11`, and
   `NeKiro-Samples#12`
