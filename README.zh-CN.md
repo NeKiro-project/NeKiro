@@ -147,8 +147,23 @@ Runtime B --Agent ID + capability--> Router --> Runtime A
 ```
 
 生产实现位于 [NeKiro-Samples](https://github.com/NeKiro-project/NeKiro-Samples)。
-下面两个完整的 `package main` 程序需要放在该模块内运行，因为 Nacos 部署 adapter
-和 endpoint challenge 属于 Samples，而不是 Core。
+下面两个完整的 `package main` 程序需要放在该模块内运行。它们通过一层很薄的
+Samples adapter 使用 Core 的
+[`registry`](https://pkg.go.dev/github.com/NeKiro-project/NeKiro/registry) 和
+[`registry/nacos`](https://pkg.go.dev/github.com/NeKiro-project/NeKiro/registry/nacos)：
+
+```text
+Runtime main
+  -> Samples 环境变量 + TLS/mTLS adapter
+  -> Core registry model + registry/nacos Registrar
+  -> Nacos
+```
+
+注册、heartbeat、lease 和 deregister 语义都由 Core 负责。Samples adapter 只把
+显式的 `RUNTIME_A_*` / `RUNTIME_B_*` 部署配置映射为 Core model，构造安全 HTTP
+transport，并将 lease 接入进程 readiness 与 shutdown。程序中的 endpoint ownership
+challenge 是一条独立的可信发布校验，不属于实例注册。由于程序引用了 Samples 的
+`internal` package，其他 Agent 模块应复用这种接入模式，而不能直接 import 这些包。
 
 Runtime A 启动托管 A2A endpoint，注册精确实例，持续维护 lease，并在退出时注销：
 

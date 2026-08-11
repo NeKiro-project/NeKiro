@@ -169,8 +169,26 @@ Runtime B --Agent ID + capability--> Router --> Runtime A
 
 The production code is in
 [NeKiro-Samples](https://github.com/NeKiro-project/NeKiro-Samples). The two
-complete `package main` programs below run inside that module because the
-Nacos deployment adapter and endpoint challenge belong to Samples, not Core.
+complete `package main` programs below run inside that module. They use the
+Core [`registry`](https://pkg.go.dev/github.com/NeKiro-project/NeKiro/registry)
+and [`registry/nacos`](https://pkg.go.dev/github.com/NeKiro-project/NeKiro/registry/nacos)
+packages through a thin Samples adapter:
+
+```text
+Runtime main
+  -> Samples environment + TLS/mTLS adapter
+  -> Core registry models + registry/nacos Registrar
+  -> Nacos
+```
+
+Core owns the registration, heartbeat, lease, and deregistration semantics.
+The Samples adapter only maps explicit `RUNTIME_A_*` / `RUNTIME_B_*`
+deployment settings, builds the secured HTTP transport, and connects the lease
+to process readiness and shutdown. The endpoint ownership challenge shown in
+the programs is a separate trusted-publication check, not part of instance
+registration. Because the programs import Samples `internal` packages, copy
+their integration pattern into another Agent module rather than importing
+those packages directly.
 
 Runtime A starts its managed A2A endpoint, registers an exact instance, keeps
 the lease alive, and deregisters during shutdown:
