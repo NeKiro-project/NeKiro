@@ -155,10 +155,320 @@ Neither runtime receives the other's direct target address.
 
 ## Quick start
 
-The fastest way to see the full product is the immutable
-[NeKiro-Stack](https://github.com/NeKiro-project/NeKiro-Stack). It assembles
-exact Core, Console, SDK, Samples, and transport revisions and runs the real
-backend/browser acceptance suites.
+This example runs the real **Runtime B -> Router -> Runtime A** path. Runtime A
+first publishes a lease to Nacos. Router observes the instance through a
+snapshot and continuous watch. Runtime B then calls A by Agent ID and
+capability; it never receives A's address.
+
+```text
+Runtime A --lease--> Nacos --snapshot/watch--> Router
+Runtime B --Agent ID + capability--> Router --> Runtime A
+                                      |
+                                      +--> Invocation Ledger
+```
+
+The production code is in
+[NeKiro-Samples](https://github.com/NeKiro-project/NeKiro-Samples). The two
+complete `package main` programs below run inside that module. They use the
+Core [`registry`](https://pkg.go.dev/github.com/NeKiro-project/NeKiro/registry)
+and [`registry/nacos`](https://pkg.go.dev/github.com/NeKiro-project/NeKiro/registry/nacos)
+packages through a thin Samples adapter:
+
+```text
+Runtime main
+  -> Samples environment + TLS/mTLS adapter
+  -> Core registry models + registry/nacos Registrar
+  -> Nacos
+```
+
+Core owns the registration, heartbeat, lease, and deregistration semantics.
+The Samples adapter only maps explicit `RUNTIME_A_*` / `RUNTIME_B_*`
+deployment settings, builds the secured HTTP transport, and connects the lease
+to process readiness and shutdown. The endpoint ownership challenge shown in
+the programs is a separate trusted-publication check, not part of instance
+registration. Because the programs import Samples `internal` packages, copy
+their integration pattern into another Agent module rather than importing
+those packages directly.
+
+Runtime A starts its managed A2A endpoint, registers an exact instance, keeps
+the lease alive, and deregisters during shutdown:
+
+```go
+package main
+
+import (
+    "context"
+    "errors"
+    "log"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
+
+    "github.com/NeKiro-project/NeKiro-Samples/internal/challengeproof"
+    "github.com/NeKiro-project/NeKiro-Samples/internal/nacosregistration"
+    runtimea "github.com/NeKiro-project/NeKiro-Samples/runtime-a"
+)
+
+func main() {
+    if err := run(); err != nil {
+        log.Fatal(err)
+    }
+}
+
+func run() error {
+    config, err := runtimea.LoadConfig(os.LookupEnv)
+    if err != nil {
+        return err
+    }
+    registrationConfig, err := nacosregistration.Load(
+        os.LookupEnv, "RUNTIME_A", config.AgentID, config.InstanceID,
+    )
+    if err != nil {
+        return err
+    }
+    registrationClient, err := nacosregistration.NewHTTPClient(registrationConfig)
+    if err != nil {
+        return err
+    }
+    registration, err := nacosregistration.New(registrationConfig, registrationClient)
+    if err != nil {
+        return err
+    }
+
+    handler, err := runtimea.NewHandler(config, http.DefaultClient)
+    if err != nil {
+        return err
+    }
+    application, err := challengeproof.NewHandler(
+        runtimea.NewHTTPHandlerWithReadiness(handler, registration),
+        os.LookupEnv,
+    )
+    if err != nil {
+        return err
+    }
+    if err := registration.Register(context.Background()); err != nil {
+        return err
+    }
+
+    ctx, stop := signal.NotifyContext(
+        context.Background(), os.Interrupt, syscall.SIGTERM,
+    )
+    defer stop()
+    server := &http.Server{Addr: config.ListenAddress, Handler: application}
+    serverErrors := make(chan error, 1)
+    go func() {
+        err := server.ListenAndServe()
+        if errors.Is(err, http.ErrServerClosed) {
+            err = nil
+        }
+        serverErrors <- err
+    }()
+    registrationErrors := make(chan error, 1)
+    go func() { registrationErrors <- registration.Run(ctx) }()
+
+    var runErr error
+    registrationStopped := false
+    select {
+    case <-ctx.Done():
+    case runErr = <-serverErrors:
+    case runErr = <-registrationErrors:
+        registrationStopped = true
+    }
+    stop()
+
+    shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    shutdownErr := server.Shutdown(shutdownContext)
+    if !registrationStopped {
+        select {
+        case registrationErr := <-registrationErrors:
+            runErr = errors.Join(runErr, registrationErr)
+        case <-shutdownContext.Done():
+            runErr = errors.Join(runErr, shutdownContext.Err())
+        }
+    }
+    deregisterErr := registration.Deregister(shutdownContext)
+    return errors.Join(runErr, shutdownErr, deregisterErr)
+}
+```
+
+B registers the same way, validates the Router-issued credential on its
+incoming A2A endpoint, and creates its handler with the Router URL and Agent
+token. When B receives the sample's `nested` request, `NewConfiguredHandler`
+uses the public Agent SDK to target A by Agent ID and capability. B never
+resolves or dials A itself.
+
+```go
+package main
+
+import (
+    "context"
+    "errors"
+    "log"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
+
+    "github.com/NeKiro-project/NeKiro-Samples/internal/challengeproof"
+    "github.com/NeKiro-project/NeKiro-Samples/internal/nacosregistration"
+    runtimeb "github.com/NeKiro-project/NeKiro-Samples/runtime-b"
+    "github.com/NeKiro-project/nekiro-sdk-go/agent/routerauth"
+)
+
+func main() {
+    if err := run(); err != nil {
+        log.Fatal(err)
+    }
+}
+
+func run() error {
+    address, err := runtimeb.ListenAddressFromEnvironment(os.LookupEnv)
+    if err != nil {
+        return err
+    }
+    config, err := runtimeb.LoadConfig(os.LookupEnv)
+    if err != nil {
+        return err
+    }
+    authenticationConfig, err := routerauth.LoadConfig(os.LookupEnv)
+    if err != nil {
+        return err
+    }
+    registrationConfig, err := runtimeb.LoadRegistrationConfig(
+        os.LookupEnv, config.AgentID, config.InstanceID,
+    )
+    if err != nil {
+        return err
+    }
+    registrationClient, err := nacosregistration.NewHTTPClient(registrationConfig)
+    if err != nil {
+        return err
+    }
+    registration, err := runtimeb.NewNacosRegistration(
+        registrationConfig, registrationClient,
+    )
+    if err != nil {
+        return err
+    }
+
+    handler, err := runtimeb.NewConfiguredHandler(config, http.DefaultClient)
+    if err != nil {
+        return err
+    }
+    execution, err := runtimeb.NewHTTPHandlerWithAuthAndReadiness(
+        handler, authenticationConfig, registration,
+    )
+    if err != nil {
+        return err
+    }
+    application, err := challengeproof.NewHandler(execution, os.LookupEnv)
+    if err != nil {
+        return err
+    }
+    if err := registration.Register(context.Background()); err != nil {
+        return err
+    }
+
+    ctx, stop := signal.NotifyContext(
+        context.Background(), os.Interrupt, syscall.SIGTERM,
+    )
+    defer stop()
+    server := &http.Server{Addr: address, Handler: application}
+    serverErrors := make(chan error, 1)
+    go func() {
+        err := server.ListenAndServe()
+        if errors.Is(err, http.ErrServerClosed) {
+            err = nil
+        }
+        serverErrors <- err
+    }()
+    registrationErrors := make(chan error, 1)
+    go func() { registrationErrors <- registration.Run(ctx) }()
+
+    var runErr error
+    registrationStopped := false
+    select {
+    case <-ctx.Done():
+    case runErr = <-serverErrors:
+    case runErr = <-registrationErrors:
+        registrationStopped = true
+    }
+    stop()
+
+    shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    shutdownErr := server.Shutdown(shutdownContext)
+    if !registrationStopped {
+        select {
+        case registrationErr := <-registrationErrors:
+            runErr = errors.Join(runErr, registrationErr)
+        case <-shutdownContext.Done():
+            runErr = errors.Join(runErr, shutdownContext.Err())
+        }
+    }
+    deregisterErr := registration.Deregister(shutdownContext)
+    return errors.Join(runErr, shutdownErr, deregisterErr)
+}
+```
+
+The handler extracts `PlatformContext` only after `routerauth` verifies the
+Router credential, then calls `agentsdk.Client.Invoke` with
+`TargetAgentID: "runtime-a"`. See the complete
+[B -> A invocation implementation](https://github.com/NeKiro-project/NeKiro-Samples/blob/main/runtime-b/nested.go).
+
+### Run the complete scenario
+
+The immutable [NeKiro-Stack](https://github.com/NeKiro-project/NeKiro-Stack)
+supplies the parts intentionally omitted above: trusted Card/Release
+publication, Workspace installation and permissions, Router credentials,
+PostgreSQL, secured Nacos, exact component revisions, and Ledger assertions.
+The following commands require Git, Go 1.26+, Docker, Bash, and network access:
+
+```bash
+git clone https://github.com/NeKiro-project/NeKiro-Stack.git
+cd NeKiro-Stack
+
+work_root=$(mktemp -d)
+backend_env="$work_root/backend.env"
+prepared_env="$work_root/prepared.env"
+
+./scripts/write-ci-env.sh backend "$backend_env" "$(pwd)" nekiro-quickstart
+set -a
+source "$backend_env"
+set +a
+
+./scripts/prepare.sh "$(pwd)/components.json" "$work_root/checkouts" "$prepared_env"
+set -a
+source "$prepared_env"
+set +a
+
+go run ./cmd/nacos-secure-fixture generate "$NEKIRO_E2E_TLS_ROOT"
+docker compose --project-name "$NEKIRO_E2E_COMPOSE_PROJECT" \
+  --file compose.yaml \
+  --file "$NEKIRO_E2E_COMPOSE_OVERRIDE_FILE" \
+  --profile router-nacos-secure \
+  up --detach --wait --wait-timeout 120
+go test -tags=e2e -run '^TestInvokeToRecordAcceptance$' -count=1 ./tests/backend
+
+docker compose --project-name "$NEKIRO_E2E_COMPOSE_PROJECT" \
+  --file compose.yaml \
+  --file "$NEKIRO_E2E_COMPOSE_OVERRIDE_FILE" \
+  --profile router-nacos-secure \
+  --profile runtime-registration \
+  --profile watch-refresh \
+  down --volumes --remove-orphans
+```
+
+A passing acceptance proves that A registered, Router discovered its exact
+Release-scoped instance, B reached A only through Router, and the parent/child
+records share `root_task_id` and `trace_id` in Ledger. It also exercises A -> B,
+instance removal, fail-closed routing, and replacement recovery.
+
+### Develop Core
 
 For Core development, Go 1.26 or newer is required:
 
