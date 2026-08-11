@@ -225,21 +225,26 @@ Consumers never resolve or dial a Provider address. Core owns the registration,
 heartbeat, lease, and deregistration semantics through
 [`registry`](https://pkg.go.dev/github.com/NeKiro-project/NeKiro/registry) and
 [`registry/nacos`](https://pkg.go.dev/github.com/NeKiro-project/NeKiro/registry/nacos).
-The Samples adapter only maps explicit `RUNTIME_A_*` / `RUNTIME_B_*` settings,
-builds the secured HTTP transport, and connects lease readiness to the process
-lifecycle. The endpoint ownership challenge is a separate trusted-publication
-check. Since the examples use Samples `internal` packages, copy the pattern
-into another Agent module instead of importing those packages directly.
+The public SDK
+[`agent/registration/nacos`](https://pkg.go.dev/github.com/NeKiro-project/nekiro-sdk-go/agent/registration/nacos)
+maps explicit `RUNTIME_A_*` / `RUNTIME_B_*` settings, builds the secured HTTP
+transport, and connects the Core lease to the managed host lifecycle. Samples
+still owns each Agent's configuration, Router authentication, handlers, and
+endpoint ownership challenge. External providers can import the SDK
+registration package directly; the Samples `internal/challengeproof` package
+remains a sample-owned deployment detail and is not a public API.
 
 The complete production sources are [Runtime A main](https://github.com/NeKiro-project/NeKiro-Samples/blob/main/runtime-a/cmd/runtime-a/main.go),
 [Runtime B main](https://github.com/NeKiro-project/NeKiro-Samples/blob/main/runtime-b/cmd/runtime-b/main.go),
 and [B -> A nested invocation](https://github.com/NeKiro-project/NeKiro-Samples/blob/main/runtime-b/nested.go).
 
-### 3. Copy the complete Runtime mains
+### 3. Read the complete Runtime mains
 
 The programs below are complete `package main` entrypoints. They keep Runtime
-configuration, Router authentication, TLS/mTLS, challenge proof, and handlers
-in Samples, while [`agent/host`](https://pkg.go.dev/github.com/NeKiro-project/nekiro-sdk-go/agent/host)
+configuration, Router authentication, challenge proof, and handlers in Samples.
+The public [`agent/registration/nacos`](https://pkg.go.dev/github.com/NeKiro-project/nekiro-sdk-go/agent/registration/nacos)
+package owns strict registration composition, while
+[`agent/host`](https://pkg.go.dev/github.com/NeKiro-project/nekiro-sdk-go/agent/host)
 owns serving, lease observation, bounded shutdown, and deregistration.
 
 <details>
@@ -257,9 +262,9 @@ import (
     "time"
 
     "github.com/NeKiro-project/NeKiro-Samples/internal/challengeproof"
-    "github.com/NeKiro-project/NeKiro-Samples/internal/nacosregistration"
     runtimea "github.com/NeKiro-project/NeKiro-Samples/runtime-a"
     agenthost "github.com/NeKiro-project/nekiro-sdk-go/agent/host"
+    registrationnacos "github.com/NeKiro-project/nekiro-sdk-go/agent/registration/nacos"
 )
 
 func main() {
@@ -277,23 +282,13 @@ func runWithLookup(lookup func(string) (string, bool)) error {
     if err != nil {
         return agenthost.Wrap(agenthost.StageConfig, "load Runtime A configuration", err)
     }
-    registrationConfig, err := nacosregistration.Load(lookup, "RUNTIME_A", config.AgentID, config.InstanceID)
+    registrationConfig, err := registrationnacos.LoadConfig(lookup, "RUNTIME_A", config.AgentID, config.InstanceID)
     if err != nil {
         return agenthost.Wrap(agenthost.StageConfig, "load Runtime A registration configuration", err)
     }
-    var registration agenthost.Registration
-    var readiness runtimea.Readiness = ready(true)
-    if registrationConfig.Mode == nacosregistration.ModeNacos {
-        registrationClient, clientErr := nacosregistration.NewHTTPClient(registrationConfig)
-        if clientErr != nil {
-            return agenthost.Wrap(agenthost.StageRegistration, "create Runtime A Nacos transport", clientErr)
-        }
-        runtimeRegistration, err := nacosregistration.New(registrationConfig, registrationClient)
-        if err != nil {
-            return agenthost.Wrap(agenthost.StageRegistration, "create Runtime A registration", err)
-        }
-        registration = runtimeRegistration
-        readiness = runtimeRegistration
+    registration, readiness, err := newRuntimeRegistration(registrationConfig)
+    if err != nil {
+        return agenthost.Wrap(agenthost.StageRegistration, "create Runtime A registration", err)
     }
     handler, err := runtimea.NewHandler(config, http.DefaultClient)
     if err != nil {
@@ -323,6 +318,17 @@ func runWithLookup(lookup func(string) (string, bool)) error {
 type ready bool
 
 func (value ready) Ready() bool { return bool(value) }
+
+func newRuntimeRegistration(config registrationnacos.Config) (agenthost.Registration, runtimea.Readiness, error) {
+    if config.Mode == registrationnacos.ModeDisabled {
+        return nil, ready(true), nil
+    }
+    registration, err := registrationnacos.New(config)
+    if err != nil {
+        return nil, nil, err
+    }
+    return registration, registration, nil
+}
 ```
 
 </details>
@@ -342,9 +348,9 @@ import (
     "time"
 
     "github.com/NeKiro-project/NeKiro-Samples/internal/challengeproof"
-    "github.com/NeKiro-project/NeKiro-Samples/internal/nacosregistration"
     runtimeb "github.com/NeKiro-project/NeKiro-Samples/runtime-b"
     agenthost "github.com/NeKiro-project/nekiro-sdk-go/agent/host"
+    registrationnacos "github.com/NeKiro-project/nekiro-sdk-go/agent/registration/nacos"
     "github.com/NeKiro-project/nekiro-sdk-go/agent/routerauth"
 )
 
@@ -371,23 +377,13 @@ func runWithLookup(lookup func(string) (string, bool)) error {
     if err != nil {
         return agenthost.Wrap(agenthost.StageConfig, "load Runtime B configuration", err)
     }
-    registrationConfig, err := runtimeb.LoadRegistrationConfig(lookup, config.AgentID, config.InstanceID)
+    registrationConfig, err := registrationnacos.LoadConfig(lookup, "RUNTIME_B", config.AgentID, config.InstanceID)
     if err != nil {
         return agenthost.Wrap(agenthost.StageConfig, "load Runtime B registration configuration", err)
     }
-    var registration agenthost.Registration
-    var readiness runtimeb.Readiness = ready(true)
-    if registrationConfig.Mode == runtimeb.RegistrationModeNacos {
-        registrationClient, clientErr := nacosregistration.NewHTTPClient(registrationConfig)
-        if clientErr != nil {
-            return agenthost.Wrap(agenthost.StageRegistration, "create Runtime B Nacos transport", clientErr)
-        }
-        runtimeRegistration, err := runtimeb.NewNacosRegistration(registrationConfig, registrationClient)
-        if err != nil {
-            return agenthost.Wrap(agenthost.StageRegistration, "create Runtime B registration", err)
-        }
-        registration = runtimeRegistration
-        readiness = runtimeRegistration
+    registration, readiness, err := newRuntimeRegistration(registrationConfig)
+    if err != nil {
+        return agenthost.Wrap(agenthost.StageRegistration, "create Runtime B registration", err)
     }
     handler, err := runtimeb.NewConfiguredHandler(config, http.DefaultClient)
     if err != nil {
@@ -421,6 +417,17 @@ func runWithLookup(lookup func(string) (string, bool)) error {
 type ready bool
 
 func (value ready) Ready() bool { return bool(value) }
+
+func newRuntimeRegistration(config registrationnacos.Config) (agenthost.Registration, runtimeb.Readiness, error) {
+    if config.Mode == registrationnacos.ModeDisabled {
+        return nil, ready(true), nil
+    }
+    registration, err := registrationnacos.New(config)
+    if err != nil {
+        return nil, nil, err
+    }
+    return registration, registration, nil
+}
 ```
 
 </details>
