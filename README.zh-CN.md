@@ -147,52 +147,235 @@ Runtime B --Agent ID + capability--> Router --> Runtime A
 ```
 
 生产实现位于 [NeKiro-Samples](https://github.com/NeKiro-project/NeKiro-Samples)。
-下面是两个应用层接入点的精简代码。注册部分使用 Samples 自己维护的 Nacos 部署
-adapter，并非 Core API。A 持续维护注册 heartbeat，并在退出时显式注销：
+下面两个完整的 `package main` 程序需要放在该模块内运行，因为 Nacos 部署 adapter
+和 endpoint challenge 属于 Samples，而不是 Core。
+
+Runtime A 启动托管 A2A endpoint，注册精确实例，持续维护 lease，并在退出时注销：
 
 ```go
-registrationConfig, err := nacosregistration.Load(
-    os.LookupEnv, "RUNTIME_A", config.AgentID, config.InstanceID,
+package main
+
+import (
+    "context"
+    "errors"
+    "log"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
+
+    "github.com/NeKiro-project/NeKiro-Samples/internal/challengeproof"
+    "github.com/NeKiro-project/NeKiro-Samples/internal/nacosregistration"
+    runtimea "github.com/NeKiro-project/NeKiro-Samples/runtime-a"
 )
-if err != nil {
-    return err
+
+func main() {
+    if err := run(); err != nil {
+        log.Fatal(err)
+    }
 }
 
-registrationClient, err := nacosregistration.NewHTTPClient(registrationConfig)
-if err != nil {
-    return err
-}
-registration, err := nacosregistration.New(registrationConfig, registrationClient)
-if err != nil {
-    return err
-}
-if err := registration.Register(context.Background()); err != nil {
-    return err
-}
+func run() error {
+    config, err := runtimea.LoadConfig(os.LookupEnv)
+    if err != nil {
+        return err
+    }
+    registrationConfig, err := nacosregistration.Load(
+        os.LookupEnv, "RUNTIME_A", config.AgentID, config.InstanceID,
+    )
+    if err != nil {
+        return err
+    }
+    registrationClient, err := nacosregistration.NewHTTPClient(registrationConfig)
+    if err != nil {
+        return err
+    }
+    registration, err := nacosregistration.New(registrationConfig, registrationClient)
+    if err != nil {
+        return err
+    }
 
-go func() { registrationErrors <- registration.Run(ctx) }() // heartbeat
-defer registration.Deregister(shutdownContext)
+    handler, err := runtimea.NewHandler(config, http.DefaultClient)
+    if err != nil {
+        return err
+    }
+    application, err := challengeproof.NewHandler(
+        runtimea.NewHTTPHandlerWithReadiness(handler, registration),
+        os.LookupEnv,
+    )
+    if err != nil {
+        return err
+    }
+    if err := registration.Register(context.Background()); err != nil {
+        return err
+    }
+
+    ctx, stop := signal.NotifyContext(
+        context.Background(), os.Interrupt, syscall.SIGTERM,
+    )
+    defer stop()
+    server := &http.Server{Addr: config.ListenAddress, Handler: application}
+    serverErrors := make(chan error, 1)
+    go func() {
+        err := server.ListenAndServe()
+        if errors.Is(err, http.ErrServerClosed) {
+            err = nil
+        }
+        serverErrors <- err
+    }()
+    registrationErrors := make(chan error, 1)
+    go func() { registrationErrors <- registration.Run(ctx) }()
+
+    var runErr error
+    registrationStopped := false
+    select {
+    case <-ctx.Done():
+    case runErr = <-serverErrors:
+    case runErr = <-registrationErrors:
+        registrationStopped = true
+    }
+    stop()
+
+    shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    shutdownErr := server.Shutdown(shutdownContext)
+    if !registrationStopped {
+        select {
+        case registrationErr := <-registrationErrors:
+            runErr = errors.Join(runErr, registrationErr)
+        case <-shutdownContext.Done():
+            runErr = errors.Join(runErr, shutdownContext.Err())
+        }
+    }
+    deregisterErr := registration.Deregister(shutdownContext)
+    return errors.Join(runErr, shutdownErr, deregisterErr)
+}
 ```
 
-B 使用公共 Agent SDK 创建 Router client，再以 A 的逻辑身份发起调用，不自行解析或
-直连 A。`platformContext` 必须来自 B 已验证的 Router 签发凭证，使子调用继承
-workspace、root task、parent invocation 和 trace lineage。
+B 使用同样的方式注册，在入站 A2A endpoint 校验 Router 签发的凭证，并使用 Router
+URL 和 Agent token 创建 handler。B 收到 Sample 的 `nested` 请求时，
+`NewConfiguredHandler` 使用公共 Agent SDK 按 Agent ID 与 capability 调用 A；B
+不会自行解析或直连 A。
 
 ```go
-client, err := agentsdk.NewClient(
-    http.DefaultClient, routerURL, routerToken, responseLimit, eventLimit,
+package main
+
+import (
+    "context"
+    "errors"
+    "log"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
+
+    "github.com/NeKiro-project/NeKiro-Samples/internal/challengeproof"
+    "github.com/NeKiro-project/NeKiro-Samples/internal/nacosregistration"
+    runtimeb "github.com/NeKiro-project/NeKiro-Samples/runtime-b"
+    "github.com/NeKiro-project/nekiro-sdk-go/agent/routerauth"
 )
-if err != nil {
-    return err
+
+func main() {
+    if err := run(); err != nil {
+        log.Fatal(err)
+    }
 }
 
-result, err := client.Invoke(ctx, platformContext, agentsdk.NestedRequest{
-    TargetAgentID: "runtime-a",
-    Capability:    "runtime.echo",
-    Input:         json.RawMessage(`{"fixture":"success","value":"hello"}`),
-    Stream:        false,
-})
+func run() error {
+    address, err := runtimeb.ListenAddressFromEnvironment(os.LookupEnv)
+    if err != nil {
+        return err
+    }
+    config, err := runtimeb.LoadConfig(os.LookupEnv)
+    if err != nil {
+        return err
+    }
+    authenticationConfig, err := routerauth.LoadConfig(os.LookupEnv)
+    if err != nil {
+        return err
+    }
+    registrationConfig, err := runtimeb.LoadRegistrationConfig(
+        os.LookupEnv, config.AgentID, config.InstanceID,
+    )
+    if err != nil {
+        return err
+    }
+    registrationClient, err := nacosregistration.NewHTTPClient(registrationConfig)
+    if err != nil {
+        return err
+    }
+    registration, err := runtimeb.NewNacosRegistration(
+        registrationConfig, registrationClient,
+    )
+    if err != nil {
+        return err
+    }
+
+    handler, err := runtimeb.NewConfiguredHandler(config, http.DefaultClient)
+    if err != nil {
+        return err
+    }
+    execution, err := runtimeb.NewHTTPHandlerWithAuthAndReadiness(
+        handler, authenticationConfig, registration,
+    )
+    if err != nil {
+        return err
+    }
+    application, err := challengeproof.NewHandler(execution, os.LookupEnv)
+    if err != nil {
+        return err
+    }
+    if err := registration.Register(context.Background()); err != nil {
+        return err
+    }
+
+    ctx, stop := signal.NotifyContext(
+        context.Background(), os.Interrupt, syscall.SIGTERM,
+    )
+    defer stop()
+    server := &http.Server{Addr: address, Handler: application}
+    serverErrors := make(chan error, 1)
+    go func() {
+        err := server.ListenAndServe()
+        if errors.Is(err, http.ErrServerClosed) {
+            err = nil
+        }
+        serverErrors <- err
+    }()
+    registrationErrors := make(chan error, 1)
+    go func() { registrationErrors <- registration.Run(ctx) }()
+
+    var runErr error
+    registrationStopped := false
+    select {
+    case <-ctx.Done():
+    case runErr = <-serverErrors:
+    case runErr = <-registrationErrors:
+        registrationStopped = true
+    }
+    stop()
+
+    shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    shutdownErr := server.Shutdown(shutdownContext)
+    if !registrationStopped {
+        select {
+        case registrationErr := <-registrationErrors:
+            runErr = errors.Join(runErr, registrationErr)
+        case <-shutdownContext.Done():
+            runErr = errors.Join(runErr, shutdownContext.Err())
+        }
+    }
+    deregisterErr := registration.Deregister(shutdownContext)
+    return errors.Join(runErr, shutdownErr, deregisterErr)
+}
 ```
+
+Handler 只会在 `routerauth` 验证 Router 凭证后提取 `PlatformContext`，再通过
+`agentsdk.Client.Invoke` 和 `TargetAgentID: "runtime-a"` 发起调用。完整实现见
+[B -> A 调用代码](https://github.com/NeKiro-project/NeKiro-Samples/blob/main/runtime-b/nested.go)。
 
 ### 运行完整场景
 

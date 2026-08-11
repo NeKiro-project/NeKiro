@@ -168,56 +168,239 @@ Runtime B --Agent ID + capability--> Router --> Runtime A
 ```
 
 The production code is in
-[NeKiro-Samples](https://github.com/NeKiro-project/NeKiro-Samples). These
-condensed fragments show the two application-side integration points. The
-registration fragment uses the Samples-owned Nacos deployment adapter; it is
-not a Core API. A keeps its registration alive and explicitly removes it
-during shutdown:
+[NeKiro-Samples](https://github.com/NeKiro-project/NeKiro-Samples). The two
+complete `package main` programs below run inside that module because the
+Nacos deployment adapter and endpoint challenge belong to Samples, not Core.
+
+Runtime A starts its managed A2A endpoint, registers an exact instance, keeps
+the lease alive, and deregisters during shutdown:
 
 ```go
-registrationConfig, err := nacosregistration.Load(
-    os.LookupEnv, "RUNTIME_A", config.AgentID, config.InstanceID,
+package main
+
+import (
+    "context"
+    "errors"
+    "log"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
+
+    "github.com/NeKiro-project/NeKiro-Samples/internal/challengeproof"
+    "github.com/NeKiro-project/NeKiro-Samples/internal/nacosregistration"
+    runtimea "github.com/NeKiro-project/NeKiro-Samples/runtime-a"
 )
-if err != nil {
-    return err
+
+func main() {
+    if err := run(); err != nil {
+        log.Fatal(err)
+    }
 }
 
-registrationClient, err := nacosregistration.NewHTTPClient(registrationConfig)
-if err != nil {
-    return err
-}
-registration, err := nacosregistration.New(registrationConfig, registrationClient)
-if err != nil {
-    return err
-}
-if err := registration.Register(context.Background()); err != nil {
-    return err
-}
+func run() error {
+    config, err := runtimea.LoadConfig(os.LookupEnv)
+    if err != nil {
+        return err
+    }
+    registrationConfig, err := nacosregistration.Load(
+        os.LookupEnv, "RUNTIME_A", config.AgentID, config.InstanceID,
+    )
+    if err != nil {
+        return err
+    }
+    registrationClient, err := nacosregistration.NewHTTPClient(registrationConfig)
+    if err != nil {
+        return err
+    }
+    registration, err := nacosregistration.New(registrationConfig, registrationClient)
+    if err != nil {
+        return err
+    }
 
-go func() { registrationErrors <- registration.Run(ctx) }() // heartbeat
-defer registration.Deregister(shutdownContext)
+    handler, err := runtimea.NewHandler(config, http.DefaultClient)
+    if err != nil {
+        return err
+    }
+    application, err := challengeproof.NewHandler(
+        runtimea.NewHTTPHandlerWithReadiness(handler, registration),
+        os.LookupEnv,
+    )
+    if err != nil {
+        return err
+    }
+    if err := registration.Register(context.Background()); err != nil {
+        return err
+    }
+
+    ctx, stop := signal.NotifyContext(
+        context.Background(), os.Interrupt, syscall.SIGTERM,
+    )
+    defer stop()
+    server := &http.Server{Addr: config.ListenAddress, Handler: application}
+    serverErrors := make(chan error, 1)
+    go func() {
+        err := server.ListenAndServe()
+        if errors.Is(err, http.ErrServerClosed) {
+            err = nil
+        }
+        serverErrors <- err
+    }()
+    registrationErrors := make(chan error, 1)
+    go func() { registrationErrors <- registration.Run(ctx) }()
+
+    var runErr error
+    registrationStopped := false
+    select {
+    case <-ctx.Done():
+    case runErr = <-serverErrors:
+    case runErr = <-registrationErrors:
+        registrationStopped = true
+    }
+    stop()
+
+    shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    shutdownErr := server.Shutdown(shutdownContext)
+    if !registrationStopped {
+        select {
+        case registrationErr := <-registrationErrors:
+            runErr = errors.Join(runErr, registrationErr)
+        case <-shutdownContext.Done():
+            runErr = errors.Join(runErr, shutdownContext.Err())
+        }
+    }
+    deregisterErr := registration.Deregister(shutdownContext)
+    return errors.Join(runErr, shutdownErr, deregisterErr)
+}
 ```
 
-B creates a public Agent SDK client for Router, then targets A without resolving
-or dialing A itself. `platformContext` must come from B's verified
-Router-issued credential so the child call inherits its workspace, root task,
-parent invocation, and trace lineage.
+B registers the same way, validates the Router-issued credential on its
+incoming A2A endpoint, and creates its handler with the Router URL and Agent
+token. When B receives the sample's `nested` request, `NewConfiguredHandler`
+uses the public Agent SDK to target A by Agent ID and capability. B never
+resolves or dials A itself.
 
 ```go
-client, err := agentsdk.NewClient(
-    http.DefaultClient, routerURL, routerToken, responseLimit, eventLimit,
+package main
+
+import (
+    "context"
+    "errors"
+    "log"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
+
+    "github.com/NeKiro-project/NeKiro-Samples/internal/challengeproof"
+    "github.com/NeKiro-project/NeKiro-Samples/internal/nacosregistration"
+    runtimeb "github.com/NeKiro-project/NeKiro-Samples/runtime-b"
+    "github.com/NeKiro-project/nekiro-sdk-go/agent/routerauth"
 )
-if err != nil {
-    return err
+
+func main() {
+    if err := run(); err != nil {
+        log.Fatal(err)
+    }
 }
 
-result, err := client.Invoke(ctx, platformContext, agentsdk.NestedRequest{
-    TargetAgentID: "runtime-a",
-    Capability:    "runtime.echo",
-    Input:         json.RawMessage(`{"fixture":"success","value":"hello"}`),
-    Stream:        false,
-})
+func run() error {
+    address, err := runtimeb.ListenAddressFromEnvironment(os.LookupEnv)
+    if err != nil {
+        return err
+    }
+    config, err := runtimeb.LoadConfig(os.LookupEnv)
+    if err != nil {
+        return err
+    }
+    authenticationConfig, err := routerauth.LoadConfig(os.LookupEnv)
+    if err != nil {
+        return err
+    }
+    registrationConfig, err := runtimeb.LoadRegistrationConfig(
+        os.LookupEnv, config.AgentID, config.InstanceID,
+    )
+    if err != nil {
+        return err
+    }
+    registrationClient, err := nacosregistration.NewHTTPClient(registrationConfig)
+    if err != nil {
+        return err
+    }
+    registration, err := runtimeb.NewNacosRegistration(
+        registrationConfig, registrationClient,
+    )
+    if err != nil {
+        return err
+    }
+
+    handler, err := runtimeb.NewConfiguredHandler(config, http.DefaultClient)
+    if err != nil {
+        return err
+    }
+    execution, err := runtimeb.NewHTTPHandlerWithAuthAndReadiness(
+        handler, authenticationConfig, registration,
+    )
+    if err != nil {
+        return err
+    }
+    application, err := challengeproof.NewHandler(execution, os.LookupEnv)
+    if err != nil {
+        return err
+    }
+    if err := registration.Register(context.Background()); err != nil {
+        return err
+    }
+
+    ctx, stop := signal.NotifyContext(
+        context.Background(), os.Interrupt, syscall.SIGTERM,
+    )
+    defer stop()
+    server := &http.Server{Addr: address, Handler: application}
+    serverErrors := make(chan error, 1)
+    go func() {
+        err := server.ListenAndServe()
+        if errors.Is(err, http.ErrServerClosed) {
+            err = nil
+        }
+        serverErrors <- err
+    }()
+    registrationErrors := make(chan error, 1)
+    go func() { registrationErrors <- registration.Run(ctx) }()
+
+    var runErr error
+    registrationStopped := false
+    select {
+    case <-ctx.Done():
+    case runErr = <-serverErrors:
+    case runErr = <-registrationErrors:
+        registrationStopped = true
+    }
+    stop()
+
+    shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    shutdownErr := server.Shutdown(shutdownContext)
+    if !registrationStopped {
+        select {
+        case registrationErr := <-registrationErrors:
+            runErr = errors.Join(runErr, registrationErr)
+        case <-shutdownContext.Done():
+            runErr = errors.Join(runErr, shutdownContext.Err())
+        }
+    }
+    deregisterErr := registration.Deregister(shutdownContext)
+    return errors.Join(runErr, shutdownErr, deregisterErr)
+}
 ```
+
+The handler extracts `PlatformContext` only after `routerauth` verifies the
+Router credential, then calls `agentsdk.Client.Invoke` with
+`TargetAgentID: "runtime-a"`. See the complete
+[B -> A invocation implementation](https://github.com/NeKiro-project/NeKiro-Samples/blob/main/runtime-b/nested.go).
 
 ### Run the complete scenario
 
