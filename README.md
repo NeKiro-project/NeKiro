@@ -155,10 +155,119 @@ Neither runtime receives the other's direct target address.
 
 ## Quick start
 
-The fastest way to see the full product is the immutable
-[NeKiro-Stack](https://github.com/NeKiro-project/NeKiro-Stack). It assembles
-exact Core, Console, SDK, Samples, and transport revisions and runs the real
-backend/browser acceptance suites.
+This example runs the real **Runtime B -> Router -> Runtime A** path. Runtime A
+first publishes a lease to Nacos. Router observes the instance through a
+snapshot and continuous watch. Runtime B then calls A by Agent ID and
+capability; it never receives A's address.
+
+```text
+Runtime A --lease--> Nacos --snapshot/watch--> Router
+Runtime B --Agent ID + capability--> Router --> Runtime A
+                                      |
+                                      +--> Invocation Ledger
+```
+
+The production code is in
+[NeKiro-Samples](https://github.com/NeKiro-project/NeKiro-Samples). These
+condensed fragments show the two application-side integration points. The
+registration fragment uses the Samples-owned Nacos deployment adapter; it is
+not a Core API. A keeps its registration alive and explicitly removes it
+during shutdown:
+
+```go
+registrationConfig, err := nacosregistration.Load(
+    os.LookupEnv, "RUNTIME_A", config.AgentID, config.InstanceID,
+)
+if err != nil {
+    return err
+}
+
+registrationClient, err := nacosregistration.NewHTTPClient(registrationConfig)
+if err != nil {
+    return err
+}
+registration, err := nacosregistration.New(registrationConfig, registrationClient)
+if err != nil {
+    return err
+}
+if err := registration.Register(context.Background()); err != nil {
+    return err
+}
+
+go func() { registrationErrors <- registration.Run(ctx) }() // heartbeat
+defer registration.Deregister(shutdownContext)
+```
+
+B creates a public Agent SDK client for Router, then targets A without resolving
+or dialing A itself. `platformContext` must come from B's verified
+Router-issued credential so the child call inherits its workspace, root task,
+parent invocation, and trace lineage.
+
+```go
+client, err := agentsdk.NewClient(
+    http.DefaultClient, routerURL, routerToken, responseLimit, eventLimit,
+)
+if err != nil {
+    return err
+}
+
+result, err := client.Invoke(ctx, platformContext, agentsdk.NestedRequest{
+    TargetAgentID: "runtime-a",
+    Capability:    "runtime.echo",
+    Input:         json.RawMessage(`{"fixture":"success","value":"hello"}`),
+    Stream:        false,
+})
+```
+
+### Run the complete scenario
+
+The immutable [NeKiro-Stack](https://github.com/NeKiro-project/NeKiro-Stack)
+supplies the parts intentionally omitted above: trusted Card/Release
+publication, Workspace installation and permissions, Router credentials,
+PostgreSQL, secured Nacos, exact component revisions, and Ledger assertions.
+The following commands require Git, Go 1.26+, Docker, Bash, and network access:
+
+```bash
+git clone https://github.com/NeKiro-project/NeKiro-Stack.git
+cd NeKiro-Stack
+
+work_root=$(mktemp -d)
+backend_env="$work_root/backend.env"
+prepared_env="$work_root/prepared.env"
+
+./scripts/write-ci-env.sh backend "$backend_env" "$(pwd)" nekiro-quickstart
+set -a
+source "$backend_env"
+set +a
+
+./scripts/prepare.sh "$(pwd)/components.json" "$work_root/checkouts" "$prepared_env"
+set -a
+source "$prepared_env"
+set +a
+
+go run ./cmd/nacos-secure-fixture generate "$NEKIRO_E2E_TLS_ROOT"
+docker compose --project-name "$NEKIRO_E2E_COMPOSE_PROJECT" \
+  --file compose.yaml \
+  --file "$NEKIRO_E2E_COMPOSE_OVERRIDE_FILE" \
+  --profile router-nacos-secure \
+  up --detach --wait --wait-timeout 120
+go test -tags=e2e -run '^TestInvokeToRecordAcceptance$' -count=1 ./tests/backend
+
+docker compose --project-name "$NEKIRO_E2E_COMPOSE_PROJECT" \
+  --file compose.yaml \
+  --file "$NEKIRO_E2E_COMPOSE_OVERRIDE_FILE" \
+  --profile router-nacos-secure \
+  --profile runtime-registration \
+  --profile watch-refresh \
+  down --volumes --remove-orphans
+```
+
+A passing acceptance proves that A registered, Router discovered its exact
+Release-scoped instance, B reached A only through Router, and the parent/child
+records share `root_task_id` and `trace_id` in Ledger. It also exercises A -> B,
+instance removal, fail-closed routing, and replacement recovery.
+
+### Develop Core
 
 For Core development, Go 1.26 or newer is required:
 

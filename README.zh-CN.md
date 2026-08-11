@@ -135,9 +135,113 @@ Runtime B -> Router -> Runtime A
 
 ## 快速开始
 
-体验完整产品的最快方式是使用固定全部组件 revision 的
-[NeKiro-Stack](https://github.com/NeKiro-project/NeKiro-Stack)。它负责装配 Core、
-Console、SDK、Samples 与 transport，并运行真实 backend/browser acceptance。
+下面的例子会运行真实的 **Runtime B -> Router -> Runtime A** 链路。Runtime A
+先向 Nacos 发布租约，Router 通过初始 snapshot 和持续 watch 观察到该实例。Runtime B
+只使用 Agent ID 和 capability 调用 A，不会获得 A 的地址。
+
+```text
+Runtime A --lease--> Nacos --snapshot/watch--> Router
+Runtime B --Agent ID + capability--> Router --> Runtime A
+                                      |
+                                      +--> Invocation Ledger
+```
+
+生产实现位于 [NeKiro-Samples](https://github.com/NeKiro-project/NeKiro-Samples)。
+下面是两个应用层接入点的精简代码。注册部分使用 Samples 自己维护的 Nacos 部署
+adapter，并非 Core API。A 持续维护注册 heartbeat，并在退出时显式注销：
+
+```go
+registrationConfig, err := nacosregistration.Load(
+    os.LookupEnv, "RUNTIME_A", config.AgentID, config.InstanceID,
+)
+if err != nil {
+    return err
+}
+
+registrationClient, err := nacosregistration.NewHTTPClient(registrationConfig)
+if err != nil {
+    return err
+}
+registration, err := nacosregistration.New(registrationConfig, registrationClient)
+if err != nil {
+    return err
+}
+if err := registration.Register(context.Background()); err != nil {
+    return err
+}
+
+go func() { registrationErrors <- registration.Run(ctx) }() // heartbeat
+defer registration.Deregister(shutdownContext)
+```
+
+B 使用公共 Agent SDK 创建 Router client，再以 A 的逻辑身份发起调用，不自行解析或
+直连 A。`platformContext` 必须来自 B 已验证的 Router 签发凭证，使子调用继承
+workspace、root task、parent invocation 和 trace lineage。
+
+```go
+client, err := agentsdk.NewClient(
+    http.DefaultClient, routerURL, routerToken, responseLimit, eventLimit,
+)
+if err != nil {
+    return err
+}
+
+result, err := client.Invoke(ctx, platformContext, agentsdk.NestedRequest{
+    TargetAgentID: "runtime-a",
+    Capability:    "runtime.echo",
+    Input:         json.RawMessage(`{"fixture":"success","value":"hello"}`),
+    Stream:        false,
+})
+```
+
+### 运行完整场景
+
+固定全部组件 revision 的
+[NeKiro-Stack](https://github.com/NeKiro-project/NeKiro-Stack) 会补齐上面刻意省略的
+可信 Card/Release 发布、Workspace 安装与权限、Router 凭证、PostgreSQL、安全
+Nacos、精确组件版本和 Ledger 断言。以下命令需要 Git、Go 1.26+、Docker、Bash
+和网络访问：
+
+```bash
+git clone https://github.com/NeKiro-project/NeKiro-Stack.git
+cd NeKiro-Stack
+
+work_root=$(mktemp -d)
+backend_env="$work_root/backend.env"
+prepared_env="$work_root/prepared.env"
+
+./scripts/write-ci-env.sh backend "$backend_env" "$(pwd)" nekiro-quickstart
+set -a
+source "$backend_env"
+set +a
+
+./scripts/prepare.sh "$(pwd)/components.json" "$work_root/checkouts" "$prepared_env"
+set -a
+source "$prepared_env"
+set +a
+
+go run ./cmd/nacos-secure-fixture generate "$NEKIRO_E2E_TLS_ROOT"
+docker compose --project-name "$NEKIRO_E2E_COMPOSE_PROJECT" \
+  --file compose.yaml \
+  --file "$NEKIRO_E2E_COMPOSE_OVERRIDE_FILE" \
+  --profile router-nacos-secure \
+  up --detach --wait --wait-timeout 120
+go test -tags=e2e -run '^TestInvokeToRecordAcceptance$' -count=1 ./tests/backend
+
+docker compose --project-name "$NEKIRO_E2E_COMPOSE_PROJECT" \
+  --file compose.yaml \
+  --file "$NEKIRO_E2E_COMPOSE_OVERRIDE_FILE" \
+  --profile router-nacos-secure \
+  --profile runtime-registration \
+  --profile watch-refresh \
+  down --volumes --remove-orphans
+```
+
+验收通过表示：A 已注册，Router 发现了 A 对应精确 Release 的实例，B 只通过 Router
+到达 A，并且 Ledger 中父子记录共享 `root_task_id` 和 `trace_id`。同一套验收还会
+覆盖 A -> B、实例下线、失败关闭路由和替换实例后的恢复。
+
+### 开发 Core
 
 Core 开发需要 Go 1.26 或更高版本：
 
