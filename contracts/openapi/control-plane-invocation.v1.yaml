@@ -1,20 +1,18 @@
 openapi: 3.1.0
 info:
   title: NeKiro Northbound Invocation API
-  version: 4.0.0
+  version: 1.0.0
   description: >-
     Invocation-only Northbound target. Catalog, Workspace, and Installation
-    remain served from control-plane.v3.yaml; this document is not a complete
-    Control Plane v4 replacement and defines no second fact for those domains.
-    Clients use the same Gateway destination and select v4 only for Invocation
-    create/metadata routes.
+    remain served from control-plane.v1.yaml. This focused document defines no
+    second fact for those domains; clients use the same Gateway v1 destination.
 servers:
   - url: https://api.nekiro.dev
     description: Existing Gateway destination
 paths:
-  /v4/workspaces/{workspaceId}/invocations:
+  /v1/workspaces/{workspaceId}/invocations:
     post:
-      operationId: invokeAgentV4
+      operationId: invokeAgent
       summary: Invoke an installed Agent through Dispatch and Router
       description: >-
         Gateway authenticates the caller, strictly validates media and the
@@ -63,9 +61,9 @@ paths:
         "502": { $ref: "#/components/responses/AgentFailure" }
         "503": { $ref: "#/components/responses/Unavailable" }
         "504": { $ref: "#/components/responses/Timeout" }
-  /v4/workspaces/{workspaceId}/invocations/{invocationId}:
+  /v1/workspaces/{workspaceId}/invocations/{invocationId}:
     get:
-      operationId: getInvocationV4
+      operationId: getInvocation
       security: [{ bearerAuth: [] }]
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
@@ -75,14 +73,14 @@ paths:
           description: Workspace-scoped metadata projection and ordered facts; a last non-terminal status is returned unchanged
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/InvocationDetailResponseV4" }
+              schema: { $ref: "#/components/schemas/InvocationDetailResponseV1" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "503": { $ref: "#/components/responses/Unavailable" }
-  /v4/workspaces/{workspaceId}/traces/{traceId}:
+  /v1/workspaces/{workspaceId}/traces/{traceId}:
     get:
-      operationId: getTraceV4
+      operationId: getTrace
       security: [{ bearerAuth: [] }]
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
@@ -95,7 +93,7 @@ paths:
           description: Workspace-authorized metadata-only parent-child lineage projections
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/TraceResponseV4" }
+              schema: { $ref: "#/components/schemas/TraceResponseV1" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -138,7 +136,7 @@ components:
         capability: { $ref: ../schemas/common.v1.schema.json#/$defs/capabilityId }
         input: { $ref: ../schemas/common.v1.schema.json#/$defs/jsonObject }
         stream: { type: boolean }
-    InvocationRecordV4:
+    InvocationRecordV1:
       type: object
       additionalProperties: false
       required: [invocationId, rootTaskId, traceId, caller, workspaceId, targetAgentId, agentCardVersion, capability, status, createdAt, updatedAt]
@@ -165,16 +163,16 @@ components:
         errorCode: { $ref: ../schemas/platform-error.v4.schema.json#/$defs/errorCode }
         createdAt: { $ref: ../schemas/common.v1.schema.json#/$defs/dateTime }
         updatedAt: { $ref: ../schemas/common.v1.schema.json#/$defs/dateTime }
-    InvocationDetailResponseV4:
+    InvocationDetailResponseV1:
       type: object
       additionalProperties: false
       required: [invocation, events]
       properties:
-        invocation: { $ref: "#/components/schemas/InvocationRecordV4" }
+        invocation: { $ref: "#/components/schemas/InvocationRecordV1" }
         events:
           type: array
           items: { $ref: ../schemas/invocation-event.v0.3.schema.json }
-    TraceResponseV4:
+    TraceResponseV1:
       type: object
       additionalProperties: false
       required: [traceId, invocations]
@@ -182,7 +180,7 @@ components:
         traceId: { $ref: ../schemas/common.v1.schema.json#/$defs/traceId }
         invocations:
           type: array
-          items: { $ref: "#/components/schemas/InvocationRecordV4" }
+          items: { $ref: "#/components/schemas/InvocationRecordV1" }
     PreCorrelationPlatformError:
       $ref: ../schemas/platform-error.v4.schema.json#/$defs/preCorrelation
     CorrelatedPlatformError:

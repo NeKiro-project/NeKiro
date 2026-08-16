@@ -39,7 +39,7 @@ func NewRouterClient(doer HTTPDoer, url, token string) (*RouterClient, error) {
 	return &RouterClient{doer: doer, url: url, token: token}, nil
 }
 
-func (client *RouterClient) Dispatch(ctx context.Context, value contracts.DispatchInvocationRequestV4, mode contracts.InvocationResultMode) (*RouterResponse, error) {
+func (client *RouterClient) Dispatch(ctx context.Context, value contracts.DispatchInvocationRequestV1, mode contracts.InvocationResultMode) (*RouterResponse, error) {
 	var body bytes.Buffer
 	encoder := json.NewEncoder(&body)
 	encoder.SetEscapeHTML(false)
@@ -91,12 +91,12 @@ func (client *RouterClient) Dispatch(ctx context.Context, value contracts.Dispat
 
 // GetInvocation reads one Workspace-scoped metadata projection from the same
 // explicitly configured Router origin as dispatch. The path is fixed by the
-// active Router Internal v3 contract and never comes from the caller.
+// active Router Internal v1 contract and never comes from the caller.
 func (client *RouterClient) GetInvocation(ctx context.Context, workspaceID, invocationID string) (*RouterResponse, error) {
 	if !validReadIdentifier(workspaceID) || !validReadIdentifier(invocationID) {
 		return nil, errors.New("Router Invocation read identifiers are invalid")
 	}
-	return client.getMetadata(ctx, "/internal/v3/workspaces/"+workspaceID+"/invocations/"+invocationID)
+	return client.getMetadata(ctx, "/internal/v1/workspaces/"+workspaceID+"/invocations/"+invocationID)
 }
 
 // GetTrace reads one Workspace-scoped metadata lineage from the same Router
@@ -108,7 +108,7 @@ func (client *RouterClient) GetTrace(ctx context.Context, workspaceID string, tr
 	if _, err := contracts.ParseTraceID(string(traceID)); err != nil {
 		return nil, err
 	}
-	return client.getMetadata(ctx, "/internal/v3/workspaces/"+workspaceID+"/traces/"+string(traceID))
+	return client.getMetadata(ctx, "/internal/v1/workspaces/"+workspaceID+"/traces/"+string(traceID))
 }
 
 func (client *RouterClient) getMetadata(ctx context.Context, path string) (*RouterResponse, error) {

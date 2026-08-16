@@ -214,7 +214,7 @@ func NegotiateInvocationResultMode(stream bool, accept string) (InvocationResult
 	}
 }
 
-func ValidateNestedInvocationCorrelation(parent InvocationRecordV4, child InvocationEventV03) error {
+func ValidateNestedInvocationCorrelation(parent InvocationRecordV1, child InvocationEventV03) error {
 	if parent.Status != "running" {
 		return errors.New("nested Invocation parent must be running")
 	}
@@ -358,8 +358,8 @@ func (v *RuntimeResultStreamSequenceValidator) Finish() error {
 	return nil
 }
 
-func (v *RuntimeContractValidator) ValidateInvocationDetailResponseV4(workspaceID string, detail InvocationDetailResponseV4) error {
-	if err := validateInvocationRecordV4(detail.Invocation); err != nil {
+func (v *RuntimeContractValidator) ValidateInvocationDetailResponseV1(workspaceID string, detail InvocationDetailResponseV1) error {
+	if err := validateInvocationRecordV1(detail.Invocation); err != nil {
 		return fmt.Errorf("validate Invocation projection: %w", err)
 	}
 	if detail.Invocation.WorkspaceID != workspaceID {
@@ -391,7 +391,7 @@ func (v *RuntimeContractValidator) ValidateInvocationDetailResponseV4(workspaceI
 	return nil
 }
 
-func ValidateTraceResponseV4(workspaceID string, traceID TraceID, response TraceResponseV4) error {
+func ValidateTraceResponseV1(workspaceID string, traceID TraceID, response TraceResponseV1) error {
 	if response.TraceID != traceID {
 		return errors.New("trace response correlation changed")
 	}
@@ -401,7 +401,7 @@ func ValidateTraceResponseV4(workspaceID string, traceID TraceID, response Trace
 	rootTaskID := response.Invocations[0].RootTaskID
 	identities := make(map[string]struct{}, len(response.Invocations))
 	for _, invocation := range response.Invocations {
-		if err := validateInvocationRecordV4(invocation); err != nil {
+		if err := validateInvocationRecordV1(invocation); err != nil {
 			return fmt.Errorf("validate Trace Invocation projection: %w", err)
 		}
 		if invocation.WorkspaceID != workspaceID || invocation.TraceID != traceID {
@@ -426,12 +426,12 @@ func ValidateTraceResponseV4(workspaceID string, traceID TraceID, response Trace
 	return nil
 }
 
-// validateInvocationRecordV4 mirrors the active language-neutral
-// InvocationRecordV4 schema. Projection reads are decoded into Go structs, so
+// validateInvocationRecordV1 mirrors the active language-neutral
+// InvocationRecordV1 schema. Projection reads are decoded into Go structs, so
 // schema validation of the surrounding response cannot distinguish an omitted
 // required field from its zero value; enforce those required fields and their
 // primitive constraints explicitly before exposing a 200 response.
-func validateInvocationRecordV4(record InvocationRecordV4) error {
+func validateInvocationRecordV1(record InvocationRecordV1) error {
 	if err := ValidateInvocationReleaseProvenance(record.AgentReleaseID, record.AgentCardDigest); err != nil {
 		return err
 	}

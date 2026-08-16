@@ -215,7 +215,7 @@ func LoadInvocationRuntimeFrom(lookup func(string) (string, bool)) (InvocationRu
 		return InvocationRuntimeConfig{}, err
 	}
 	parsed, err := url.Parse(routerURL)
-	if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "/internal/v4/invocations" {
+	if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "/internal/v1/invocations" {
 		return InvocationRuntimeConfig{}, errors.New("NEKIRO_ROUTER_INTERNAL_URL is invalid")
 	}
 	token, err := required("NEKIRO_ROUTER_INTERNAL_BEARER_TOKEN")

@@ -250,7 +250,7 @@ func requireAcceptanceError(t *testing.T, harness *acceptanceHTTPHarness, respon
 func TestAcceptanceWorkspaceControlPlaneHTTPWorkflow(t *testing.T) {
 	harness := newAcceptanceHTTPHarness(t)
 
-	searchResponse := harness.request(t, http.MethodGet, "/v3/agents?capability=document.read", harness.ownerToken, nil)
+	searchResponse := harness.request(t, http.MethodGet, "/v1/agents?capability=document.read", harness.ownerToken, nil)
 	if searchResponse.Code != http.StatusOK {
 		t.Fatalf("discover status=%d body=%s", searchResponse.Code, searchResponse.Body.String())
 	}
@@ -261,7 +261,7 @@ func TestAcceptanceWorkspaceControlPlaneHTTPWorkflow(t *testing.T) {
 		t.Fatalf("discover response = %#v", search)
 	}
 
-	createResponse := harness.request(t, http.MethodPost, "/v3/workspaces", harness.ownerToken, contracts.CreateWorkspaceRequest{WorkspaceID: "acceptance-workspace"})
+	createResponse := harness.request(t, http.MethodPost, "/v1/workspaces", harness.ownerToken, contracts.CreateWorkspaceRequest{WorkspaceID: "acceptance-workspace"})
 	if createResponse.Code != http.StatusCreated {
 		t.Fatalf("create status=%d body=%s", createResponse.Code, createResponse.Body.String())
 	}
@@ -272,7 +272,7 @@ func TestAcceptanceWorkspaceControlPlaneHTTPWorkflow(t *testing.T) {
 		t.Fatalf("created Workspace = %#v", created)
 	}
 
-	installResponse := harness.request(t, http.MethodPost, "/v3/workspaces/acceptance-workspace/installations", harness.ownerToken, contracts.InstallAgentRequest{
+	installResponse := harness.request(t, http.MethodPost, "/v1/workspaces/acceptance-workspace/installations", harness.ownerToken, contracts.InstallAgentRequest{
 		AgentID: "runtime-a", VersionConstraint: "^1.0.0", AcceptedPermissions: []string{"document.read"},
 	})
 	if installResponse.Code != http.StatusCreated {
@@ -285,7 +285,7 @@ func TestAcceptanceWorkspaceControlPlaneHTTPWorkflow(t *testing.T) {
 		t.Fatalf("installed = %#v", installed)
 	}
 
-	listPath := "/v3/workspaces/acceptance-workspace/installations?limit=25"
+	listPath := "/v1/workspaces/acceptance-workspace/installations?limit=25"
 	listResponse := harness.request(t, http.MethodGet, listPath, harness.ownerToken, nil)
 	if listResponse.Code != http.StatusOK {
 		t.Fatalf("list status=%d body=%s", listResponse.Code, listResponse.Body.String())
@@ -297,7 +297,7 @@ func TestAcceptanceWorkspaceControlPlaneHTTPWorkflow(t *testing.T) {
 		t.Fatalf("listed = %#v, installed = %#v", listed, installed)
 	}
 
-	detailResponse := harness.request(t, http.MethodGet, "/v3/workspaces/acceptance-workspace/installations/"+installed.InstallationID, harness.ownerToken, nil)
+	detailResponse := harness.request(t, http.MethodGet, "/v1/workspaces/acceptance-workspace/installations/"+installed.InstallationID, harness.ownerToken, nil)
 	if detailResponse.Code != http.StatusOK {
 		t.Fatalf("detail status=%d body=%s", detailResponse.Code, detailResponse.Body.String())
 	}
@@ -316,7 +316,7 @@ func TestAcceptanceWorkspaceControlPlaneHTTPWorkflow(t *testing.T) {
 		if err := registerLegacyPublishedCard(context.Background(), harness.pool, harness.catalog, card); err != nil {
 			t.Fatalf("publish %s: %v", agentID, err)
 		}
-		response := harness.request(t, http.MethodPost, "/v3/workspaces/acceptance-workspace/installations", harness.ownerToken, contracts.InstallAgentRequest{
+		response := harness.request(t, http.MethodPost, "/v1/workspaces/acceptance-workspace/installations", harness.ownerToken, contracts.InstallAgentRequest{
 			AgentID: agentID, VersionConstraint: "^1.0.0", AcceptedPermissions: []string{"document.read"},
 		})
 		if response.Code != http.StatusCreated {
@@ -328,7 +328,7 @@ func TestAcceptanceWorkspaceControlPlaneHTTPWorkflow(t *testing.T) {
 	seen := make(map[string]struct{})
 	cursor := ""
 	for {
-		path := "/v3/workspaces/acceptance-workspace/installations?limit=1"
+		path := "/v1/workspaces/acceptance-workspace/installations?limit=1"
 		if cursor != "" {
 			path += "&cursor=" + url.QueryEscape(cursor)
 		}
@@ -357,7 +357,7 @@ func TestAcceptanceWorkspaceControlPlaneHTTPWorkflow(t *testing.T) {
 		t.Fatalf("paged list returned %d unique Installations, want 3", len(seen))
 	}
 
-	disabledResponse := harness.request(t, http.MethodPatch, "/v3/workspaces/acceptance-workspace/installations/"+installed.InstallationID, harness.ownerToken, contracts.UpdateInstallationRequest{Status: "disabled"})
+	disabledResponse := harness.request(t, http.MethodPatch, "/v1/workspaces/acceptance-workspace/installations/"+installed.InstallationID, harness.ownerToken, contracts.UpdateInstallationRequest{Status: "disabled"})
 	if disabledResponse.Code != http.StatusOK {
 		t.Fatalf("disable status=%d body=%s", disabledResponse.Code, disabledResponse.Body.String())
 	}
@@ -368,7 +368,7 @@ func TestAcceptanceWorkspaceControlPlaneHTTPWorkflow(t *testing.T) {
 		t.Fatalf("disabled = %#v, installed = %#v", disabled, installed)
 	}
 
-	enabledResponse := harness.request(t, http.MethodPatch, "/v3/workspaces/acceptance-workspace/installations/"+installed.InstallationID, harness.ownerToken, contracts.UpdateInstallationRequest{Status: "enabled"})
+	enabledResponse := harness.request(t, http.MethodPatch, "/v1/workspaces/acceptance-workspace/installations/"+installed.InstallationID, harness.ownerToken, contracts.UpdateInstallationRequest{Status: "enabled"})
 	if enabledResponse.Code != http.StatusOK {
 		t.Fatalf("enable status=%d body=%s", enabledResponse.Code, enabledResponse.Body.String())
 	}
@@ -383,7 +383,7 @@ func TestAcceptanceWorkspaceControlPlaneHTTPWorkflow(t *testing.T) {
 		InvocationID: "invocation-acceptance", RootTaskID: "root-task-acceptance", TraceID: "trace-acceptance",
 		WorkspaceID: "acceptance-workspace", AgentID: "runtime-a", Version: "1.0.0", Capability: "document.read",
 	}
-	resolveResponse := harness.request(t, http.MethodPost, "/internal/v2/resolve-agent", harness.internalToken, resolveRequest)
+	resolveResponse := harness.request(t, http.MethodPost, "/internal/v1/resolve-agent", harness.internalToken, resolveRequest)
 	if resolveResponse.Code != http.StatusOK {
 		t.Fatalf("resolve status=%d body=%s", resolveResponse.Code, resolveResponse.Body.String())
 	}
@@ -396,14 +396,14 @@ func TestAcceptanceWorkspaceControlPlaneHTTPWorkflow(t *testing.T) {
 		t.Fatalf("resolved = %#v", resolved)
 	}
 
-	disabledAgainResponse := harness.request(t, http.MethodPatch, "/v3/workspaces/acceptance-workspace/installations/"+installed.InstallationID, harness.ownerToken, contracts.UpdateInstallationRequest{Status: "disabled"})
+	disabledAgainResponse := harness.request(t, http.MethodPatch, "/v1/workspaces/acceptance-workspace/installations/"+installed.InstallationID, harness.ownerToken, contracts.UpdateInstallationRequest{Status: "disabled"})
 	if disabledAgainResponse.Code != http.StatusOK {
 		t.Fatalf("disable before uninstall status=%d body=%s", disabledAgainResponse.Code, disabledAgainResponse.Body.String())
 	}
 	requireAcceptanceTrace(t, disabledAgainResponse)
 	var disabledAgain contracts.Installation
 	decodeAcceptanceJSON(t, disabledAgainResponse, &disabledAgain)
-	uninstallResponse := harness.request(t, http.MethodDelete, "/v3/workspaces/acceptance-workspace/installations/"+installed.InstallationID, harness.ownerToken, nil)
+	uninstallResponse := harness.request(t, http.MethodDelete, "/v1/workspaces/acceptance-workspace/installations/"+installed.InstallationID, harness.ownerToken, nil)
 	if uninstallResponse.Code != http.StatusOK {
 		t.Fatalf("uninstall status=%d body=%s", uninstallResponse.Code, uninstallResponse.Body.String())
 	}
@@ -414,7 +414,7 @@ func TestAcceptanceWorkspaceControlPlaneHTTPWorkflow(t *testing.T) {
 		t.Fatalf("terminal = %#v, installed = %#v", terminal, installed)
 	}
 
-	reinstallResponse := harness.request(t, http.MethodPost, "/v3/workspaces/acceptance-workspace/installations", harness.ownerToken, contracts.InstallAgentRequest{
+	reinstallResponse := harness.request(t, http.MethodPost, "/v1/workspaces/acceptance-workspace/installations", harness.ownerToken, contracts.InstallAgentRequest{
 		AgentID: "runtime-a", VersionConstraint: "^1.0.0", AcceptedPermissions: []string{"document.read"},
 	})
 	if reinstallResponse.Code != http.StatusCreated {
@@ -427,7 +427,7 @@ func TestAcceptanceWorkspaceControlPlaneHTTPWorkflow(t *testing.T) {
 		t.Fatalf("reinstalled = %#v, installed = %#v", reinstalled, installed)
 	}
 
-	terminalDetail := harness.request(t, http.MethodGet, "/v3/workspaces/acceptance-workspace/installations/"+installed.InstallationID, harness.ownerToken, nil)
+	terminalDetail := harness.request(t, http.MethodGet, "/v1/workspaces/acceptance-workspace/installations/"+installed.InstallationID, harness.ownerToken, nil)
 	if terminalDetail.Code != http.StatusOK {
 		t.Fatalf("terminal detail status=%d body=%s", terminalDetail.Code, terminalDetail.Body.String())
 	}
@@ -444,12 +444,12 @@ func TestAcceptanceWorkspaceControlPlaneHTTPWorkflow(t *testing.T) {
 
 func TestAcceptanceHTTPFailureBoundaries(t *testing.T) {
 	harness := newAcceptanceHTTPHarness(t)
-	createResponse := harness.request(t, http.MethodPost, "/v3/workspaces", harness.ownerToken, contracts.CreateWorkspaceRequest{WorkspaceID: "acceptance-errors"})
+	createResponse := harness.request(t, http.MethodPost, "/v1/workspaces", harness.ownerToken, contracts.CreateWorkspaceRequest{WorkspaceID: "acceptance-errors"})
 	if createResponse.Code != http.StatusCreated {
 		t.Fatalf("create error fixture status=%d body=%s", createResponse.Code, createResponse.Body.String())
 	}
 	requireAcceptanceTrace(t, createResponse)
-	installResponse := harness.request(t, http.MethodPost, "/v3/workspaces/acceptance-errors/installations", harness.ownerToken, contracts.InstallAgentRequest{
+	installResponse := harness.request(t, http.MethodPost, "/v1/workspaces/acceptance-errors/installations", harness.ownerToken, contracts.InstallAgentRequest{
 		AgentID: "runtime-a", VersionConstraint: "^1.0.0", AcceptedPermissions: []string{"document.read"},
 	})
 	if installResponse.Code != http.StatusCreated {
@@ -458,23 +458,23 @@ func TestAcceptanceHTTPFailureBoundaries(t *testing.T) {
 	requireAcceptanceTrace(t, installResponse)
 	var installed contracts.Installation
 	decodeAcceptanceJSON(t, installResponse, &installed)
-	otherWorkspaceResponse := harness.request(t, http.MethodPost, "/v3/workspaces", harness.ownerToken, contracts.CreateWorkspaceRequest{WorkspaceID: "acceptance-other"})
+	otherWorkspaceResponse := harness.request(t, http.MethodPost, "/v1/workspaces", harness.ownerToken, contracts.CreateWorkspaceRequest{WorkspaceID: "acceptance-other"})
 	if otherWorkspaceResponse.Code != http.StatusCreated {
 		t.Fatalf("create wrong-workspace fixture status=%d body=%s", otherWorkspaceResponse.Code, otherWorkspaceResponse.Body.String())
 	}
 	requireAcceptanceTrace(t, otherWorkspaceResponse)
 
-	requireAcceptanceError(t, harness, harness.request(t, http.MethodGet, "/v3/workspaces/acceptance-errors", "", nil), http.StatusUnauthorized, contracts.ErrorCodeUnauthenticated)
-	requireAcceptanceError(t, harness, harness.requestWithAuthorization(t, http.MethodGet, "/v3/workspaces/acceptance-errors", "Basic "+harness.ownerToken, nil), http.StatusUnauthorized, contracts.ErrorCodeUnauthenticated)
-	requireAcceptanceError(t, harness, harness.request(t, http.MethodGet, "/v3/workspaces/acceptance-errors/installations/"+installed.InstallationID, harness.otherToken, nil), http.StatusForbidden, contracts.ErrorCodeForbidden)
-	requireAcceptanceError(t, harness, harness.request(t, http.MethodPatch, "/v3/workspaces/acceptance-errors/installations/"+installed.InstallationID, harness.otherToken, contracts.UpdateInstallationRequest{Status: "disabled"}), http.StatusForbidden, contracts.ErrorCodeForbidden)
-	requireAcceptanceError(t, harness, harness.request(t, http.MethodGet, "/v3/workspaces/missing-workspace", harness.ownerToken, nil), http.StatusNotFound, contracts.ErrorCodeNotFound)
-	requireAcceptanceError(t, harness, harness.request(t, http.MethodGet, "/v3/workspaces/acceptance-other/installations/"+installed.InstallationID, harness.ownerToken, nil), http.StatusNotFound, contracts.ErrorCodeNotFound)
-	requireAcceptanceError(t, harness, harness.request(t, http.MethodPatch, "/v3/workspaces/acceptance-errors/installations/"+installed.InstallationID, harness.ownerToken, map[string]any{"status": "disabled", "unexpected": true}), http.StatusBadRequest, contracts.ErrorCodeValidationError)
-	requireAcceptanceError(t, harness, harness.request(t, http.MethodPost, "/v3/workspaces/acceptance-errors/installations", harness.ownerToken, map[string]any{"agentId": "runtime-a", "versionConstraint": "^1.0.0"}), http.StatusBadRequest, contracts.ErrorCodeValidationError)
-	requireAcceptanceError(t, harness, harness.request(t, http.MethodPatch, "/v3/workspaces/acceptance-errors/installations/"+installed.InstallationID, harness.ownerToken, contracts.UpdateInstallationRequest{Status: "enabled"}), http.StatusConflict, contracts.ErrorCodeConflict)
+	requireAcceptanceError(t, harness, harness.request(t, http.MethodGet, "/v1/workspaces/acceptance-errors", "", nil), http.StatusUnauthorized, contracts.ErrorCodeUnauthenticated)
+	requireAcceptanceError(t, harness, harness.requestWithAuthorization(t, http.MethodGet, "/v1/workspaces/acceptance-errors", "Basic "+harness.ownerToken, nil), http.StatusUnauthorized, contracts.ErrorCodeUnauthenticated)
+	requireAcceptanceError(t, harness, harness.request(t, http.MethodGet, "/v1/workspaces/acceptance-errors/installations/"+installed.InstallationID, harness.otherToken, nil), http.StatusForbidden, contracts.ErrorCodeForbidden)
+	requireAcceptanceError(t, harness, harness.request(t, http.MethodPatch, "/v1/workspaces/acceptance-errors/installations/"+installed.InstallationID, harness.otherToken, contracts.UpdateInstallationRequest{Status: "disabled"}), http.StatusForbidden, contracts.ErrorCodeForbidden)
+	requireAcceptanceError(t, harness, harness.request(t, http.MethodGet, "/v1/workspaces/missing-workspace", harness.ownerToken, nil), http.StatusNotFound, contracts.ErrorCodeNotFound)
+	requireAcceptanceError(t, harness, harness.request(t, http.MethodGet, "/v1/workspaces/acceptance-other/installations/"+installed.InstallationID, harness.ownerToken, nil), http.StatusNotFound, contracts.ErrorCodeNotFound)
+	requireAcceptanceError(t, harness, harness.request(t, http.MethodPatch, "/v1/workspaces/acceptance-errors/installations/"+installed.InstallationID, harness.ownerToken, map[string]any{"status": "disabled", "unexpected": true}), http.StatusBadRequest, contracts.ErrorCodeValidationError)
+	requireAcceptanceError(t, harness, harness.request(t, http.MethodPost, "/v1/workspaces/acceptance-errors/installations", harness.ownerToken, map[string]any{"agentId": "runtime-a", "versionConstraint": "^1.0.0"}), http.StatusBadRequest, contracts.ErrorCodeValidationError)
+	requireAcceptanceError(t, harness, harness.request(t, http.MethodPatch, "/v1/workspaces/acceptance-errors/installations/"+installed.InstallationID, harness.ownerToken, contracts.UpdateInstallationRequest{Status: "enabled"}), http.StatusConflict, contracts.ErrorCodeConflict)
 
-	unchangedResponse := harness.request(t, http.MethodGet, "/v3/workspaces/acceptance-errors/installations/"+installed.InstallationID, harness.ownerToken, nil)
+	unchangedResponse := harness.request(t, http.MethodGet, "/v1/workspaces/acceptance-errors/installations/"+installed.InstallationID, harness.ownerToken, nil)
 	if unchangedResponse.Code != http.StatusOK {
 		t.Fatalf("read Installation after rejected requests status=%d body=%s", unchangedResponse.Code, unchangedResponse.Body.String())
 	}
@@ -489,37 +489,37 @@ func TestAcceptanceHTTPFailureBoundaries(t *testing.T) {
 		InvocationID: "invocation-errors", RootTaskID: "root-task-errors", TraceID: "trace-errors",
 		WorkspaceID: "acceptance-errors", AgentID: "runtime-a", Version: "1.0.0", Capability: "document.read",
 	}
-	requireAcceptanceError(t, harness, harness.request(t, http.MethodPost, "/internal/v2/resolve-agent", "", resolveRequest), http.StatusUnauthorized, contracts.ErrorCodeUnauthenticated)
+	requireAcceptanceError(t, harness, harness.request(t, http.MethodPost, "/internal/v1/resolve-agent", "", resolveRequest), http.StatusUnauthorized, contracts.ErrorCodeUnauthenticated)
 
-	disabledResponse := harness.request(t, http.MethodPatch, "/v3/workspaces/acceptance-errors/installations/"+installed.InstallationID, harness.ownerToken, contracts.UpdateInstallationRequest{Status: "disabled"})
+	disabledResponse := harness.request(t, http.MethodPatch, "/v1/workspaces/acceptance-errors/installations/"+installed.InstallationID, harness.ownerToken, contracts.UpdateInstallationRequest{Status: "disabled"})
 	if disabledResponse.Code != http.StatusOK {
 		t.Fatalf("disable error fixture status=%d body=%s", disabledResponse.Code, disabledResponse.Body.String())
 	}
 	requireAcceptanceTrace(t, disabledResponse)
-	disabledError := requireAcceptanceError(t, harness, harness.request(t, http.MethodPost, "/internal/v2/resolve-agent", harness.internalToken, resolveRequest), http.StatusForbidden, contracts.ErrorCodeInstallationDisabled)
+	disabledError := requireAcceptanceError(t, harness, harness.request(t, http.MethodPost, "/internal/v1/resolve-agent", harness.internalToken, resolveRequest), http.StatusForbidden, contracts.ErrorCodeInstallationDisabled)
 	if disabledError.InvocationID != resolveRequest.InvocationID || disabledError.RootTaskID != resolveRequest.RootTaskID || disabledError.TraceID != resolveRequest.TraceID {
 		t.Fatalf("disabled correlated error = %#v", disabledError)
 	}
 
-	enabledResponse := harness.request(t, http.MethodPatch, "/v3/workspaces/acceptance-errors/installations/"+installed.InstallationID, harness.ownerToken, contracts.UpdateInstallationRequest{Status: "enabled"})
+	enabledResponse := harness.request(t, http.MethodPatch, "/v1/workspaces/acceptance-errors/installations/"+installed.InstallationID, harness.ownerToken, contracts.UpdateInstallationRequest{Status: "enabled"})
 	if enabledResponse.Code != http.StatusOK {
 		t.Fatalf("enable error fixture status=%d body=%s", enabledResponse.Code, enabledResponse.Body.String())
 	}
 	requireAcceptanceTrace(t, enabledResponse)
 	unknownCapability := resolveRequest
 	unknownCapability.Capability = "document.write"
-	requireAcceptanceError(t, harness, harness.request(t, http.MethodPost, "/internal/v2/resolve-agent", harness.internalToken, unknownCapability), http.StatusForbidden, contracts.ErrorCodeCapabilityNotAllowed)
+	requireAcceptanceError(t, harness, harness.request(t, http.MethodPost, "/internal/v1/resolve-agent", harness.internalToken, unknownCapability), http.StatusForbidden, contracts.ErrorCodeCapabilityNotAllowed)
 
-	catalogDisableResponse := harness.request(t, http.MethodPost, "/v3/agents/runtime-a/versions/1.0.0/disable", harness.ownerToken, nil)
+	catalogDisableResponse := harness.request(t, http.MethodPost, "/v1/agents/runtime-a/versions/1.0.0/disable", harness.ownerToken, nil)
 	if catalogDisableResponse.Code != http.StatusOK {
 		t.Fatalf("Catalog disable status=%d body=%s", catalogDisableResponse.Code, catalogDisableResponse.Body.String())
 	}
 	requireAcceptanceTrace(t, catalogDisableResponse)
-	requireAcceptanceError(t, harness, harness.request(t, http.MethodPost, "/internal/v2/resolve-agent", harness.internalToken, resolveRequest), http.StatusForbidden, contracts.ErrorCodeAgentDisabled)
+	requireAcceptanceError(t, harness, harness.request(t, http.MethodPost, "/internal/v1/resolve-agent", harness.internalToken, resolveRequest), http.StatusForbidden, contracts.ErrorCodeAgentDisabled)
 
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
-	requireAcceptanceError(t, harness, harness.requestWithContext(t, canceled, http.MethodGet, "/v3/workspaces/acceptance-errors", "Bearer "+harness.ownerToken, nil), http.StatusServiceUnavailable, contracts.ErrorCodeDependency)
+	requireAcceptanceError(t, harness, harness.requestWithContext(t, canceled, http.MethodGet, "/v1/workspaces/acceptance-errors", "Bearer "+harness.ownerToken, nil), http.StatusServiceUnavailable, contracts.ErrorCodeDependency)
 	if _, err := harness.workspace.GetWorkspace(canceled, workspace.AuthenticatedCaller{ID: "owner-a"}, "acceptance-errors"); !errors.Is(err, workspace.ErrDependency) {
 		t.Fatalf("canceled acceptance dependency = %v, want dependency", err)
 	}
@@ -530,7 +530,7 @@ func TestAcceptanceHTTPFailureBoundaries(t *testing.T) {
 	if _, err := harness.pool.Exec(context.Background(), `ALTER SCHEMA workspace RENAME TO workspace_unavailable`); err != nil {
 		t.Fatalf("degrade Workspace schema: %v", err)
 	}
-	schemaFailure := requireAcceptanceError(t, harness, harness.request(t, http.MethodGet, "/v3/workspaces/acceptance-errors", harness.ownerToken, nil), http.StatusServiceUnavailable, contracts.ErrorCodeDependency)
+	schemaFailure := requireAcceptanceError(t, harness, harness.request(t, http.MethodGet, "/v1/workspaces/acceptance-errors", harness.ownerToken, nil), http.StatusServiceUnavailable, contracts.ErrorCodeDependency)
 	if schemaFailure.Code != contracts.ErrorCodeDependency {
 		t.Fatalf("schema failure code = %q", schemaFailure.Code)
 	}
@@ -553,7 +553,7 @@ BEFORE INSERT ON workspace.workspaces
 FOR EACH ROW EXECUTE FUNCTION workspace.issue_9_reject_workspace_insert()`); err != nil {
 		t.Fatalf("create transaction failure trigger: %v", err)
 	}
-	transactionFailure := requireAcceptanceError(t, harness, harness.request(t, http.MethodPost, "/v3/workspaces", harness.ownerToken, contracts.CreateWorkspaceRequest{WorkspaceID: "acceptance-transaction-failure"}), http.StatusServiceUnavailable, contracts.ErrorCodeDependency)
+	transactionFailure := requireAcceptanceError(t, harness, harness.request(t, http.MethodPost, "/v1/workspaces", harness.ownerToken, contracts.CreateWorkspaceRequest{WorkspaceID: "acceptance-transaction-failure"}), http.StatusServiceUnavailable, contracts.ErrorCodeDependency)
 	if transactionFailure.Code != contracts.ErrorCodeDependency {
 		t.Fatalf("transaction failure code = %q", transactionFailure.Code)
 	}

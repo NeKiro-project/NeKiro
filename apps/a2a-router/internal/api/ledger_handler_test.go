@@ -15,28 +15,28 @@ import (
 )
 
 type fakeLedgerReader struct {
-	detail contracts.InvocationDetailResponseV4
-	trace  contracts.TraceResponseV4
+	detail contracts.InvocationDetailResponseV1
+	trace  contracts.TraceResponseV1
 	err    error
 }
 
-func (reader fakeLedgerReader) GetInvocation(context.Context, string, string) (contracts.InvocationDetailResponseV4, error) {
+func (reader fakeLedgerReader) GetInvocation(context.Context, string, string) (contracts.InvocationDetailResponseV1, error) {
 	return reader.detail, reader.err
 }
 
-func (reader fakeLedgerReader) GetTrace(context.Context, string, contracts.TraceID) (contracts.TraceResponseV4, error) {
+func (reader fakeLedgerReader) GetTrace(context.Context, string, contracts.TraceID) (contracts.TraceResponseV1, error) {
 	return reader.trace, reader.err
 }
 
 func TestLedgerHandlerMapsContractReadsAndFailures(t *testing.T) {
 	detail := handlerDetail(t)
-	handler, err := NewLedgerHandler(fakeLedgerReader{detail: detail, trace: contracts.TraceResponseV4{
-		TraceID: detail.Invocation.TraceID, Invocations: []contracts.InvocationRecordV4{detail.Invocation},
+	handler, err := NewLedgerHandler(fakeLedgerReader{detail: detail, trace: contracts.TraceResponseV1{
+		TraceID: detail.Invocation.TraceID, Invocations: []contracts.InvocationRecordV1{detail.Invocation},
 	}})
 	if err != nil {
 		t.Fatalf("construct Ledger handler: %v", err)
 	}
-	request := httptest.NewRequest(http.MethodGet, "/internal/v3/read", nil)
+	request := httptest.NewRequest(http.MethodGet, "/internal/v1/read", nil)
 	response := httptest.NewRecorder()
 	if err := handler.ServeInvocationRead(response, request, "workspace-a", "inv-handler", "trace-request"); err != nil {
 		t.Fatalf("serve Invocation read: %v", err)
@@ -44,7 +44,7 @@ func TestLedgerHandlerMapsContractReadsAndFailures(t *testing.T) {
 	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "application/json" {
 		t.Fatalf("Invocation response status/header = %d/%q", response.Code, response.Header().Get("Content-Type"))
 	}
-	var decoded contracts.InvocationDetailResponseV4
+	var decoded contracts.InvocationDetailResponseV1
 	if err := json.Unmarshal(response.Body.Bytes(), &decoded); err != nil || decoded.Invocation.InvocationID != "inv-handler" {
 		t.Fatalf("decode Invocation response = %#v, %v", decoded, err)
 	}
@@ -86,7 +86,7 @@ func TestLedgerHandlerRejectsInvalidStoredContractAsDependencyFailure(t *testing
 		t.Fatalf("construct invalid-contract handler: %v", err)
 	}
 	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/internal/v3/read", nil)
+	request := httptest.NewRequest(http.MethodGet, "/internal/v1/read", nil)
 	if err := handler.ServeInvocationRead(response, request, "workspace-a", "inv-handler", "trace-request"); err != nil {
 		t.Fatalf("serve invalid stored contract: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestLedgerHandlerRegistersAuthenticatedV3ReadRoutes(t *testing.T) {
 	detail := handlerDetail(t)
 	reader := fakeLedgerReader{
 		detail: detail,
-		trace:  contracts.TraceResponseV4{TraceID: detail.Invocation.TraceID, Invocations: []contracts.InvocationRecordV4{detail.Invocation}},
+		trace:  contracts.TraceResponseV1{TraceID: detail.Invocation.TraceID, Invocations: []contracts.InvocationRecordV1{detail.Invocation}},
 	}
 	handler, err := NewLedgerHandler(reader)
 	if err != nil {
@@ -118,20 +118,20 @@ func TestLedgerHandlerRegistersAuthenticatedV3ReadRoutes(t *testing.T) {
 	if err := handler.RegisterRoutes(mux, authStub{caller: auth.Caller{ID: "control-plane"}}); err != nil {
 		t.Fatalf("register Ledger routes: %v", err)
 	}
-	invocationRequest := httptest.NewRequest(http.MethodGet, "/internal/v3/workspaces/workspace-a/invocations/inv-handler", nil)
+	invocationRequest := httptest.NewRequest(http.MethodGet, "/internal/v1/workspaces/workspace-a/invocations/inv-handler", nil)
 	invocationResponse := httptest.NewRecorder()
 	mux.ServeHTTP(invocationResponse, invocationRequest)
 	if invocationResponse.Code != http.StatusOK || invocationResponse.Header().Get(TraceHeader) == "" {
 		t.Fatalf("Invocation route status/trace = %d/%q", invocationResponse.Code, invocationResponse.Header().Get(TraceHeader))
 	}
-	traceRequest := httptest.NewRequest(http.MethodGet, "/internal/v3/workspaces/workspace-a/traces/trace-handler", nil)
+	traceRequest := httptest.NewRequest(http.MethodGet, "/internal/v1/workspaces/workspace-a/traces/trace-handler", nil)
 	traceResponse := httptest.NewRecorder()
 	mux.ServeHTTP(traceResponse, traceRequest)
 	if traceResponse.Code != http.StatusOK || traceResponse.Header().Get(TraceHeader) == "" {
 		t.Fatalf("Trace route status/trace = %d/%q", traceResponse.Code, traceResponse.Header().Get(TraceHeader))
 	}
 	unauthenticated := httptest.NewRecorder()
-	unauthenticatedRequest := httptest.NewRequest(http.MethodGet, "/internal/v3/workspaces/workspace-a/traces/trace-handler", nil)
+	unauthenticatedRequest := httptest.NewRequest(http.MethodGet, "/internal/v1/workspaces/workspace-a/traces/trace-handler", nil)
 	unauthenticatedAuthenticator := authStub{err: auth.ErrUnauthenticated}
 	unauthenticatedMux := http.NewServeMux()
 	if err := handler.RegisterRoutes(unauthenticatedMux, unauthenticatedAuthenticator); err != nil {
@@ -146,12 +146,12 @@ func TestLedgerHandlerRegistersAuthenticatedV3ReadRoutes(t *testing.T) {
 	if err := handler.RegisterRoutes(forbiddenMux, authStub{err: auth.ErrForbidden}); err != nil {
 		t.Fatalf("register forbidden Ledger routes: %v", err)
 	}
-	forbiddenMux.ServeHTTP(forbidden, httptest.NewRequest(http.MethodGet, "/internal/v3/workspaces/workspace-a/traces/trace-handler", nil))
+	forbiddenMux.ServeHTTP(forbidden, httptest.NewRequest(http.MethodGet, "/internal/v1/workspaces/workspace-a/traces/trace-handler", nil))
 	if forbidden.Code != http.StatusForbidden {
 		t.Fatalf("forbidden read status = %d", forbidden.Code)
 	}
 	invalid := httptest.NewRecorder()
-	mux.ServeHTTP(invalid, httptest.NewRequest(http.MethodGet, "/internal/v3/workspaces/bad%20workspace/traces/trace-handler", nil))
+	mux.ServeHTTP(invalid, httptest.NewRequest(http.MethodGet, "/internal/v1/workspaces/bad%20workspace/traces/trace-handler", nil))
 	if invalid.Code != http.StatusNotFound {
 		t.Fatalf("invalid read status = %d", invalid.Code)
 	}
@@ -167,7 +167,7 @@ func TestLedgerHandlerTraceRouteErrorsUseRequestTraceCorrelation(t *testing.T) {
 		t.Fatalf("register Ledger routes: %v", err)
 	}
 	response := httptest.NewRecorder()
-	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/internal/v3/workspaces/workspace-a/traces/trace-resource", nil))
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/internal/v1/workspaces/workspace-a/traces/trace-resource", nil))
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
@@ -180,7 +180,7 @@ func TestLedgerHandlerTraceRouteErrorsUseRequestTraceCorrelation(t *testing.T) {
 	}
 }
 
-func handlerDetail(t *testing.T) contracts.InvocationDetailResponseV4 {
+func handlerDetail(t *testing.T) contracts.InvocationDetailResponseV1 {
 	t.Helper()
 	at := time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC)
 	event := contracts.InvocationEventV03{
@@ -190,8 +190,8 @@ func handlerDetail(t *testing.T) contracts.InvocationDetailResponseV4 {
 		TraceID: "trace-handler", Caller: contracts.Caller{Type: "user", ID: "user-a"}, WorkspaceID: "workspace-a",
 		TargetAgentID: "agent-a", AgentCardVersion: "1.0.0", Capability: "document.read",
 	}
-	return contracts.InvocationDetailResponseV4{
-		Invocation: contracts.InvocationRecordV4{
+	return contracts.InvocationDetailResponseV1{
+		Invocation: contracts.InvocationRecordV1{
 			InvocationID: event.InvocationID, RootTaskID: event.RootTaskID, TraceID: event.TraceID,
 			Caller: event.Caller, WorkspaceID: event.WorkspaceID, TargetAgentID: event.TargetAgentID,
 			AgentCardVersion: event.AgentCardVersion, Capability: event.Capability, Status: event.Status,

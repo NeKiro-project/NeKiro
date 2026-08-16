@@ -19,7 +19,7 @@ func TestTrustHandlerCreatesBindingThroughAuthenticatedProvider(t *testing.T) {
 	now := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)
 	service := &fakeTrustCatalog{binding: catalog.EndpointBinding{BindingID: "binding-1", ProviderID: "provider-1", AgentID: "agent-1", AgentCardVersion: "1.0.0", Endpoint: "https://agent.example/a2a", VerificationMethod: catalog.VerificationMethodHTTPWellKnown, VerificationStatus: catalog.VerificationPending, CreatedAt: now, UpdatedAt: now}}
 	handler := newTrustTestHandler(t, fakeAuthenticator{caller: catalog.AuthenticatedCaller{ID: "provider-1"}}, service)
-	request := httptest.NewRequest(http.MethodPost, "/v4/providers/provider-1/agents/agent-1/endpoint-bindings", strings.NewReader(`{"endpoint":"https://agent.example/a2a","method":"http_well_known","version":"1.0.0"}`))
+	request := httptest.NewRequest(http.MethodPost, "/v1/providers/provider-1/agents/agent-1/endpoint-bindings", strings.NewReader(`{"endpoint":"https://agent.example/a2a","method":"http_well_known","version":"1.0.0"}`))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
@@ -41,7 +41,7 @@ func TestTrustHandlerCreatesBindingThroughAuthenticatedProvider(t *testing.T) {
 func TestTrustHandlerMapsChallengeFailureWithoutLeakingProof(t *testing.T) {
 	service := &fakeTrustCatalog{completeErr: catalog.ErrWrongProof}
 	handler := newTrustTestHandler(t, fakeAuthenticator{caller: catalog.AuthenticatedCaller{ID: "provider-1"}}, service)
-	request := httptest.NewRequest(http.MethodPost, "/v4/providers/provider-1/endpoint-bindings/binding-1/challenges/challenge-1/complete", nil)
+	request := httptest.NewRequest(http.MethodPost, "/v1/providers/provider-1/endpoint-bindings/binding-1/challenges/challenge-1/complete", nil)
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusBadRequest {
@@ -59,7 +59,7 @@ func TestTrustHandlerMapsChallengeFailureWithoutLeakingProof(t *testing.T) {
 func TestTrustHandlerMapsEndpointUnavailableToServiceUnavailable(t *testing.T) {
 	service := &fakeTrustCatalog{completeErr: catalog.ErrEndpointUnavailable}
 	handler := newTrustTestHandler(t, fakeAuthenticator{caller: catalog.AuthenticatedCaller{ID: "provider-1"}}, service)
-	request := httptest.NewRequest(http.MethodPost, "/v4/providers/provider-1/endpoint-bindings/binding-1/challenges/challenge-1/complete", nil)
+	request := httptest.NewRequest(http.MethodPost, "/v1/providers/provider-1/endpoint-bindings/binding-1/challenges/challenge-1/complete", nil)
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusServiceUnavailable {

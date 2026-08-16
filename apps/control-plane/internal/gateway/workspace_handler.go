@@ -63,15 +63,15 @@ func (handler *WorkspaceHandler) Routes() http.Handler {
 // RegisterRoutes adds Workspace and internal resolution routes to the composed
 // Gateway mux.
 func (handler *WorkspaceHandler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /v3/workspaces", handler.createWorkspace)
-	mux.HandleFunc("GET /v3/workspaces/{workspaceId}", handler.getWorkspace)
-	mux.HandleFunc("POST /v3/workspaces/{workspaceId}/installations", handler.install)
-	mux.HandleFunc("GET /v3/workspaces/{workspaceId}/installations", handler.listInstallations)
-	mux.HandleFunc("GET /v3/workspaces/{workspaceId}/installations/{installationId}", handler.getInstallation)
-	mux.HandleFunc("PATCH /v3/workspaces/{workspaceId}/installations/{installationId}", handler.updateInstallation)
-	mux.HandleFunc("DELETE /v3/workspaces/{workspaceId}/installations/{installationId}", handler.uninstall)
-	mux.HandleFunc("POST /internal/v2/resolve-agent", handler.resolveAgent)
-	mux.HandleFunc("POST /internal/v3/resolve-installed-version", handler.resolveInstalledVersion)
+	mux.HandleFunc("POST /v1/workspaces", handler.createWorkspace)
+	mux.HandleFunc("GET /v1/workspaces/{workspaceId}", handler.getWorkspace)
+	mux.HandleFunc("POST /v1/workspaces/{workspaceId}/installations", handler.install)
+	mux.HandleFunc("GET /v1/workspaces/{workspaceId}/installations", handler.listInstallations)
+	mux.HandleFunc("GET /v1/workspaces/{workspaceId}/installations/{installationId}", handler.getInstallation)
+	mux.HandleFunc("PATCH /v1/workspaces/{workspaceId}/installations/{installationId}", handler.updateInstallation)
+	mux.HandleFunc("DELETE /v1/workspaces/{workspaceId}/installations/{installationId}", handler.uninstall)
+	mux.HandleFunc("POST /internal/v1/resolve-agent", handler.resolveAgent)
+	mux.HandleFunc("POST /internal/v1/resolve-installed-version", handler.resolveInstalledVersion)
 }
 
 func (handler *WorkspaceHandler) resolveInstalledVersion(writer http.ResponseWriter, request *http.Request) {

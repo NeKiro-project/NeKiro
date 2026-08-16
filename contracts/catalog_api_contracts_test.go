@@ -8,18 +8,18 @@ import (
 )
 
 func TestCatalogV2OperationsDeclareSecurityTraceAndExactErrors(t *testing.T) {
-	document := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v2.yaml"))
+	document := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v1.yaml"))
 	tests := []struct {
 		path     string
 		method   string
 		success  int
 		failures []int
 	}{
-		{path: "/v2/agents", method: "POST", success: 201, failures: []int{400, 401, 403, 409, 503}},
-		{path: "/v2/agents", method: "GET", success: 200, failures: []int{400, 401, 503}},
-		{path: "/v2/agents/{agentId}/versions/{version}", method: "GET", success: 200, failures: []int{400, 401, 403, 404, 503}},
-		{path: "/v2/agents/{agentId}/versions/{version}/publish", method: "POST", success: 200, failures: []int{400, 401, 403, 404, 409, 503}},
-		{path: "/v2/agents/{agentId}/versions/{version}/disable", method: "POST", success: 200, failures: []int{400, 401, 403, 404, 503}},
+		{path: "/v1/agents", method: "POST", success: 201, failures: []int{400, 401, 403, 409, 503}},
+		{path: "/v1/agents", method: "GET", success: 200, failures: []int{400, 401, 503}},
+		{path: "/v1/agents/{agentId}/versions/{version}", method: "GET", success: 200, failures: []int{400, 401, 403, 404, 503}},
+		{path: "/v1/agents/{agentId}/versions/{version}/publish", method: "POST", success: 200, failures: []int{400, 401, 403, 404, 409, 503}},
+		{path: "/v1/agents/{agentId}/versions/{version}/disable", method: "POST", success: 200, failures: []int{400, 401, 403, 404, 503}},
 	}
 	for _, test := range tests {
 		t.Run(test.method+" "+test.path, func(t *testing.T) {
@@ -51,10 +51,10 @@ func TestCatalogV2OperationsDeclareSecurityTraceAndExactErrors(t *testing.T) {
 }
 
 func TestCatalogV2GoMappingsAndDiscoveryPolicy(t *testing.T) {
-	document := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v2.yaml"))
+	document := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v1.yaml"))
 	card := validAgentCard()
 	entry := CatalogEntry{Card: card, PublicationStatus: "published", RegisteredAt: time.Now().UTC()}
-	register := document.Paths.Find("/v2/agents").Post
+	register := document.Paths.Find("/v1/agents").Post
 	maximumBodyBytes, exists := register.RequestBody.Value.Extensions["x-nekiro-max-body-bytes"]
 	if !exists {
 		t.Fatal("registration body limit extension is missing")
@@ -65,7 +65,7 @@ func TestCatalogV2GoMappingsAndDiscoveryPolicy(t *testing.T) {
 	}
 	validateOpenAPIValue(t, register.RequestBody.Value.Content["application/json"].Schema, RegisterAgentRequest{Card: card})
 	validateOpenAPIValue(t, register.Responses.Status(201).Value.Content["application/json"].Schema, entry)
-	search := document.Paths.Find("/v2/agents").Get
+	search := document.Paths.Find("/v1/agents").Get
 	validateOpenAPIValue(t, search.Responses.Status(200).Value.Content["application/json"].Schema, SearchAgentsResponse{Items: []CatalogEntry{entry}})
 
 	var foundLimit bool

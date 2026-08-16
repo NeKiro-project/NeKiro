@@ -37,10 +37,10 @@ func NewTrustHandler(authenticator Authenticator, trust TrustCatalogService, tra
 }
 
 func (handler *TrustHandler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /v4/providers/{providerId}/agents/{agentId}/endpoint-bindings", handler.createBinding)
-	mux.HandleFunc("GET /v4/providers/{providerId}/endpoint-bindings/{bindingId}", handler.getBinding)
-	mux.HandleFunc("POST /v4/providers/{providerId}/endpoint-bindings/{bindingId}/challenges", handler.createChallenge)
-	mux.HandleFunc("POST /v4/providers/{providerId}/endpoint-bindings/{bindingId}/challenges/{challengeId}/complete", handler.completeChallenge)
+	mux.HandleFunc("POST /v1/providers/{providerId}/agents/{agentId}/endpoint-bindings", handler.createBinding)
+	mux.HandleFunc("GET /v1/providers/{providerId}/endpoint-bindings/{bindingId}", handler.getBinding)
+	mux.HandleFunc("POST /v1/providers/{providerId}/endpoint-bindings/{bindingId}/challenges", handler.createChallenge)
+	mux.HandleFunc("POST /v1/providers/{providerId}/endpoint-bindings/{bindingId}/challenges/{challengeId}/complete", handler.completeChallenge)
 }
 
 func (handler *TrustHandler) createBinding(writer http.ResponseWriter, request *http.Request) {

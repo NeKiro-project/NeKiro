@@ -6,14 +6,14 @@ import (
 )
 
 const (
-	NorthboundInvocationAPIVersion        = "4"
-	RouterInternalMetadataAPIVersion      = "3"
-	RouterInternalRuntimeAPIVersion       = "4"
-	AgentRouterAPIVersion                 = "1"
-	ControlPlaneInternalV3APIVersion      = "3"
-	RuntimePlatformErrorSchemaVersion     = "4"
-	RuntimeInvocationEventSchemaVersion   = "0.3"
-	RuntimeResultStreamEventSchemaVersion = "2"
+	NorthboundInvocationAPIVersion         = "1"
+	RouterInternalMetadataAPIVersion       = "1"
+	RouterInternalRuntimeAPIVersion        = "1"
+	AgentRouterAPIVersion                  = "1"
+	ControlPlaneInstalledVersionAPIVersion = "1"
+	RuntimePlatformErrorSchemaVersion      = "4"
+	RuntimeInvocationEventSchemaVersion    = "0.3"
+	RuntimeResultStreamEventSchemaVersion  = "2"
 
 	RuntimeDeadlineMinimumMS int64 = 1
 	RuntimeDeadlineMaximumMS int64 = 600000
@@ -35,11 +35,11 @@ type NestedInvocationRequestV1 struct {
 	Stream             bool            `json:"stream"`
 }
 
-type DispatchInvocationRequestV4 struct {
+type DispatchInvocationRequestV1 struct {
 	InvocationID string `json:"invocationId"`
 	RootTaskID   string `json:"rootTaskId"`
 	// ParentInvocationID is trusted in-process lineage for DispatchChild. It
-	// is deliberately excluded from the Router Internal v4 root HTTP contract.
+	// is deliberately excluded from the Router Internal v1 root HTTP contract.
 	ParentInvocationID string          `json:"-"`
 	TraceID            TraceID         `json:"traceId"`
 	Caller             Caller          `json:"caller"`
@@ -106,7 +106,7 @@ type InvocationResultStreamEventV2 struct {
 	Error         *PlatformErrorV4      `json:"error,omitempty"`
 }
 
-type InvocationRecordV4 struct {
+type InvocationRecordV1 struct {
 	InvocationID       string            `json:"invocationId"`
 	RootTaskID         string            `json:"rootTaskId"`
 	ParentInvocationID string            `json:"parentInvocationId,omitempty"`
@@ -125,17 +125,17 @@ type InvocationRecordV4 struct {
 	UpdatedAt          time.Time         `json:"updatedAt"`
 }
 
-type InvocationDetailResponseV4 struct {
-	Invocation InvocationRecordV4   `json:"invocation"`
+type InvocationDetailResponseV1 struct {
+	Invocation InvocationRecordV1   `json:"invocation"`
 	Events     []InvocationEventV03 `json:"events"`
 }
 
-type TraceResponseV4 struct {
+type TraceResponseV1 struct {
 	TraceID     TraceID              `json:"traceId"`
-	Invocations []InvocationRecordV4 `json:"invocations"`
+	Invocations []InvocationRecordV1 `json:"invocations"`
 }
 
-// ResolveInstalledVersionRequest is the Control Plane Internal v3 request for
+// ResolveInstalledVersionRequest is the Control Plane Internal v1 request for
 // resolving the deterministic installed Agent Card version from the enabled
 // Installation. It intentionally has no version field; the Control Plane
 // derives it from the pinned installedVersion.

@@ -28,8 +28,8 @@ func NewPublicShareHandler(service PublicShareResolver, traces *TraceGenerator, 
 }
 
 func (handler *PublicShareHandler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /v4/public/agents/{publicAgentId}", handler.resolve)
-	mux.HandleFunc("GET /v4/public/agents/", handler.resolve)
+	mux.HandleFunc("GET /v1/public/agents/{publicAgentId}", handler.resolve)
+	mux.HandleFunc("GET /v1/public/agents/", handler.resolve)
 }
 
 func (handler *PublicShareHandler) resolve(writer http.ResponseWriter, request *http.Request) {

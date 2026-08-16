@@ -34,7 +34,7 @@ func TestClientResolveSendsExactInternalV2Request(t *testing.T) {
 	requestValue := validResolveRequest()
 	var received contracts.ResolveAgentRequest
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/internal/v2/resolve-agent" || request.Method != http.MethodPost || request.Header.Get("Authorization") != "Bearer control-token" || request.Header.Get("Content-Type") != "application/json" || request.Header.Get("Accept") != "application/json" {
+		if request.URL.Path != "/internal/v1/resolve-agent" || request.Method != http.MethodPost || request.Header.Get("Authorization") != "Bearer control-token" || request.Header.Get("Content-Type") != "application/json" || request.Header.Get("Accept") != "application/json" {
 			t.Errorf("unexpected request: %s %s %#v", request.Method, request.URL.Path, request.Header)
 		}
 		if err := json.NewDecoder(request.Body).Decode(&received); err != nil {
@@ -44,7 +44,7 @@ func TestClientResolveSendsExactInternalV2Request(t *testing.T) {
 		_, _ = io.WriteString(writer, validResolveResponse)
 	}))
 	defer server.Close()
-	client, err := NewClient(server.Client(), server.URL+"/internal/v2/resolve-agent", "control-token", 4096)
+	client, err := NewClient(server.Client(), server.URL+"/internal/v1/resolve-agent", "control-token", 4096)
 	if err != nil {
 		t.Fatal(err)
 	}

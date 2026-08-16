@@ -1,16 +1,16 @@
 openapi: 3.1.0
 info:
   title: NeKiro Router Internal Metadata API
-  version: 3.0.0
+  version: 1.0.0
   description: >-
     Router-owned Workspace-scoped Invocation and Trace metadata reads called
     only by the authenticated Control Plane. Dispatch is owned separately by
-    Router Internal Dispatch API v4.
+    Router Internal Dispatch API v1.
 servers:
   - url: https://a2a-router.internal.nekiro.dev
     description: Explicit internal destination; no localhost fallback
 paths:
-  /internal/v3/workspaces/{workspaceId}/invocations/{invocationId}:
+  /internal/v1/workspaces/{workspaceId}/invocations/{invocationId}:
     get:
       operationId: getRouterInvocation
       security: [{ serviceBearerAuth: [] }]
@@ -22,12 +22,12 @@ paths:
           description: Workspace-scoped Invocation projection and ordered Event 0.3 facts
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/InvocationDetailResponseV4" }
+              schema: { $ref: "#/components/schemas/InvocationDetailResponseV1" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "503": { $ref: "#/components/responses/Unavailable" }
-  /internal/v3/workspaces/{workspaceId}/traces/{traceId}:
+  /internal/v1/workspaces/{workspaceId}/traces/{traceId}:
     get:
       operationId: getRouterTrace
       security: [{ serviceBearerAuth: [] }]
@@ -42,7 +42,7 @@ paths:
           description: Workspace-scoped ordered Invocation lineage projections for a trace
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/TraceResponseV4" }
+              schema: { $ref: "#/components/schemas/TraceResponseV1" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -66,7 +66,7 @@ components:
       required: true
       schema: { $ref: ../schemas/common.v1.schema.json#/$defs/workspaceId }
   schemas:
-    InvocationRecordV4:
+    InvocationRecordV1:
       type: object
       additionalProperties: false
       required: [invocationId, rootTaskId, traceId, caller, workspaceId, targetAgentId, agentCardVersion, capability, status, createdAt, updatedAt]
@@ -93,20 +93,20 @@ components:
         errorCode: { $ref: ../schemas/platform-error.v4.schema.json#/$defs/errorCode }
         createdAt: { $ref: ../schemas/common.v1.schema.json#/$defs/dateTime }
         updatedAt: { $ref: ../schemas/common.v1.schema.json#/$defs/dateTime }
-    InvocationDetailResponseV4:
+    InvocationDetailResponseV1:
       type: object
       additionalProperties: false
       required: [invocation, events]
       properties:
-        invocation: { $ref: "#/components/schemas/InvocationRecordV4" }
+        invocation: { $ref: "#/components/schemas/InvocationRecordV1" }
         events: { type: array, items: { $ref: ../schemas/invocation-event.v0.3.schema.json } }
-    TraceResponseV4:
+    TraceResponseV1:
       type: object
       additionalProperties: false
       required: [traceId, invocations]
       properties:
         traceId: { $ref: ../schemas/common.v1.schema.json#/$defs/traceId }
-        invocations: { type: array, items: { $ref: "#/components/schemas/InvocationRecordV4" } }
+        invocations: { type: array, items: { $ref: "#/components/schemas/InvocationRecordV1" } }
     PreCorrelationPlatformError:
       $ref: ../schemas/platform-error.v4.schema.json#/$defs/preCorrelation
   responses:

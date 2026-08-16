@@ -33,7 +33,7 @@ func TestPublicShareHandlerIsAnonymousAndTraceCorrelated(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
-	request := httptest.NewRequest(http.MethodGet, "/v4/public/agents/agt_0123456789abcdef0123456789abcdef", nil)
+	request := httptest.NewRequest(http.MethodGet, "/v1/public/agents/agt_0123456789abcdef0123456789abcdef", nil)
 	response := httptest.NewRecorder()
 	mux.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || response.Header().Get(TraceHeader) == "" || response.Header().Get("Content-Type") != "application/json" {
@@ -65,7 +65,7 @@ func TestPublicShareHandlerMapsExactFailuresWithoutAuth(t *testing.T) {
 			mux := http.NewServeMux()
 			handler.RegisterRoutes(mux)
 			response := httptest.NewRecorder()
-			request := httptest.NewRequest(http.MethodGet, "/v4/public/agents/agt_0123456789abcdef0123456789abcdef", nil)
+			request := httptest.NewRequest(http.MethodGet, "/v1/public/agents/agt_0123456789abcdef0123456789abcdef", nil)
 			mux.ServeHTTP(response, request)
 			var payload contracts.PlatformError
 			if response.Code != test.status || json.Unmarshal(response.Body.Bytes(), &payload) != nil || payload.Code != test.code || string(payload.TraceID) != response.Header().Get(TraceHeader) {

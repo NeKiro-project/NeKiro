@@ -9,7 +9,7 @@ import (
 	a2ago "github.com/a2aproject/a2a-go/a2a"
 )
 
-func (client *Client) SendNonStreaming(ctx context.Context, dispatch contracts.DispatchInvocationRequestV4, resolved contracts.ResolveAgentResponse) (json.RawMessage, error) {
+func (client *Client) SendNonStreaming(ctx context.Context, dispatch contracts.DispatchInvocationRequestV1, resolved contracts.ResolveAgentResponse) (json.RawMessage, error) {
 	target, err := NewTarget(resolved, dispatch.Capability)
 	if err != nil {
 		return nil, err
@@ -63,12 +63,12 @@ func (client *Client) SendNonStreaming(ctx context.Context, dispatch contracts.D
 	return json.RawMessage(encoded), nil
 }
 
-func (client *Client) ValidateNonStreamingTarget(dispatch contracts.DispatchInvocationRequestV4, resolved contracts.ResolveAgentResponse) error {
+func (client *Client) ValidateNonStreamingTarget(dispatch contracts.DispatchInvocationRequestV1, resolved contracts.ResolveAgentResponse) error {
 	_, err := NewTarget(resolved, dispatch.Capability)
 	return err
 }
 
-func (client *Client) ValidateNonStreamingInput(dispatch contracts.DispatchInvocationRequestV4, resolved contracts.ResolveAgentResponse) error {
+func (client *Client) ValidateNonStreamingInput(dispatch contracts.DispatchInvocationRequestV1, resolved contracts.ResolveAgentResponse) error {
 	maxInputBytes, err := parseCardLimit(resolved.Card.Limits.MaxInputBytes.String())
 	if err != nil {
 		return classify(contracts.ErrorCodeA2AProtocol, err)
@@ -83,7 +83,7 @@ func (client *Client) ValidateNonStreamingInput(dispatch contracts.DispatchInvoc
 	return nil
 }
 
-func (client *Client) ValidateStreamingTarget(dispatch contracts.DispatchInvocationRequestV4, resolved contracts.ResolveAgentResponse) error {
+func (client *Client) ValidateStreamingTarget(dispatch contracts.DispatchInvocationRequestV1, resolved contracts.ResolveAgentResponse) error {
 	target, err := NewTarget(resolved, dispatch.Capability)
 	if err != nil {
 		return err
@@ -97,11 +97,11 @@ func (client *Client) ValidateStreamingTarget(dispatch contracts.DispatchInvocat
 	return nil
 }
 
-func (client *Client) ValidateStreamingInput(dispatch contracts.DispatchInvocationRequestV4, resolved contracts.ResolveAgentResponse) error {
+func (client *Client) ValidateStreamingInput(dispatch contracts.DispatchInvocationRequestV1, resolved contracts.ResolveAgentResponse) error {
 	return client.ValidateNonStreamingInput(dispatch, resolved)
 }
 
-func messageSendParams(dispatch contracts.DispatchInvocationRequestV4) (*a2ago.MessageSendParams, error) {
+func messageSendParams(dispatch contracts.DispatchInvocationRequestV1) (*a2ago.MessageSendParams, error) {
 	var input map[string]json.RawMessage
 	if err := json.Unmarshal(dispatch.Input, &input); err != nil {
 		return nil, err

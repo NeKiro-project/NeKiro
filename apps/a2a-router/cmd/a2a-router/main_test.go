@@ -55,14 +55,14 @@ func (failingDoer) Do(*http.Request) (*http.Response, error) {
 type ledgerAppenderStub struct{}
 
 func (ledgerAppenderStub) Append(context.Context, contracts.InvocationEventV03) error { return nil }
-func (ledgerAppenderStub) GetInvocation(context.Context, string, string) (contracts.InvocationDetailResponseV4, error) {
-	return contracts.InvocationDetailResponseV4{}, nil
+func (ledgerAppenderStub) GetInvocation(context.Context, string, string) (contracts.InvocationDetailResponseV1, error) {
+	return contracts.InvocationDetailResponseV1{}, nil
 }
-func (ledgerAppenderStub) GetTrace(context.Context, string, contracts.TraceID) (contracts.TraceResponseV4, error) {
-	return contracts.TraceResponseV4{}, nil
+func (ledgerAppenderStub) GetTrace(context.Context, string, contracts.TraceID) (contracts.TraceResponseV1, error) {
+	return contracts.TraceResponseV1{}, nil
 }
-func (ledgerAppenderStub) GetInvocationByParentID(context.Context, string) (contracts.InvocationDetailResponseV4, error) {
-	return contracts.InvocationDetailResponseV4{}, nil
+func (ledgerAppenderStub) GetInvocationByParentID(context.Context, string) (contracts.InvocationDetailResponseV1, error) {
+	return contracts.InvocationDetailResponseV1{}, nil
 }
 
 func TestRunRequiresExplicitCommandAndMigrationDirection(t *testing.T) {
@@ -92,8 +92,8 @@ func TestNewHandlerAssemblesReadinessWithoutDependencyProbe(t *testing.T) {
 		ListenAddress:                  "127.0.0.1:9090",
 		RouterPrincipals:               []auth.Principal{{ID: "router", TokenSHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}},
 		AgentPrincipals:                []nested.AgentPrincipal{{WorkspaceID: "workspace-a", AgentID: "runtime-a", TokenSHA256: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"}},
-		ControlPlaneResolveURL:         "https://control.internal/internal/v2/resolve-agent",
-		ControlPlaneVersionURL:         "https://control.internal/internal/v3/resolve-installed-version",
+		ControlPlaneResolveURL:         "https://control.internal/internal/v1/resolve-agent",
+		ControlPlaneVersionURL:         "https://control.internal/internal/v1/resolve-installed-version",
 		ControlPlaneServiceToken:       "control-token",
 		InternalRequestLimitBytes:      1024,
 		AgentRequestLimitBytes:         1024,
@@ -114,7 +114,7 @@ func TestNewHandlerAssemblesReadinessWithoutDependencyProbe(t *testing.T) {
 		t.Fatalf("status=%d", response.Code)
 	}
 	readResponse := httptest.NewRecorder()
-	handler.ServeHTTP(readResponse, httptest.NewRequest(http.MethodGet, "/internal/v3/workspaces/workspace-a/invocations/inv-a", nil))
+	handler.ServeHTTP(readResponse, httptest.NewRequest(http.MethodGet, "/internal/v1/workspaces/workspace-a/invocations/inv-a", nil))
 	if readResponse.Code != http.StatusUnauthorized {
 		t.Fatalf("metadata read route status=%d, want 401", readResponse.Code)
 	}
@@ -124,8 +124,8 @@ func TestNewHandlerRegistersTopologyStatusOnlyForObservedSelector(t *testing.T) 
 	cfg := config.Config{
 		RouterPrincipals:               []auth.Principal{{ID: "router", TokenSHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}},
 		AgentPrincipals:                []nested.AgentPrincipal{{WorkspaceID: "workspace-a", AgentID: "runtime-a", TokenSHA256: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"}},
-		ControlPlaneResolveURL:         "https://control.internal/internal/v2/resolve-agent",
-		ControlPlaneVersionURL:         "https://control.internal/internal/v3/resolve-installed-version",
+		ControlPlaneResolveURL:         "https://control.internal/internal/v1/resolve-agent",
+		ControlPlaneVersionURL:         "https://control.internal/internal/v1/resolve-installed-version",
 		ControlPlaneServiceToken:       "control-token",
 		InternalRequestLimitBytes:      1024,
 		AgentRequestLimitBytes:         1024,

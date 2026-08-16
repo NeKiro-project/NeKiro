@@ -8,9 +8,9 @@ import (
 	"github.com/NeKiro-project/NeKiro/contracts"
 )
 
-func runningParent() contracts.InvocationDetailResponseV4 {
-	return contracts.InvocationDetailResponseV4{
-		Invocation: contracts.InvocationRecordV4{
+func runningParent() contracts.InvocationDetailResponseV1 {
+	return contracts.InvocationDetailResponseV1{
+		Invocation: contracts.InvocationRecordV1{
 			InvocationID:     "inv_parent123",
 			RootTaskID:       "task_root456",
 			TraceID:          "trc_abc123_1",
@@ -61,7 +61,7 @@ func TestDeriveChildContextSuccess(t *testing.T) {
 }
 
 func TestDeriveChildContextParentNotFound(t *testing.T) {
-	parent := contracts.InvocationDetailResponseV4{}
+	parent := contracts.InvocationDetailResponseV1{}
 	_, err := DeriveChildContext(parent, runningParentPrincipal())
 	if err != ErrParentNotFound {
 		t.Errorf("expected ErrParentNotFound, got %v", err)

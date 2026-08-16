@@ -27,7 +27,7 @@ var (
 // the nested request cannot provide them.
 type ChildContext struct {
 	ChildInvocationID string
-	ParentInvocation  contracts.InvocationRecordV4
+	ParentInvocation  contracts.InvocationRecordV1
 	Caller            contracts.Caller
 	WorkspaceID       string
 	RootTaskID        string
@@ -39,7 +39,7 @@ type ChildContext struct {
 // authenticated Agent and Workspace to match the parent. The child receives a
 // new Invocation ID; Workspace, root Task, Trace, and caller are inherited from
 // the parent.
-func DeriveChildContext(parent contracts.InvocationDetailResponseV4, authenticated AuthenticatedAgent) (ChildContext, error) {
+func DeriveChildContext(parent contracts.InvocationDetailResponseV1, authenticated AuthenticatedAgent) (ChildContext, error) {
 	if parent.Invocation.InvocationID == "" {
 		return ChildContext{}, ErrParentNotFound
 	}
@@ -71,11 +71,11 @@ func DeriveChildContext(parent contracts.InvocationDetailResponseV4, authenticat
 	}, nil
 }
 
-// BuildChildDispatchRequest constructs the trusted DispatchInvocationRequestV4
+// BuildChildDispatchRequest constructs the trusted DispatchInvocationRequestV1
 // for the child Invocation from the derived context and the untrusted nested
 // request fields. The parent Invocation ID is propagated for Ledger lineage.
-func BuildChildDispatchRequest(child ChildContext, targetAgentID, capability string, input []byte, stream bool, agentCardVersion, agentReleaseID, agentCardDigest string) contracts.DispatchInvocationRequestV4 {
-	return contracts.DispatchInvocationRequestV4{
+func BuildChildDispatchRequest(child ChildContext, targetAgentID, capability string, input []byte, stream bool, agentCardVersion, agentReleaseID, agentCardDigest string) contracts.DispatchInvocationRequestV1 {
+	return contracts.DispatchInvocationRequestV1{
 		InvocationID:       child.ChildInvocationID,
 		RootTaskID:         child.RootTaskID,
 		ParentInvocationID: child.ParentInvocation.InvocationID,

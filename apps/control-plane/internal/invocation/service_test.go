@@ -23,14 +23,14 @@ func (stub *authorizerStub) AuthorizeInvocation(context.Context, workspace.Authe
 }
 
 type routerStub struct {
-	request contracts.DispatchInvocationRequestV4
+	request contracts.DispatchInvocationRequestV1
 	mode    contracts.InvocationResultMode
 	result  *RouterResponse
 	err     error
 	calls   int
 }
 
-func (stub *routerStub) Dispatch(_ context.Context, request contracts.DispatchInvocationRequestV4, mode contracts.InvocationResultMode) (*RouterResponse, error) {
+func (stub *routerStub) Dispatch(_ context.Context, request contracts.DispatchInvocationRequestV1, mode contracts.InvocationResultMode) (*RouterResponse, error) {
 	stub.calls++
 	stub.request, stub.mode = request, mode
 	return stub.result, stub.err

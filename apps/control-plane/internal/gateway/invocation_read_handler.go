@@ -42,8 +42,8 @@ func NewInvocationReadHandler(authenticator Authenticator, reader InvocationMeta
 }
 
 func (handler *InvocationReadHandler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /v4/workspaces/{workspaceId}/invocations/{invocationId}", handler.getInvocation)
-	mux.HandleFunc("GET /v4/workspaces/{workspaceId}/traces/{traceId}", handler.getTrace)
+	mux.HandleFunc("GET /v1/workspaces/{workspaceId}/invocations/{invocationId}", handler.getInvocation)
+	mux.HandleFunc("GET /v1/workspaces/{workspaceId}/traces/{traceId}", handler.getTrace)
 }
 
 func (handler *InvocationReadHandler) getInvocation(writer http.ResponseWriter, request *http.Request) {
@@ -135,7 +135,7 @@ func (handler *InvocationReadHandler) validateMetadataBody(body []byte, resource
 	decoder.DisallowUnknownFields()
 	switch resource {
 	case "Invocation":
-		var detail contracts.InvocationDetailResponseV4
+		var detail contracts.InvocationDetailResponseV1
 		if err := decoder.Decode(&detail); err != nil {
 			return err
 		}
@@ -145,9 +145,9 @@ func (handler *InvocationReadHandler) validateMetadataBody(body []byte, resource
 		if detail.Invocation.InvocationID != resourceID {
 			return errors.New("invocation response identity does not match request")
 		}
-		return handler.validator.ValidateInvocationDetailResponseV4(workspaceID, detail)
+		return handler.validator.ValidateInvocationDetailResponseV1(workspaceID, detail)
 	case "Trace":
-		var trace contracts.TraceResponseV4
+		var trace contracts.TraceResponseV1
 		if err := decoder.Decode(&trace); err != nil {
 			return err
 		}
@@ -158,7 +158,7 @@ func (handler *InvocationReadHandler) validateMetadataBody(body []byte, resource
 		if err != nil || trace.TraceID != requested {
 			return errors.New("trace response identity does not match request")
 		}
-		return contracts.ValidateTraceResponseV4(workspaceID, requested, trace)
+		return contracts.ValidateTraceResponseV1(workspaceID, requested, trace)
 	default:
 		return errors.New("metadata response kind is unsupported")
 	}

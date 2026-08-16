@@ -6,7 +6,7 @@ info:
 servers:
   - url: https://api.nekiro.dev
 paths:
-  /v4/public/agents/{publicAgentId}:
+  /v1/public/agents/{publicAgentId}:
     get:
       operationId: resolvePublicAgent
       summary: Resolve one public Agent identity and its eligible trusted Releases

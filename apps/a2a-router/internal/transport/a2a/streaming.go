@@ -16,7 +16,7 @@ import (
 
 const streamCancelAttemptTimeout = time.Second
 
-func (client *Client) SendStreaming(ctx context.Context, dispatch contracts.DispatchInvocationRequestV4, resolved contracts.ResolveAgentResponse) iter.Seq2[streammodel.Event, error] {
+func (client *Client) SendStreaming(ctx context.Context, dispatch contracts.DispatchInvocationRequestV1, resolved contracts.ResolveAgentResponse) iter.Seq2[streammodel.Event, error] {
 	return func(yield func(streammodel.Event, error) bool) {
 		target, err := NewTarget(resolved, dispatch.Capability)
 		if err != nil {

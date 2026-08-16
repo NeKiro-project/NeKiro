@@ -1,16 +1,15 @@
 openapi: 3.1.0
 info:
-  title: NeKiro Control Plane Internal API
-  version: 3.0.0
+  title: NeKiro Control Plane Installed-Version Resolution API
+  version: 1.0.0
   description: >-
-    Control Plane-owned operations called by the A2A Router. Version 3 adds
-    installed-version resolution for nested Agent invocations. The existing v2
-    resolve-agent endpoint remains unchanged.
+    Control Plane-owned v1 installed-version resolution called by the A2A
+    Router for nested Agent invocations.
 servers:
   - url: https://control-plane.internal.nekiro.dev
     description: Control Plane internal destination
 paths:
-  /internal/v3/resolve-installed-version:
+  /internal/v1/resolve-installed-version:
     post:
       operationId: resolveInstalledVersion
       summary: Resolve the deterministic installed Agent Card version

@@ -3,6 +3,7 @@ package contracts
 import (
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -24,8 +25,8 @@ func TestRuntimeContractOpenAPIDirectionsAndVersions(t *testing.T) {
 		security   string
 		serverPart string
 	}{
-		{"openapi/control-plane-invocation.v4.yaml", "4.0.0", "/v4/workspaces/{workspaceId}/invocations", "bearerAuth", "api.nekiro.dev"},
-		{"openapi/router-internal.v4.yaml", "4.0.0", "/internal/v4/invocations", "serviceBearerAuth", "a2a-router.internal"},
+		{"openapi/control-plane-invocation.v1.yaml", "1.0.0", "/v1/workspaces/{workspaceId}/invocations", "bearerAuth", "api.nekiro.dev"},
+		{"openapi/router-internal.v1.yaml", "1.0.0", "/internal/v1/invocations", "serviceBearerAuth", "a2a-router.internal"},
 		{"openapi/router-agent.v1.yaml", "1.0.0", "/agent/v1/invocations", "agentBearerAuth", "a2a-router.agent"},
 	}
 
@@ -100,17 +101,17 @@ func TestRuntimeContractExactFailureMappings(t *testing.T) {
 	t.Parallel()
 
 	for _, path := range []string{
-		"openapi/control-plane-invocation.v4.yaml",
-		"openapi/router-internal.v4.yaml",
+		"openapi/control-plane-invocation.v1.yaml",
+		"openapi/router-internal.v1.yaml",
 		"openapi/router-agent.v1.yaml",
 	} {
 		document := loadOpenAPIDocument(t, filepath.FromSlash(path))
 		var route string
 		switch path {
-		case "openapi/control-plane-invocation.v4.yaml":
-			route = "/v4/workspaces/{workspaceId}/invocations"
-		case "openapi/router-internal.v4.yaml":
-			route = "/internal/v4/invocations"
+		case "openapi/control-plane-invocation.v1.yaml":
+			route = "/v1/workspaces/{workspaceId}/invocations"
+		case "openapi/router-internal.v1.yaml":
+			route = "/internal/v1/invocations"
 		default:
 			route = "/agent/v1/invocations"
 		}
@@ -131,8 +132,8 @@ func TestRuntimeContractLimitsAndSSEHaveNoDefaults(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct{ path, route string }{
-		{"openapi/control-plane-invocation.v4.yaml", "/v4/workspaces/{workspaceId}/invocations"},
-		{"openapi/router-internal.v4.yaml", "/internal/v4/invocations"},
+		{"openapi/control-plane-invocation.v1.yaml", "/v1/workspaces/{workspaceId}/invocations"},
+		{"openapi/router-internal.v1.yaml", "/internal/v1/invocations"},
 		{"openapi/router-agent.v1.yaml", "/agent/v1/invocations"},
 	} {
 		document := loadOpenAPIDocument(t, filepath.FromSlash(test.path))
@@ -166,7 +167,7 @@ func TestRuntimeContractWorkspaceScopedProjectionAndLineageReads(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 7, 16, 0, 0, 0, 0, time.UTC)
-	record := InvocationRecordV4{
+	record := InvocationRecordV1{
 		InvocationID: "inv-1", RootTaskID: "task-1", TraceID: "trace-1",
 		Caller: Caller{Type: "user", ID: "user-1"}, WorkspaceID: "workspace-1",
 		TargetAgentID: "agent-1", AgentCardVersion: "1.0.0", Capability: "summarize",
@@ -182,8 +183,8 @@ func TestRuntimeContractWorkspaceScopedProjectionAndLineageReads(t *testing.T) {
 	for _, test := range []struct {
 		path, invocationRoute, traceRoute string
 	}{
-		{"openapi/control-plane-invocation.v4.yaml", "/v4/workspaces/{workspaceId}/invocations/{invocationId}", "/v4/workspaces/{workspaceId}/traces/{traceId}"},
-		{"openapi/router-metadata.v3.yaml", "/internal/v3/workspaces/{workspaceId}/invocations/{invocationId}", "/internal/v3/workspaces/{workspaceId}/traces/{traceId}"},
+		{"openapi/control-plane-invocation.v1.yaml", "/v1/workspaces/{workspaceId}/invocations/{invocationId}", "/v1/workspaces/{workspaceId}/traces/{traceId}"},
+		{"openapi/router-metadata.v1.yaml", "/internal/v1/workspaces/{workspaceId}/invocations/{invocationId}", "/internal/v1/workspaces/{workspaceId}/traces/{traceId}"},
 	} {
 		document := loadOpenAPIDocument(t, filepath.FromSlash(test.path))
 		invocationOperation := document.Paths.Find(test.invocationRoute)
@@ -193,63 +194,63 @@ func TestRuntimeContractWorkspaceScopedProjectionAndLineageReads(t *testing.T) {
 		}
 		assertOperationHasPathParameter(t, invocationOperation.Get.Parameters, "workspaceId")
 		assertOperationHasPathParameter(t, traceOperation.Get.Parameters, "workspaceId")
-		validateOpenAPIValue(t, invocationOperation.Get.Responses.Status(200).Value.Content["application/json"].Schema, InvocationDetailResponseV4{Invocation: record, Events: []InvocationEventV03{event}})
-		validateOpenAPIValue(t, traceOperation.Get.Responses.Status(200).Value.Content["application/json"].Schema, TraceResponseV4{TraceID: "trace-1", Invocations: []InvocationRecordV4{record}})
+		validateOpenAPIValue(t, invocationOperation.Get.Responses.Status(200).Value.Content["application/json"].Schema, InvocationDetailResponseV1{Invocation: record, Events: []InvocationEventV03{event}})
+		validateOpenAPIValue(t, traceOperation.Get.Responses.Status(200).Value.Content["application/json"].Schema, TraceResponseV1{TraceID: "trace-1", Invocations: []InvocationRecordV1{record}})
 	}
 
-	northbound := loadOpenAPIDocument(t, filepath.FromSlash("openapi/control-plane-invocation.v4.yaml"))
-	if northbound.Paths.Find("/v4/invocations/{invocationId}") != nil || northbound.Paths.Find("/v4/traces/{traceId}") != nil {
-		t.Fatal("Northbound v4 must not expose unscoped raw metadata routes")
+	northbound := loadOpenAPIDocument(t, filepath.FromSlash("openapi/control-plane-invocation.v1.yaml"))
+	if northbound.Paths.Find("/v1/invocations/{invocationId}") != nil || northbound.Paths.Find("/v1/traces/{traceId}") != nil {
+		t.Fatal("Gateway v1 must not expose unscoped raw metadata routes")
 	}
 
-	detail := InvocationDetailResponseV4{Invocation: record, Events: []InvocationEventV03{event}}
+	detail := InvocationDetailResponseV1{Invocation: record, Events: []InvocationEventV03{event}}
 	validator, err := NewRuntimeContractValidator()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validator.ValidateInvocationDetailResponseV4("workspace-1", detail); err != nil {
+	if err := validator.ValidateInvocationDetailResponseV1("workspace-1", detail); err != nil {
 		t.Fatalf("valid Invocation detail rejected: %v", err)
 	}
 	detail.Invocation.Status = "running"
-	if validator.ValidateInvocationDetailResponseV4("workspace-1", detail) == nil {
+	if validator.ValidateInvocationDetailResponseV1("workspace-1", detail) == nil {
 		t.Fatal("Invocation projection status mismatch was accepted")
 	}
 	detail.Invocation.Status = "pending"
 	detail.Invocation.WorkspaceID = "workspace-other"
-	if validator.ValidateInvocationDetailResponseV4("workspace-1", detail) == nil {
+	if validator.ValidateInvocationDetailResponseV1("workspace-1", detail) == nil {
 		t.Fatal("cross-Workspace Invocation projection was accepted")
 	}
-	detail = InvocationDetailResponseV4{Invocation: record, Events: []InvocationEventV03{event}}
+	detail = InvocationDetailResponseV1{Invocation: record, Events: []InvocationEventV03{event}}
 	detail.Invocation.AgentReleaseID = "release-projection"
 	detail.Invocation.AgentCardDigest = strings.Repeat("a", 64)
 	detail.Events[0].AgentReleaseID = "release-event"
 	detail.Events[0].AgentCardDigest = strings.Repeat("b", 64)
-	if validator.ValidateInvocationDetailResponseV4("workspace-1", detail) == nil {
+	if validator.ValidateInvocationDetailResponseV1("workspace-1", detail) == nil {
 		t.Fatal("Invocation projection/event Release provenance mismatch was accepted")
 	}
 
-	trace := TraceResponseV4{TraceID: "trace-1", Invocations: []InvocationRecordV4{record}}
-	if err := ValidateTraceResponseV4("workspace-1", "trace-1", trace); err != nil {
+	trace := TraceResponseV1{TraceID: "trace-1", Invocations: []InvocationRecordV1{record}}
+	if err := ValidateTraceResponseV1("workspace-1", "trace-1", trace); err != nil {
 		t.Fatalf("valid Trace projection rejected: %v", err)
 	}
 	trace.Invocations[0].WorkspaceID = "workspace-other"
-	if ValidateTraceResponseV4("workspace-1", "trace-1", trace) == nil {
+	if ValidateTraceResponseV1("workspace-1", "trace-1", trace) == nil {
 		t.Fatal("cross-Workspace Trace projection was accepted")
 	}
 
 	missingTimestamp := detail
 	missingTimestamp.Invocation.CreatedAt = time.Time{}
-	if validator.ValidateInvocationDetailResponseV4("workspace-1", missingTimestamp) == nil {
+	if validator.ValidateInvocationDetailResponseV1("workspace-1", missingTimestamp) == nil {
 		t.Fatal("Invocation projection with a missing required timestamp was accepted")
 	}
-	missingVersion := TraceResponseV4{TraceID: "trace-1", Invocations: []InvocationRecordV4{record}}
+	missingVersion := TraceResponseV1{TraceID: "trace-1", Invocations: []InvocationRecordV1{record}}
 	missingVersion.Invocations[0].AgentCardVersion = ""
-	if ValidateTraceResponseV4("workspace-1", "trace-1", missingVersion) == nil {
+	if ValidateTraceResponseV1("workspace-1", "trace-1", missingVersion) == nil {
 		t.Fatal("Trace projection with a missing required Agent Card version was accepted")
 	}
-	secretCode := TraceResponseV4{TraceID: "trace-1", Invocations: []InvocationRecordV4{record}}
+	secretCode := TraceResponseV1{TraceID: "trace-1", Invocations: []InvocationRecordV1{record}}
 	secretCode.Invocations[0].ErrorCode = PlatformErrorCode("raw-secret-detail")
-	if ValidateTraceResponseV4("workspace-1", "trace-1", secretCode) == nil {
+	if ValidateTraceResponseV1("workspace-1", "trace-1", secretCode) == nil {
 		t.Fatal("Trace projection with an unknown error code was accepted")
 	}
 }
@@ -306,7 +307,7 @@ func TestRuntimeContractExecutableConformanceCorpus(t *testing.T) {
 		Cases []struct {
 			ID     string             `json:"id"`
 			Valid  bool               `json:"valid"`
-			Parent InvocationRecordV4 `json:"parent"`
+			Parent InvocationRecordV1 `json:"parent"`
 			Child  InvocationEventV03 `json:"child"`
 		} `json:"cases"`
 	}
@@ -372,25 +373,25 @@ func TestRuntimeContractExecutableConformanceCorpus(t *testing.T) {
 			ID          string                     `json:"id"`
 			WorkspaceID string                     `json:"workspaceId"`
 			Valid       bool                       `json:"valid"`
-			Detail      InvocationDetailResponseV4 `json:"detail"`
+			Detail      InvocationDetailResponseV1 `json:"detail"`
 		} `json:"detailCases"`
 		TraceCases []struct {
 			ID          string          `json:"id"`
 			WorkspaceID string          `json:"workspaceId"`
 			TraceID     TraceID         `json:"traceId"`
 			Valid       bool            `json:"valid"`
-			Response    TraceResponseV4 `json:"response"`
+			Response    TraceResponseV1 `json:"response"`
 		} `json:"traceCases"`
 	}
 	readRuntimeCorpus(t, "projection.json", &projection)
 	for _, test := range projection.DetailCases {
-		err := validator.ValidateInvocationDetailResponseV4(test.WorkspaceID, test.Detail)
+		err := validator.ValidateInvocationDetailResponseV1(test.WorkspaceID, test.Detail)
 		if (err == nil) != test.Valid {
 			t.Errorf("detail projection corpus %s valid=%v, error=%v", test.ID, test.Valid, err)
 		}
 	}
 	for _, test := range projection.TraceCases {
-		err := ValidateTraceResponseV4(test.WorkspaceID, test.TraceID, test.Response)
+		err := ValidateTraceResponseV1(test.WorkspaceID, test.TraceID, test.Response)
 		if (err == nil) != test.Valid {
 			t.Errorf("Trace projection corpus %s valid=%v, error=%v", test.ID, test.Valid, err)
 		}
@@ -440,17 +441,17 @@ func TestRuntimeContractPostAcceptanceErrorsRequireCorrelation(t *testing.T) {
 		t.Fatal("post-acceptance error without root Task correlation was accepted")
 	}
 
-	document := loadOpenAPIDocument(t, filepath.FromSlash("openapi/router-internal.v4.yaml"))
+	document := loadOpenAPIDocument(t, filepath.FromSlash("openapi/router-internal.v1.yaml"))
 	phase := document.Components.Schemas["PhasePlatformError"].Value.Extensions
 	if phase["x-nekiro-phase-boundary"] != "successful-created-commit" ||
 		phase["x-nekiro-pre-acceptance-schema"] != "PreCorrelationPlatformError" ||
 		phase["x-nekiro-post-acceptance-schema"] != "CorrelatedPlatformError" {
 		t.Fatalf("phase error schema does not bind correlation to acceptance: %#v", phase)
 	}
-	agentFailure := document.Paths.Find("/internal/v4/invocations").Post.Responses.Status(502).Value.Content["application/json"].Schema
+	agentFailure := document.Paths.Find("/internal/v1/invocations").Post.Responses.Status(502).Value.Content["application/json"].Schema
 	valid := CorrelatedPlatformErrorV4{Code: ErrorCodeAgentAuthUnsupported, Message: platformErrorV4Messages[ErrorCodeAgentAuthUnsupported], TraceID: "trace-1", InvocationID: "inv-1", RootTaskID: "task-1"}
 	validateOpenAPIValue(t, agentFailure, valid)
-	forbidden := document.Paths.Find("/internal/v4/invocations").Post.Responses.Status(403).Value.Content["application/json"].Schema
+	forbidden := document.Paths.Find("/internal/v1/invocations").Post.Responses.Status(403).Value.Content["application/json"].Schema
 	validateOpenAPIValue(t, forbidden, PreCorrelationPlatformErrorV4{Code: ErrorCodeForbidden, Message: platformErrorV4Messages[ErrorCodeForbidden], TraceID: "trace-1"})
 	validateOpenAPIValue(t, forbidden, CorrelatedPlatformErrorV4{Code: ErrorCodeAgentReleaseSuspended, Message: platformErrorV4Messages[ErrorCodeAgentReleaseSuspended], TraceID: "trace-1", InvocationID: "inv-1", RootTaskID: "task-1"})
 }
@@ -497,8 +498,8 @@ func TestRuntimeContractStreamV2ValidatorRequiresCorrelatedError(t *testing.T) {
 func TestRuntimeContractSchemasAndContentExclusion(t *testing.T) {
 	t.Parallel()
 
-	document := loadOpenAPIDocument(t, filepath.FromSlash("openapi/router-internal.v4.yaml"))
-	request := DispatchInvocationRequestV4{
+	document := loadOpenAPIDocument(t, filepath.FromSlash("openapi/router-internal.v1.yaml"))
+	request := DispatchInvocationRequestV1{
 		InvocationID: "inv-1", RootTaskID: "task-1", TraceID: "trace-1",
 		Caller: Caller{Type: "user", ID: "user-1"}, WorkspaceID: "workspace-1",
 		TargetAgentID: "agent-1", AgentCardVersion: "1.0.0", Capability: "summarize",
@@ -565,7 +566,7 @@ func TestInvocationReleaseProvenanceIsOptionalButAtomic(t *testing.T) {
 }
 
 func TestRouterInternalRootRequestRejectsParentInvocationIDOnWire(t *testing.T) {
-	var request DispatchInvocationRequestV4
+	var request DispatchInvocationRequestV1
 	decoder := json.NewDecoder(strings.NewReader(`{"invocationId":"inv-1","rootTaskId":"task-1","parentInvocationId":"inv-parent","traceId":"trace-1","caller":{"type":"user","id":"user-1"},"workspaceId":"workspace-1","targetAgentId":"agent-1","agentCardVersion":"1.0.0","capability":"summarize","input":{},"stream":false}`))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&request); err == nil {
@@ -596,25 +597,22 @@ func TestRuntimeContractPolicyFreezesAcceptanceAndInterruption(t *testing.T) {
 	}
 }
 
-func TestRuntimeContractHistoricalArtifactsRemainHistorical(t *testing.T) {
+func TestRetiredHTTPAPIOpenAPIArtifactsAreRemoved(t *testing.T) {
 	t.Parallel()
 
-	for _, test := range []struct{ path, version string }{
-		{"openapi/control-plane.v3.yaml", "3.0.0"},
-		{"openapi/router-internal.v2.yaml", "2.0.0"},
+	for _, path := range []string{
+		"openapi/control-plane.v2.yaml",
+		"openapi/control-plane.v3.yaml",
+		"openapi/control-plane-internal.v2.yaml",
+		"openapi/control-plane-internal.v3.yaml",
+		"openapi/control-plane-invocation.v4.yaml",
+		"openapi/router-internal.v2.yaml",
+		"openapi/router-internal.v3.yaml",
+		"openapi/router-internal.v4.yaml",
+		"openapi/router-metadata.v3.yaml",
 	} {
-		document := loadOpenAPIDocument(t, filepath.FromSlash(test.path))
-		if document.Info.Version != test.version {
-			t.Fatalf("historical %s version changed to %s", test.path, document.Info.Version)
-		}
-	}
-	compatibility, err := os.ReadFile(filepath.FromSlash("../docs/contracts/compatibility.md"))
-	if err != nil {
-		t.Fatalf("read compatibility guide: %v", err)
-	}
-	for _, required := range []string{"invocation-only", "Catalog, Workspace, and Installation", "not a second fact", "Do not run v3/v4"} {
-		if !strings.Contains(string(compatibility), required) {
-			t.Fatalf("compatibility guide missing %q", required)
+		if _, err := fs.ReadFile(ContractFiles(), path); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("retired API artifact %s remains readable: %v", path, err)
 		}
 	}
 }

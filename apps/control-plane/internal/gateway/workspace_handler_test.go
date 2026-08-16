@@ -165,7 +165,7 @@ func (service *workspaceTestService) ResolveInstalledVersion(_ context.Context, 
 func TestWorkspaceHandlerRequiresBearerAndRequiredListLimit(t *testing.T) {
 	service := &workspaceTestService{}
 	handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, service)
-	request := httptest.NewRequest(http.MethodPost, "/v3/workspaces", strings.NewReader(`{"workspaceId":"workspace-a"}`))
+	request := httptest.NewRequest(http.MethodPost, "/v1/workspaces", strings.NewReader(`{"workspaceId":"workspace-a"}`))
 	request.Header.Set("Authorization", "Bearer token")
 	response := httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -173,7 +173,7 @@ func TestWorkspaceHandlerRequiresBearerAndRequiredListLimit(t *testing.T) {
 		t.Fatalf("create response = %d, workspace = %#v", response.Code, service.workspace)
 	}
 
-	request = httptest.NewRequest(http.MethodGet, "/v3/workspaces/workspace-a/installations", nil)
+	request = httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a/installations", nil)
 	request.Header.Set("Authorization", "Bearer token")
 	response = httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -182,7 +182,7 @@ func TestWorkspaceHandlerRequiresBearerAndRequiredListLimit(t *testing.T) {
 	}
 
 	unauthenticated := newWorkspaceTestHandler(t, workspaceTestAuthenticator{err: ErrUnauthenticated}, service)
-	request = httptest.NewRequest(http.MethodGet, "/v3/workspaces/workspace-a", nil)
+	request = httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a", nil)
 	response = httptest.NewRecorder()
 	unauthenticated.Routes().ServeHTTP(response, request)
 	if response.Code != http.StatusUnauthorized {
@@ -194,7 +194,7 @@ func TestWorkspaceHandlerMapsWorkspaceCreateReadOutcomes(t *testing.T) {
 	service := &workspaceTestService{}
 	handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, service)
 
-	request := httptest.NewRequest(http.MethodPost, "/v3/workspaces", strings.NewReader(`{"workspaceId":"workspace-a"}`))
+	request := httptest.NewRequest(http.MethodPost, "/v1/workspaces", strings.NewReader(`{"workspaceId":"workspace-a"}`))
 	request.Header.Set("Authorization", "Bearer token")
 	response := httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -209,7 +209,7 @@ func TestWorkspaceHandlerMapsWorkspaceCreateReadOutcomes(t *testing.T) {
 		t.Fatalf("created Workspace = %#v", created)
 	}
 
-	request = httptest.NewRequest(http.MethodGet, "/v3/workspaces/workspace-a", nil)
+	request = httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a", nil)
 	request.Header.Set("Authorization", "Bearer token")
 	response = httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -225,7 +225,7 @@ func TestWorkspaceHandlerMapsWorkspaceCreateReadOutcomes(t *testing.T) {
 	}
 
 	service.createErr = workspace.ErrConflict
-	request = httptest.NewRequest(http.MethodPost, "/v3/workspaces", strings.NewReader(`{"workspaceId":"workspace-a"}`))
+	request = httptest.NewRequest(http.MethodPost, "/v1/workspaces", strings.NewReader(`{"workspaceId":"workspace-a"}`))
 	request.Header.Set("Authorization", "Bearer token")
 	response = httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -234,7 +234,7 @@ func TestWorkspaceHandlerMapsWorkspaceCreateReadOutcomes(t *testing.T) {
 	}
 
 	service.getErr = workspace.ErrForbidden
-	request = httptest.NewRequest(http.MethodGet, "/v3/workspaces/workspace-a", nil)
+	request = httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a", nil)
 	request.Header.Set("Authorization", "Bearer token")
 	response = httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -243,7 +243,7 @@ func TestWorkspaceHandlerMapsWorkspaceCreateReadOutcomes(t *testing.T) {
 	}
 	service.getErr = workspace.ErrNotFound
 	response = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/v3/workspaces/missing-workspace", nil)
+	request = httptest.NewRequest(http.MethodGet, "/v1/workspaces/missing-workspace", nil)
 	request.Header.Set("Authorization", "Bearer token")
 	handler.Routes().ServeHTTP(response, request)
 	if response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), `"code":"NOT_FOUND"`) {
@@ -252,7 +252,7 @@ func TestWorkspaceHandlerMapsWorkspaceCreateReadOutcomes(t *testing.T) {
 
 	service.getErr = nil
 	createCallsBeforeInvalid := service.createCalls
-	request = httptest.NewRequest(http.MethodPost, "/v3/workspaces", strings.NewReader(`{"workspaceId":"workspace-b","ownerId":"attacker"}`))
+	request = httptest.NewRequest(http.MethodPost, "/v1/workspaces", strings.NewReader(`{"workspaceId":"workspace-b","ownerId":"attacker"}`))
 	request.Header.Set("Authorization", "Bearer token")
 	response = httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -288,7 +288,7 @@ func TestWorkspaceHandlerReadsAndListsInstallationFacts(t *testing.T) {
 	}
 	handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, service)
 
-	request := httptest.NewRequest(http.MethodGet, "/v3/workspaces/workspace-a/installations/installation-a", nil)
+	request := httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a/installations/installation-a", nil)
 	request.Header.Set("Authorization", "Bearer token")
 	response := httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -303,7 +303,7 @@ func TestWorkspaceHandlerReadsAndListsInstallationFacts(t *testing.T) {
 		t.Fatalf("exact read = %#v, want %#v", read, installation)
 	}
 
-	request = httptest.NewRequest(http.MethodGet, "/v3/workspaces/workspace-a/installations?limit=1&cursor="+cursor, nil)
+	request = httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a/installations?limit=1&cursor="+cursor, nil)
 	request.Header.Set("Authorization", "Bearer token")
 	response = httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -328,11 +328,11 @@ func TestWorkspaceHandlerInstallationInspectionFailures(t *testing.T) {
 		status     int
 		code       string
 	}{
-		{name: "unknown Workspace", path: "/v3/workspaces/missing-workspace/installations?limit=25", serviceErr: workspace.ErrNotFound, list: true, status: http.StatusNotFound, code: "NOT_FOUND"},
-		{name: "unknown Installation", path: "/v3/workspaces/workspace-a/installations/missing-installation", serviceErr: workspace.ErrNotFound, status: http.StatusNotFound, code: "NOT_FOUND"},
-		{name: "non-owner", path: "/v3/workspaces/workspace-a/installations/installation-a", serviceErr: workspace.ErrForbidden, status: http.StatusForbidden, code: "FORBIDDEN"},
-		{name: "read dependency", path: "/v3/workspaces/workspace-a/installations/installation-a", serviceErr: workspace.ErrDependency, status: http.StatusServiceUnavailable, code: "DEPENDENCY_ERROR"},
-		{name: "list dependency", path: "/v3/workspaces/workspace-a/installations?limit=25", serviceErr: workspace.ErrDependency, list: true, status: http.StatusServiceUnavailable, code: "DEPENDENCY_ERROR"},
+		{name: "unknown Workspace", path: "/v1/workspaces/missing-workspace/installations?limit=25", serviceErr: workspace.ErrNotFound, list: true, status: http.StatusNotFound, code: "NOT_FOUND"},
+		{name: "unknown Installation", path: "/v1/workspaces/workspace-a/installations/missing-installation", serviceErr: workspace.ErrNotFound, status: http.StatusNotFound, code: "NOT_FOUND"},
+		{name: "non-owner", path: "/v1/workspaces/workspace-a/installations/installation-a", serviceErr: workspace.ErrForbidden, status: http.StatusForbidden, code: "FORBIDDEN"},
+		{name: "read dependency", path: "/v1/workspaces/workspace-a/installations/installation-a", serviceErr: workspace.ErrDependency, status: http.StatusServiceUnavailable, code: "DEPENDENCY_ERROR"},
+		{name: "list dependency", path: "/v1/workspaces/workspace-a/installations?limit=25", serviceErr: workspace.ErrDependency, list: true, status: http.StatusServiceUnavailable, code: "DEPENDENCY_ERROR"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -358,7 +358,7 @@ func TestWorkspaceHandlerInstallationInspectionFailures(t *testing.T) {
 
 	service := &workspaceTestService{}
 	handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{err: ErrUnauthenticated}, service)
-	request := httptest.NewRequest(http.MethodGet, "/v3/workspaces/workspace-a/installations?limit=25", nil)
+	request := httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a/installations?limit=25", nil)
 	response := httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
 	if response.Code != http.StatusUnauthorized || service.listCalls != 0 || service.getInstallationCalls != 0 {
@@ -368,7 +368,7 @@ func TestWorkspaceHandlerInstallationInspectionFailures(t *testing.T) {
 	for _, query := range []string{"", "limit=0", "limit=101", "limit=abc", "limit=25&limit=50", "limit=25&cursor=a&cursor=b"} {
 		service = &workspaceTestService{}
 		handler = newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, service)
-		request = httptest.NewRequest(http.MethodGet, "/v3/workspaces/workspace-a/installations?"+query, nil)
+		request = httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a/installations?"+query, nil)
 		request.Header.Set("Authorization", "Bearer token")
 		response = httptest.NewRecorder()
 		handler.Routes().ServeHTTP(response, request)
@@ -379,7 +379,7 @@ func TestWorkspaceHandlerInstallationInspectionFailures(t *testing.T) {
 
 	service = &workspaceTestService{listErr: workspace.ErrInvalid}
 	handler = newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, service)
-	request = httptest.NewRequest(http.MethodGet, "/v3/workspaces/workspace-a/installations?limit=25&cursor=malformed", nil)
+	request = httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a/installations?limit=25&cursor=malformed", nil)
 	request.Header.Set("Authorization", "Bearer token")
 	response = httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -391,7 +391,7 @@ func TestWorkspaceHandlerInstallationInspectionFailures(t *testing.T) {
 func TestWorkspaceHandlerReturnsExplicitEmptyInstallationList(t *testing.T) {
 	service := &workspaceTestService{listResult: contracts.InstallationList{Items: []contracts.Installation{}}}
 	handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, service)
-	request := httptest.NewRequest(http.MethodGet, "/v3/workspaces/workspace-a/installations?limit=25", nil)
+	request := httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a/installations?limit=25", nil)
 	request.Header.Set("Authorization", "Bearer token")
 	response := httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -430,7 +430,7 @@ func TestWorkspaceHandlerInstallRequiresPermissionArrayAndPreservesEmpty(t *test
 	handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, service)
 	validBody := `{"agentId":"agent-a","versionConstraint":"^1.0.0","acceptedPermissions":[]}`
 
-	request := httptest.NewRequest(http.MethodPost, "/v3/workspaces/workspace-a/installations", strings.NewReader(validBody))
+	request := httptest.NewRequest(http.MethodPost, "/v1/workspaces/workspace-a/installations", strings.NewReader(validBody))
 	request.Header.Set("Authorization", "Bearer token")
 	response := httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -451,7 +451,7 @@ func TestWorkspaceHandlerInstallRequiresPermissionArrayAndPreservesEmpty(t *test
 		`{"agentId":"agent-a","versionConstraint":"^1.0.0","acceptedPermissions":"read"}`,
 	} {
 		callsBefore := service.installCalls
-		request = httptest.NewRequest(http.MethodPost, "/v3/workspaces/workspace-a/installations", strings.NewReader(body))
+		request = httptest.NewRequest(http.MethodPost, "/v1/workspaces/workspace-a/installations", strings.NewReader(body))
 		request.Header.Set("Authorization", "Bearer token")
 		response = httptest.NewRecorder()
 		handler.Routes().ServeHTTP(response, request)
@@ -471,7 +471,7 @@ func TestWorkspaceHandlerInstallRequiresPermissionArrayAndPreservesEmpty(t *test
 		{workspace.ErrDependency, http.StatusServiceUnavailable, "DEPENDENCY_ERROR"},
 	} {
 		service.installErr = test.err
-		request = httptest.NewRequest(http.MethodPost, "/v3/workspaces/workspace-a/installations", strings.NewReader(validBody))
+		request = httptest.NewRequest(http.MethodPost, "/v1/workspaces/workspace-a/installations", strings.NewReader(validBody))
 		request.Header.Set("Authorization", "Bearer token")
 		response = httptest.NewRecorder()
 		handler.Routes().ServeHTTP(response, request)
@@ -490,7 +490,7 @@ func TestWorkspaceHandlerMapsLifecycleSuccessAndFailures(t *testing.T) {
 	}}
 	handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, service)
 
-	request := httptest.NewRequest(http.MethodPatch, "/v3/workspaces/workspace-a/installations/installation-a", strings.NewReader(`{"status":"disabled"}`))
+	request := httptest.NewRequest(http.MethodPatch, "/v1/workspaces/workspace-a/installations/installation-a", strings.NewReader(`{"status":"disabled"}`))
 	request.Header.Set("Authorization", "Bearer token")
 	response := httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -505,7 +505,7 @@ func TestWorkspaceHandlerMapsLifecycleSuccessAndFailures(t *testing.T) {
 		t.Fatalf("disable response = %#v", disabled)
 	}
 
-	request = httptest.NewRequest(http.MethodDelete, "/v3/workspaces/workspace-a/installations/installation-a", nil)
+	request = httptest.NewRequest(http.MethodDelete, "/v1/workspaces/workspace-a/installations/installation-a", nil)
 	request.Header.Set("Authorization", "Bearer token")
 	response = httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -546,7 +546,7 @@ func TestWorkspaceHandlerMapsLifecycleSuccessAndFailures(t *testing.T) {
 			}
 			beforeUpdate := service.updateCalls
 			beforeUninstall := service.uninstallCalls
-			request := httptest.NewRequest(test.method, "/v3/workspaces/workspace-a/installations/installation-a", strings.NewReader(test.body))
+			request := httptest.NewRequest(test.method, "/v1/workspaces/workspace-a/installations/installation-a", strings.NewReader(test.body))
 			request.Header.Set("Authorization", "Bearer token")
 			response := httptest.NewRecorder()
 			handler.Routes().ServeHTTP(response, request)
@@ -563,7 +563,7 @@ func TestWorkspaceHandlerMapsLifecycleSuccessAndFailures(t *testing.T) {
 	}
 
 	unauthenticated := newWorkspaceTestHandler(t, workspaceTestAuthenticator{err: ErrUnauthenticated}, service)
-	request = httptest.NewRequest(http.MethodDelete, "/v3/workspaces/workspace-a/installations/installation-a", nil)
+	request = httptest.NewRequest(http.MethodDelete, "/v1/workspaces/workspace-a/installations/installation-a", nil)
 	response = httptest.NewRecorder()
 	unauthenticated.Routes().ServeHTTP(response, request)
 	if response.Code != http.StatusUnauthorized || service.uninstallCalls != 2 {
@@ -574,7 +574,7 @@ func TestWorkspaceHandlerMapsLifecycleSuccessAndFailures(t *testing.T) {
 func TestWorkspaceHandlerRejectsOversizedJSONBeforeService(t *testing.T) {
 	service := &workspaceTestService{}
 	handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, service)
-	request := httptest.NewRequest(http.MethodPost, "/v3/workspaces", strings.NewReader(strings.Repeat("x", contracts.WorkspaceRequestMaximumBodyBytes+1)))
+	request := httptest.NewRequest(http.MethodPost, "/v1/workspaces", strings.NewReader(strings.Repeat("x", contracts.WorkspaceRequestMaximumBodyBytes+1)))
 	request.Header.Set("Authorization", "Bearer token")
 	response := httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -589,7 +589,7 @@ func TestWorkspaceHandlerRejectsOversizedJSONBeforeService(t *testing.T) {
 func TestWorkspaceHandlerSeparatesPreAndPostCorrelationErrors(t *testing.T) {
 	service := &workspaceTestService{resolveErr: workspace.ErrDependency}
 	handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, service)
-	request := httptest.NewRequest(http.MethodPost, "/internal/v2/resolve-agent", strings.NewReader(`{"invocationId":"bad id"}`))
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/resolve-agent", strings.NewReader(`{"invocationId":"bad id"}`))
 	request.Header.Set("Authorization", "Bearer internal")
 	response := httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -604,7 +604,7 @@ func TestWorkspaceHandlerSeparatesPreAndPostCorrelationErrors(t *testing.T) {
 		t.Fatalf("pre-correlation error leaked IDs: %#v", pre)
 	}
 
-	request = httptest.NewRequest(http.MethodPost, "/internal/v2/resolve-agent", strings.NewReader(`{"invocationId":"inv-a","rootTaskId":"task-a","traceId":"trace-a","workspaceId":"workspace-a","agentId":"agent-a","version":"bad","capability":"capability-a"}`))
+	request = httptest.NewRequest(http.MethodPost, "/internal/v1/resolve-agent", strings.NewReader(`{"invocationId":"inv-a","rootTaskId":"task-a","traceId":"trace-a","workspaceId":"workspace-a","agentId":"agent-a","version":"bad","capability":"capability-a"}`))
 	request.Header.Set("Authorization", "Bearer internal")
 	response = httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -633,7 +633,7 @@ func TestResolveHandlerKeepsCorrelationForNonCorrelationValidationErrors(t *test
 		t.Run(test.name, func(t *testing.T) {
 			service := &workspaceTestService{}
 			handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "router-a"}}, service)
-			request := httptest.NewRequest(http.MethodPost, "/internal/v2/resolve-agent", strings.NewReader(test.body))
+			request := httptest.NewRequest(http.MethodPost, "/internal/v1/resolve-agent", strings.NewReader(test.body))
 			request.Header.Set("Authorization", "Bearer internal")
 			response := httptest.NewRecorder()
 			handler.Routes().ServeHTTP(response, request)
@@ -656,7 +656,7 @@ func TestResolveHandlerUsesSeparateInternalAuthentication(t *testing.T) {
 	handler := newWorkspaceTestHandlerWithAuthenticators(t,
 		workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "owner-a"}},
 		workspaceTestAuthenticator{err: ErrUnauthenticated}, service)
-	request := httptest.NewRequest(http.MethodPost, "/internal/v2/resolve-agent", strings.NewReader("{\"invocationId\":\"inv-a\",\"rootTaskId\":\"task-a\",\"traceId\":\"trace-a\",\"workspaceId\":\"workspace-a\",\"agentId\":\"agent-a\",\"version\":\"1.0.0\",\"capability\":\"capability-a\"}"))
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/resolve-agent", strings.NewReader("{\"invocationId\":\"inv-a\",\"rootTaskId\":\"task-a\",\"traceId\":\"trace-a\",\"workspaceId\":\"workspace-a\",\"agentId\":\"agent-a\",\"version\":\"1.0.0\",\"capability\":\"capability-a\"}"))
 	request.Header.Set("Authorization", "Bearer northbound-token")
 	response := httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -694,7 +694,7 @@ func TestResolveHandlerPreservesTypedFailureCorrelation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			service := &workspaceTestService{resolveErr: test.err}
 			handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "router-a"}}, service)
-			request := httptest.NewRequest(http.MethodPost, "/internal/v2/resolve-agent", strings.NewReader("{\"invocationId\":\"inv-a\",\"rootTaskId\":\"task-a\",\"traceId\":\"trace-a\",\"workspaceId\":\"workspace-a\",\"agentId\":\"agent-a\",\"version\":\"1.0.0\",\"capability\":\"capability-a\"}"))
+			request := httptest.NewRequest(http.MethodPost, "/internal/v1/resolve-agent", strings.NewReader("{\"invocationId\":\"inv-a\",\"rootTaskId\":\"task-a\",\"traceId\":\"trace-a\",\"workspaceId\":\"workspace-a\",\"agentId\":\"agent-a\",\"version\":\"1.0.0\",\"capability\":\"capability-a\"}"))
 			request.Header.Set("Authorization", "Bearer internal")
 			response := httptest.NewRecorder()
 			handler.Routes().ServeHTTP(response, request)
@@ -718,7 +718,7 @@ func TestResolveHandlerReturnsOnlyResolutionContractFields(t *testing.T) {
 		Installation: contracts.ResolvedInstallation{InstallationID: "installation-a", WorkspaceID: "workspace-a", AgentID: "agent-a", InstalledVersion: "1.0.0", AcceptedPermissions: []string{"read"}, Status: "enabled"},
 	}}
 	handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "router-a"}}, service)
-	request := httptest.NewRequest(http.MethodPost, "/internal/v2/resolve-agent", strings.NewReader("{\"invocationId\":\"inv-a\",\"rootTaskId\":\"task-a\",\"traceId\":\"trace-a\",\"workspaceId\":\"workspace-a\",\"agentId\":\"agent-a\",\"version\":\"1.0.0\",\"capability\":\"capability-a\"}"))
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/resolve-agent", strings.NewReader("{\"invocationId\":\"inv-a\",\"rootTaskId\":\"task-a\",\"traceId\":\"trace-a\",\"workspaceId\":\"workspace-a\",\"agentId\":\"agent-a\",\"version\":\"1.0.0\",\"capability\":\"capability-a\"}"))
 	request.Header.Set("Authorization", "Bearer internal")
 	response := httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -737,7 +737,7 @@ func TestResolveHandlerReturnsOnlyResolutionContractFields(t *testing.T) {
 func TestWorkspaceHandlerMapsUnexpectedErrorsToInternalServerError(t *testing.T) {
 	service := &workspaceTestService{resolveErr: errors.New("unexpected service failure")}
 	handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "router-a"}}, service)
-	request := httptest.NewRequest(http.MethodPost, "/internal/v2/resolve-agent", strings.NewReader(`{"invocationId":"inv-a","rootTaskId":"task-a","traceId":"trace-a","workspaceId":"workspace-a","agentId":"agent-a","version":"1.0.0","capability":"capability-a"}`))
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/resolve-agent", strings.NewReader(`{"invocationId":"inv-a","rootTaskId":"task-a","traceId":"trace-a","workspaceId":"workspace-a","agentId":"agent-a","version":"1.0.0","capability":"capability-a"}`))
 	request.Header.Set("Authorization", "Bearer internal")
 	response := httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -756,7 +756,7 @@ func TestWorkspaceHandlerMapsUnexpectedErrorsToInternalServerError(t *testing.T)
 func TestWorkspaceHandlerResolvesInstalledVersionThroughAuthenticatedV3Boundary(t *testing.T) {
 	service := &workspaceTestService{versionResponse: contracts.ResolveInstalledVersionResponse{Version: "1.4.2"}}
 	handler := newWorkspaceTestHandler(t, workspaceTestAuthenticator{caller: catalog.AuthenticatedCaller{ID: "router-a"}}, service)
-	request := httptest.NewRequest(http.MethodPost, "/internal/v3/resolve-installed-version", strings.NewReader(`{"invocationId":"inv-child","rootTaskId":"task-root","traceId":"trace-root","workspaceId":"workspace-a","agentId":"runtime-b","capability":"runtime.echo"}`))
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/resolve-installed-version", strings.NewReader(`{"invocationId":"inv-child","rootTaskId":"task-root","traceId":"trace-root","workspaceId":"workspace-a","agentId":"runtime-b","capability":"runtime.echo"}`))
 	request.Header.Set("Authorization", "Bearer internal")
 	response := httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -784,7 +784,7 @@ func TestWorkspaceHandlerResolvesInstalledVersionThroughAuthenticatedV3Boundary(
 }
 
 func requestForInstalledVersion() *http.Request {
-	request := httptest.NewRequest(http.MethodPost, "/internal/v3/resolve-installed-version", strings.NewReader(`{"invocationId":"inv-child","rootTaskId":"task-root","traceId":"trace-root","workspaceId":"workspace-a","agentId":"runtime-b","capability":"runtime.echo"}`))
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/resolve-installed-version", strings.NewReader(`{"invocationId":"inv-child","rootTaskId":"task-root","traceId":"trace-root","workspaceId":"workspace-a","agentId":"runtime-b","capability":"runtime.echo"}`))
 	request.Header.Set("Authorization", "Bearer internal")
 	return request
 }
