@@ -45,14 +45,18 @@ jobs:
           for component in control-plane a2a-router; do
             image="ghcr.io/nekiro-project/nekiro-${component}:${GITHUB_REF_NAME}"
             dockerfile="apps/${component}/Dockerfile"
+            metadata_file="${component}-metadata.json"
+            rm -f "$metadata_file"
             docker buildx build \
               --file "$dockerfile" \
               --platform linux/amd64,linux/arm64 \
               --provenance=mode=max \
               --sbom=true \
               --tag "$image" \
+              --metadata-file "$metadata_file" \
               --push \
               .
+            test -s "$metadata_file"
           done
 
       - name: Record immutable image digests
@@ -60,8 +64,8 @@ jobs:
         run: |
           control_image="ghcr.io/nekiro-project/nekiro-control-plane:${GITHUB_REF_NAME}"
           router_image="ghcr.io/nekiro-project/nekiro-a2a-router:${GITHUB_REF_NAME}"
-          control_digest=$(docker buildx imagetools inspect "$control_image" | awk '/^Digest:/ { print $2; exit }')
-          router_digest=$(docker buildx imagetools inspect "$router_image" | awk '/^Digest:/ { print $2; exit }')
+          control_digest=$(jq -r '."containerimage.digest" // empty' control-plane-metadata.json)
+          router_digest=$(jq -r '."containerimage.digest" // empty' a2a-router-metadata.json)
           for digest in "$control_digest" "$router_digest"; do
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           done
