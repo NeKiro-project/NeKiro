@@ -73,7 +73,7 @@ func TestDevelopmentStaticAuthenticatorUsesBearerDigestOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodGet, "/v3/agents", nil)
+	request := httptest.NewRequest(http.MethodGet, "/v1/agents", nil)
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("x-caller-id", "forged-owner")
 	caller, err := authenticator.Authenticate(request)
@@ -85,7 +85,7 @@ func TestDevelopmentStaticAuthenticatorUsesBearerDigestOnly(t *testing.T) {
 	}
 
 	for _, authorization := range []string{"", "Bearer", "Bearer wrong", "Bearer " + token + " extra"} {
-		request := httptest.NewRequest(http.MethodGet, "/v3/agents", nil)
+		request := httptest.NewRequest(http.MethodGet, "/v1/agents", nil)
 		if authorization != "" {
 			request.Header.Set("Authorization", authorization)
 		}
@@ -93,7 +93,7 @@ func TestDevelopmentStaticAuthenticatorUsesBearerDigestOnly(t *testing.T) {
 			t.Fatalf("authorization %q error = %v", authorization, err)
 		}
 	}
-	lowercaseScheme := httptest.NewRequest(http.MethodGet, "/v3/agents", nil)
+	lowercaseScheme := httptest.NewRequest(http.MethodGet, "/v1/agents", nil)
 	lowercaseScheme.Header.Set("Authorization", "bearer "+token)
 	if _, err := authenticator.Authenticate(lowercaseScheme); err != nil {
 		t.Fatalf("case-insensitive Bearer scheme was rejected: %v", err)
@@ -102,7 +102,7 @@ func TestDevelopmentStaticAuthenticatorUsesBearerDigestOnly(t *testing.T) {
 
 func TestHandlerAuthenticationErrorHasMatchingTrace(t *testing.T) {
 	handler := newTestHandler(t, fakeAuthenticator{err: ErrUnauthenticated}, &fakeCatalogService{}, fakeReadiness{})
-	request := httptest.NewRequest(http.MethodGet, "/v3/agents", nil)
+	request := httptest.NewRequest(http.MethodGet, "/v1/agents", nil)
 	response := httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
 	if response.Code != http.StatusUnauthorized {
@@ -117,7 +117,7 @@ func TestHandlerAuthenticationErrorHasMatchingTrace(t *testing.T) {
 	}
 }
 
-func TestActiveNorthboundV3CatalogRoutesComposeWithWorkspaceRoutes(t *testing.T) {
+func TestActiveNorthboundV1CatalogRoutesComposeWithWorkspaceRoutes(t *testing.T) {
 	catalogHandler := newTestHandler(t, fakeAuthenticator{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, &fakeCatalogService{
 		searchResult: catalog.SearchResult{Entries: []contracts.CatalogEntry{}},
 	}, fakeReadiness{})
@@ -126,19 +126,21 @@ func TestActiveNorthboundV3CatalogRoutesComposeWithWorkspaceRoutes(t *testing.T)
 	catalogHandler.RegisterRoutes(mux)
 	workspaceHandler.RegisterRoutes(mux)
 
-	catalogRequest := httptest.NewRequest(http.MethodGet, "/v3/agents", nil)
+	catalogRequest := httptest.NewRequest(http.MethodGet, "/v1/agents", nil)
 	catalogResponse := httptest.NewRecorder()
 	mux.ServeHTTP(catalogResponse, catalogRequest)
 	if catalogResponse.Code != http.StatusOK {
 		t.Fatalf("composed Catalog route status = %d, want 200", catalogResponse.Code)
 	}
-	legacyResponse := httptest.NewRecorder()
-	mux.ServeHTTP(legacyResponse, httptest.NewRequest(http.MethodGet, "/v2/agents", nil))
-	if legacyResponse.Code != http.StatusNotFound {
-		t.Fatalf("historical Catalog route status = %d, want 404", legacyResponse.Code)
+	for _, path := range []string{"/v2/agents", "/v3/agents", "/v4/agents"} {
+		retiredResponse := httptest.NewRecorder()
+		mux.ServeHTTP(retiredResponse, httptest.NewRequest(http.MethodGet, path, nil))
+		if retiredResponse.Code != http.StatusNotFound {
+			t.Fatalf("retired Catalog route %s status = %d, want 404", path, retiredResponse.Code)
+		}
 	}
 
-	workspaceRequest := httptest.NewRequest(http.MethodPost, "/v3/workspaces", strings.NewReader(`{"workspaceId":"workspace-a"}`))
+	workspaceRequest := httptest.NewRequest(http.MethodPost, "/v1/workspaces", strings.NewReader(`{"workspaceId":"workspace-a"}`))
 	workspaceResponse := httptest.NewRecorder()
 	mux.ServeHTTP(workspaceResponse, workspaceRequest)
 	if workspaceResponse.Code != http.StatusCreated {
@@ -150,7 +152,7 @@ func TestHandlerRegisterAndFixedDomainErrors(t *testing.T) {
 	caller := catalog.AuthenticatedCaller{ID: "owner-a", AuthenticationKind: config.DevelopmentStaticAuthMode}
 	service := &fakeCatalogService{entry: contracts.CatalogEntry{PublicationStatus: "draft", RegisteredAt: time.Now().UTC()}}
 	handler := newTestHandler(t, fakeAuthenticator{caller: caller}, service, fakeReadiness{})
-	request := httptest.NewRequest(http.MethodPost, "/v3/agents", bytes.NewBufferString(`{"card":{}}`))
+	request := httptest.NewRequest(http.MethodPost, "/v1/agents", bytes.NewBufferString(`{"card":{}}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := newDeadlineRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -177,7 +179,7 @@ func TestHandlerRegisterAndFixedDomainErrors(t *testing.T) {
 	}
 	for _, test := range tests {
 		service.err = test.err
-		request := httptest.NewRequest(http.MethodGet, "/v3/agents/agent-a/versions/1.0.0", nil)
+		request := httptest.NewRequest(http.MethodGet, "/v1/agents/agent-a/versions/1.0.0", nil)
 		response := httptest.NewRecorder()
 		handler.Routes().ServeHTTP(response, request)
 		if response.Code != test.status {
@@ -199,7 +201,7 @@ func TestHandlerRejectsInvalidMediaAndSearchParameters(t *testing.T) {
 	service := &fakeCatalogService{searchResult: catalog.SearchResult{Entries: []contracts.CatalogEntry{}}}
 	handler := newTestHandler(t, fakeAuthenticator{caller: caller}, service, fakeReadiness{})
 
-	request := httptest.NewRequest(http.MethodPost, "/v3/agents", bytes.NewBufferString(`{"card":{}}`))
+	request := httptest.NewRequest(http.MethodPost, "/v1/agents", bytes.NewBufferString(`{"card":{}}`))
 	request.Header.Set("Content-Type", "text/plain")
 	response := httptest.NewRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -208,7 +210,7 @@ func TestHandlerRejectsInvalidMediaAndSearchParameters(t *testing.T) {
 	}
 
 	for _, rawQuery := range []string{"unknown=value", "limit=0", "limit=abc", "query=a&query=b", "query=%ZZ"} {
-		request := httptest.NewRequest(http.MethodGet, "/v3/agents?"+rawQuery, nil)
+		request := httptest.NewRequest(http.MethodGet, "/v1/agents?"+rawQuery, nil)
 		response := httptest.NewRecorder()
 		handler.Routes().ServeHTTP(response, request)
 		if response.Code != http.StatusBadRequest {
@@ -222,7 +224,7 @@ func TestHandlerRejectsOversizedRegistrationBeforeCatalog(t *testing.T) {
 	service := &fakeCatalogService{}
 	handler := newTestHandler(t, fakeAuthenticator{caller: caller}, service, fakeReadiness{})
 	body := io.LimitReader(repeatingReader{}, contracts.RegistrationMaximumBodyBytes+1)
-	request := httptest.NewRequest(http.MethodPost, "/v3/agents", body)
+	request := httptest.NewRequest(http.MethodPost, "/v1/agents", body)
 	request.Header.Set("Content-Type", "application/json")
 	response := newDeadlineRecorder()
 	handler.Routes().ServeHTTP(response, request)
@@ -238,7 +240,7 @@ func TestHandlerFailsBeforeCatalogWhenBodyDeadlineCannotBeControlled(t *testing.
 	caller := catalog.AuthenticatedCaller{ID: "owner-a"}
 	service := &fakeCatalogService{}
 	handler := newTestHandler(t, fakeAuthenticator{caller: caller}, service, fakeReadiness{})
-	request := httptest.NewRequest(http.MethodPost, "/v3/agents", bytes.NewBufferString(`{"card":{}}`))
+	request := httptest.NewRequest(http.MethodPost, "/v1/agents", bytes.NewBufferString(`{"card":{}}`))
 	request.Header.Set("Content-Type", "application/json")
 	unsupported := httptest.NewRecorder()
 	handler.Routes().ServeHTTP(unsupported, request)
@@ -252,7 +254,7 @@ func TestHandlerFailsBeforeCatalogWhenBodyDeadlineCannotBeControlled(t *testing.
 	for _, failCall := range []int{0, 1} {
 		service := &fakeCatalogService{}
 		handler := newTestHandler(t, fakeAuthenticator{caller: caller}, service, fakeReadiness{})
-		request := httptest.NewRequest(http.MethodPost, "/v3/agents", bytes.NewBufferString(`{"card":{}}`))
+		request := httptest.NewRequest(http.MethodPost, "/v1/agents", bytes.NewBufferString(`{"card":{}}`))
 		request.Header.Set("Content-Type", "application/json")
 		response := newDeadlineRecorder()
 		response.failCall = failCall
@@ -400,7 +402,7 @@ func writeRequestHeaders(t *testing.T, connection net.Conn, host string, bodyLen
 	if complete {
 		ending = "\r\n"
 	}
-	if _, err := fmt.Fprintf(connection, "POST /v3/agents HTTP/1.1\r\nHost: %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\n%s", host, bodyLength, ending); err != nil {
+	if _, err := fmt.Fprintf(connection, "POST /v1/agents HTTP/1.1\r\nHost: %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\n%s", host, bodyLength, ending); err != nil {
 		t.Fatalf("write registration headers: %v", err)
 	}
 }

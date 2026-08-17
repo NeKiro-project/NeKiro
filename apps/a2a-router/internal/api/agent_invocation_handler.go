@@ -16,7 +16,7 @@ import (
 )
 
 // VersionResolver resolves the deterministic installed Agent Card version
-// from the Control Plane Internal v3 endpoint.
+// from the Control Plane Internal v1 endpoint.
 type VersionResolver interface {
 	ResolveInstalledVersion(context.Context, contracts.ResolveInstalledVersionRequest) (contracts.ResolveInstalledVersionResponse, error)
 }
@@ -25,7 +25,7 @@ type VersionResolver interface {
 // Ledger by invocation ID only. The authenticated principal is checked
 // against both the parent Workspace and target Agent before child derivation.
 type NestedLedgerReader interface {
-	GetInvocationByParentID(context.Context, string) (contracts.InvocationDetailResponseV4, error)
+	GetInvocationByParentID(context.Context, string) (contracts.InvocationDetailResponseV1, error)
 }
 
 // AgentInvocationHandler handles Agent-facing nested invocation requests at

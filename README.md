@@ -39,6 +39,12 @@ Agents through a framework-owned lifecycle:
 Register -> Discover -> Install -> Invoke -> Record
 ```
 
+The first released HTTP surface uses one version per owned boundary: Gateway
+routes are under `/v1`, Control Plane and Router service routes are under
+`/internal/v1`, and Agent-to-Router calls are under `/agent/v1`. Pre-release
+`/v2`, `/v3`, and `/v4` routes are not served. See the
+[Platform API v1 migration](docs/usage/platform-api-v1-migration.md).
+
 - **Runtime agnostic**: an Agent may use tRPC-Agent-Go, `a2a-go`, another
   framework, or a custom runtime.
 - **Contract first**: Agent Cards, Releases, HTTP APIs, internal APIs, A2A
@@ -512,6 +518,15 @@ Security and compatibility decisions are documented as ADRs under
 [`docs/decisions`](docs/decisions/), including runtime trust, signed Router
 credentials, instance discovery, registration leases, and Nacos transport
 security.
+
+## Releases
+
+An annotated semantic tag publishes multi-architecture Control Plane and
+Router images to GHCR with OCI provenance and SBOM attestations. The release
+attaches an `images.json` file containing the exact tag, Core commit, image
+references, and immutable manifest digests. NeKiro-Stack owns the compatible
+cross-repository manifest and product acceptance; Core images alone are not a
+product release.
 
 ## Development and verification
 

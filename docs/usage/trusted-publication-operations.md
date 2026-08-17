@@ -49,13 +49,13 @@ private/public key text, or `jti`.
 
 ## Publish a trusted Agent version
 
-Register the Agent Card through `POST /v3/agents` before these steps. The Card
+Register the Agent Card through `POST /v1/agents` before these steps. The Card
 declares the exact Agent version and endpoint; it contains no endpoint secret.
 
 1. Create an Endpoint Binding for that exact version.
 
    ```powershell
-   $binding = Invoke-RestMethod -Method Post -Uri "$gateway/v4/providers/$providerId/agents/$agentId/endpoint-bindings" -Headers $headers -ContentType 'application/json' -Body (@{
+   $binding = Invoke-RestMethod -Method Post -Uri "$gateway/v1/providers/$providerId/agents/$agentId/endpoint-bindings" -Headers $headers -ContentType 'application/json' -Body (@{
      endpoint = $endpoint
      method = 'http_well_known'
      version = $version
@@ -65,7 +65,7 @@ declares the exact Agent version and endpoint; it contains no endpoint secret.
 2. Request a one-time challenge.
 
    ```powershell
-   $challenge = Invoke-RestMethod -Method Post -Uri "$gateway/v4/providers/$providerId/endpoint-bindings/$($binding.bindingId)/challenges" -Headers $headers
+   $challenge = Invoke-RestMethod -Method Post -Uri "$gateway/v1/providers/$providerId/endpoint-bindings/$($binding.bindingId)/challenges" -Headers $headers
    ```
 
    This authenticated issuance response is the only public response allowed
@@ -77,7 +77,7 @@ declares the exact Agent version and endpoint; it contains no endpoint secret.
 3. Complete the challenge once.
 
    ```powershell
-   $binding = Invoke-RestMethod -Method Post -Uri "$gateway/v4/providers/$providerId/endpoint-bindings/$($binding.bindingId)/challenges/$($challenge.challengeId)/complete" -Headers $headers
+   $binding = Invoke-RestMethod -Method Post -Uri "$gateway/v1/providers/$providerId/endpoint-bindings/$($binding.bindingId)/challenges/$($challenge.challengeId)/complete" -Headers $headers
    ```
 
    Completion is successful only when `verificationStatus` is `verified` and
@@ -87,15 +87,15 @@ declares the exact Agent version and endpoint; it contains no endpoint secret.
 4. Create and publish the immutable Release.
 
    ```powershell
-   $release = Invoke-RestMethod -Method Post -Uri "$gateway/v4/providers/$providerId/agents/$agentId/releases" -Headers $headers -ContentType 'application/json' -Body (@{
+   $release = Invoke-RestMethod -Method Post -Uri "$gateway/v1/providers/$providerId/agents/$agentId/releases" -Headers $headers -ContentType 'application/json' -Body (@{
      version = $version
      endpointBindingId = $binding.bindingId
    } | ConvertTo-Json -Compress)
 
    if ($release.state -eq 'pending_verification') {
-     $release = Invoke-RestMethod -Method Post -Uri "$gateway/v4/releases/$($release.releaseId)/verify" -Headers $headers
+     $release = Invoke-RestMethod -Method Post -Uri "$gateway/v1/releases/$($release.releaseId)/verify" -Headers $headers
    }
-   $release = Invoke-RestMethod -Method Post -Uri "$gateway/v4/releases/$($release.releaseId)/publish" -Headers $headers
+   $release = Invoke-RestMethod -Method Post -Uri "$gateway/v1/releases/$($release.releaseId)/publish" -Headers $headers
    ```
 
    Completion requires `state=published`, the expected Agent/Card version,
@@ -103,7 +103,7 @@ declares the exact Agent version and endpoint; it contains no endpoint secret.
    digest, and `publishedAt`.
 
 5. The Workspace owner installs the version through
-   `POST /v3/workspaces/{workspaceId}/installations` and verifies that
+   `POST /v1/workspaces/{workspaceId}/installations` and verifies that
    `installedReleaseId` equals the published Release ID and `status=enabled`.
 
 ## Inspect trust and Invocation provenance
@@ -111,17 +111,17 @@ declares the exact Agent version and endpoint; it contains no endpoint secret.
 Use the owning public reads; do not join module tables manually.
 
 ```powershell
-$binding = Invoke-RestMethod -Method Get -Uri "$gateway/v4/providers/$providerId/endpoint-bindings/$bindingId" -Headers $headers
-$release = Invoke-RestMethod -Method Get -Uri "$gateway/v4/releases/$releaseId" -Headers $headers
-$invocation = Invoke-RestMethod -Method Get -Uri "$gateway/v4/workspaces/$workspaceId/invocations/$invocationId" -Headers $headers
-$trace = Invoke-RestMethod -Method Get -Uri "$gateway/v4/workspaces/$workspaceId/traces/$traceId" -Headers $headers
+$binding = Invoke-RestMethod -Method Get -Uri "$gateway/v1/providers/$providerId/endpoint-bindings/$bindingId" -Headers $headers
+$release = Invoke-RestMethod -Method Get -Uri "$gateway/v1/releases/$releaseId" -Headers $headers
+$invocation = Invoke-RestMethod -Method Get -Uri "$gateway/v1/workspaces/$workspaceId/invocations/$invocationId" -Headers $headers
+$trace = Invoke-RestMethod -Method Get -Uri "$gateway/v1/workspaces/$workspaceId/traces/$traceId" -Headers $headers
 ```
 
 For every accepted trusted Invocation, verify this chain:
 
 ```text
 Invocation/Event agentReleaseId + agentCardDigest
-  -> GET /v4/releases/{agentReleaseId}
+  -> GET /v1/releases/{agentReleaseId}
   -> same Agent ID + Card version + Card digest
   -> published state + Endpoint Binding + http_well_known evidence metadata
 ```
@@ -136,8 +136,8 @@ Suspension blocks new managed invocations but keeps the historical Release
 queryable. Revocation is terminal.
 
 ```powershell
-$suspended = Invoke-RestMethod -Method Post -Uri "$gateway/v4/releases/$releaseId/suspend" -Headers $headers
-$revoked = Invoke-RestMethod -Method Post -Uri "$gateway/v4/releases/$releaseId/revoke" -Headers $headers
+$suspended = Invoke-RestMethod -Method Post -Uri "$gateway/v1/releases/$releaseId/suspend" -Headers $headers
+$revoked = Invoke-RestMethod -Method Post -Uri "$gateway/v1/releases/$releaseId/revoke" -Headers $headers
 ```
 
 Confirm `state=suspended` and `suspendedAt`, or `state=revoked` and

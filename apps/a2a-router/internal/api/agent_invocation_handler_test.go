@@ -27,12 +27,12 @@ func agentTokenDigest(token string) string {
 }
 
 type mockNestedLedgerReader struct {
-	invocation contracts.InvocationDetailResponseV4
+	invocation contracts.InvocationDetailResponseV1
 	err        error
 	calls      int
 }
 
-func (m *mockNestedLedgerReader) GetInvocationByParentID(_ context.Context, _ string) (contracts.InvocationDetailResponseV4, error) {
+func (m *mockNestedLedgerReader) GetInvocationByParentID(_ context.Context, _ string) (contracts.InvocationDetailResponseV1, error) {
 	m.calls++
 	return m.invocation, m.err
 }
@@ -84,9 +84,9 @@ func newTestAgentHandler(t *testing.T, ledgerReader NestedLedgerReader, versionR
 	return handler, token
 }
 
-func runningParentDetail() contracts.InvocationDetailResponseV4 {
-	return contracts.InvocationDetailResponseV4{
-		Invocation: contracts.InvocationRecordV4{
+func runningParentDetail() contracts.InvocationDetailResponseV1 {
+	return contracts.InvocationDetailResponseV1{
+		Invocation: contracts.InvocationRecordV1{
 			InvocationID:     "inv_parent123",
 			RootTaskID:       "task_root456",
 			TraceID:          "trc_abc123_1",
@@ -643,8 +643,8 @@ func TestAgentHandlerNestedJSONSuccessPath(t *testing.T) {
 // Agent ID cannot use a credential bound to one Workspace to reference a
 // parent from another Workspace.
 func TestAgentHandlerCrossWorkspaceParentMismatch(t *testing.T) {
-	foreignParent := contracts.InvocationDetailResponseV4{
-		Invocation: contracts.InvocationRecordV4{
+	foreignParent := contracts.InvocationDetailResponseV1{
+		Invocation: contracts.InvocationRecordV1{
 			InvocationID:     "inv_foreign999",
 			RootTaskID:       "task_foreign_root",
 			TraceID:          "trc_foreign_1",

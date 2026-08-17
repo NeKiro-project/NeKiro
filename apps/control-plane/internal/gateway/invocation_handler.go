@@ -46,7 +46,7 @@ func NewInvocationHandler(authenticator Authenticator, dispatcher InvocationDisp
 }
 
 func (handler *InvocationHandler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /v4/workspaces/{workspaceId}/invocations", handler.invoke)
+	mux.HandleFunc("POST /v1/workspaces/{workspaceId}/invocations", handler.invoke)
 }
 
 func (handler *InvocationHandler) invoke(writer http.ResponseWriter, request *http.Request) {

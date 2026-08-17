@@ -80,7 +80,7 @@ func TestWorkspaceAndInstallationV2Schemas(t *testing.T) {
 }
 
 func TestWorkspaceV3OperationsDeclareSecurityTraceAndExactErrors(t *testing.T) {
-	document := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v3.yaml"))
+	document := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v1.yaml"))
 	tests := []struct {
 		path     string
 		method   string
@@ -88,31 +88,31 @@ func TestWorkspaceV3OperationsDeclareSecurityTraceAndExactErrors(t *testing.T) {
 		failures map[int][]string
 	}{
 		{
-			path: "/v3/workspaces", method: "POST", success: 201,
+			path: "/v1/workspaces", method: "POST", success: 201,
 			failures: map[int][]string{400: {"VALIDATION_ERROR"}, 401: {"UNAUTHENTICATED"}, 409: {"CONFLICT"}, 503: {"DEPENDENCY_ERROR"}},
 		},
 		{
-			path: "/v3/workspaces/{workspaceId}", method: "GET", success: 200,
+			path: "/v1/workspaces/{workspaceId}", method: "GET", success: 200,
 			failures: workspaceReadFailures(),
 		},
 		{
-			path: "/v3/workspaces/{workspaceId}/installations", method: "POST", success: 201,
+			path: "/v1/workspaces/{workspaceId}/installations", method: "POST", success: 201,
 			failures: map[int][]string{400: {"VALIDATION_ERROR"}, 401: {"UNAUTHENTICATED"}, 403: {"FORBIDDEN", "AGENT_RELEASE_UNPUBLISHED", "AGENT_RELEASE_SUSPENDED", "AGENT_RELEASE_REVOKED"}, 404: {"NOT_FOUND"}, 409: {"CONFLICT"}, 503: {"DEPENDENCY_ERROR"}},
 		},
 		{
-			path: "/v3/workspaces/{workspaceId}/installations", method: "GET", success: 200,
+			path: "/v1/workspaces/{workspaceId}/installations", method: "GET", success: 200,
 			failures: workspaceReadFailures(),
 		},
 		{
-			path: "/v3/workspaces/{workspaceId}/installations/{installationId}", method: "GET", success: 200,
+			path: "/v1/workspaces/{workspaceId}/installations/{installationId}", method: "GET", success: 200,
 			failures: workspaceReadFailures(),
 		},
 		{
-			path: "/v3/workspaces/{workspaceId}/installations/{installationId}", method: "PATCH", success: 200,
+			path: "/v1/workspaces/{workspaceId}/installations/{installationId}", method: "PATCH", success: 200,
 			failures: workspaceMutationFailures(),
 		},
 		{
-			path: "/v3/workspaces/{workspaceId}/installations/{installationId}", method: "DELETE", success: 200,
+			path: "/v1/workspaces/{workspaceId}/installations/{installationId}", method: "DELETE", success: 200,
 			failures: workspaceMutationFailures(),
 		},
 	}
@@ -179,7 +179,7 @@ func TestResolveAgentResponsePreservesExactRequestIdentity(t *testing.T) {
 }
 
 func TestWorkspaceV3GoMappings(t *testing.T) {
-	document := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v3.yaml"))
+	document := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v1.yaml"))
 	now := time.Date(2026, 7, 14, 10, 0, 0, 0, time.UTC)
 	workspace := Workspace{WorkspaceID: "workspace-1", OwnerID: "owner-1", CreatedAt: now, UpdatedAt: now}
 	installation := validInstallation()
@@ -188,14 +188,14 @@ func TestWorkspaceV3GoMappings(t *testing.T) {
 	uninstalled.UpdatedAt = now
 	uninstalled.UninstalledAt = &now
 
-	create := findOperation(t, document, "/v3/workspaces", "POST")
+	create := findOperation(t, document, "/v1/workspaces", "POST")
 	validateOpenAPIValue(t, create.RequestBody.Value.Content["application/json"].Schema, CreateWorkspaceRequest{WorkspaceID: workspace.WorkspaceID})
 	validateOpenAPIValue(t, create.Responses.Status(201).Value.Content["application/json"].Schema, workspace)
 
-	read := findOperation(t, document, "/v3/workspaces/{workspaceId}", "GET")
+	read := findOperation(t, document, "/v1/workspaces/{workspaceId}", "GET")
 	validateOpenAPIValue(t, read.Responses.Status(200).Value.Content["application/json"].Schema, workspace)
 
-	collection := document.Paths.Find("/v3/workspaces/{workspaceId}/installations")
+	collection := document.Paths.Find("/v1/workspaces/{workspaceId}/installations")
 	if collection.Get.Parameters.GetByInAndName("query", "limit") == nil || collection.Get.Parameters.GetByInAndName("query", "cursor") == nil {
 		t.Fatal("Installation list limit/cursor parameters are missing")
 	}
@@ -220,7 +220,7 @@ func TestWorkspaceV3GoMappings(t *testing.T) {
 	validateOpenAPIValue(t, collection.Get.Responses.Status(200).Value.Content["application/json"].Schema, InstallationList{Items: []Installation{installation, uninstalled}, NextCursor: &cursor})
 	validateOpenAPIValue(t, collection.Get.Responses.Status(200).Value.Content["application/json"].Schema, InstallationList{Items: []Installation{}})
 
-	item := document.Paths.Find("/v3/workspaces/{workspaceId}/installations/{installationId}")
+	item := document.Paths.Find("/v1/workspaces/{workspaceId}/installations/{installationId}")
 	validateOpenAPIValue(t, item.Get.Responses.Status(200).Value.Content["application/json"].Schema, uninstalled)
 	validateOpenAPIValue(t, item.Patch.RequestBody.Value.Content["application/json"].Schema, UpdateInstallationRequest{Status: "disabled"})
 	validateOpenAPIValue(t, item.Patch.Responses.Status(200).Value.Content["application/json"].Schema, installation)
@@ -228,8 +228,8 @@ func TestWorkspaceV3GoMappings(t *testing.T) {
 }
 
 func TestWorkspaceV3LifecycleContractIsTerminalAndNonIdempotent(t *testing.T) {
-	document := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v3.yaml"))
-	item := document.Paths.Find("/v3/workspaces/{workspaceId}/installations/{installationId}")
+	document := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v1.yaml"))
+	item := document.Paths.Find("/v1/workspaces/{workspaceId}/installations/{installationId}")
 	if item == nil || item.Patch == nil || item.Delete == nil {
 		t.Fatal("active lifecycle operations are missing")
 	}
@@ -265,8 +265,8 @@ func TestWorkspaceV3LifecycleContractIsTerminalAndNonIdempotent(t *testing.T) {
 }
 
 func TestControlPlaneInternalResolutionDeclaresTrustedIdentityAndTrace(t *testing.T) {
-	document := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v2.yaml"))
-	operation := findOperation(t, document, "/internal/v2/resolve-agent", "POST")
+	document := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v1.yaml"))
+	operation := findOperation(t, document, "/internal/v1/resolve-agent", "POST")
 	if operation.Security == nil || len(*operation.Security) != 1 {
 		t.Fatal("internal Bearer security requirement is missing")
 	}

@@ -48,11 +48,11 @@ func TestInvocationReadHandlerProxiesAuthorizedMetadataAndCorrelation(t *testing
 		traceResponse:      metadataHTTPResponse(http.StatusOK, validTraceMetadataJSON),
 	}
 	handler := newInvocationReadTestHandler(t, invocationAuthenticatorStub{caller: catalog.AuthenticatedCaller{ID: "owner-a", AuthenticationKind: "development-static"}}, reader)
-	invocationResponse := serveInvocationReadTestRequest(handler, "/v4/workspaces/workspace-a/invocations/inv-a")
+	invocationResponse := serveInvocationReadTestRequest(handler, "/v1/workspaces/workspace-a/invocations/inv-a")
 	if invocationResponse.Code != http.StatusOK || invocationResponse.Body.String() != validInvocationMetadataJSON || invocationResponse.Header().Get(TraceHeader) == "" {
 		t.Fatalf("Invocation response = %d %q trace=%q", invocationResponse.Code, invocationResponse.Body.String(), invocationResponse.Header().Get(TraceHeader))
 	}
-	traceRequest := httptest.NewRequest(http.MethodGet, "/v4/workspaces/workspace-a/traces/trace-a", nil)
+	traceRequest := httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a/traces/trace-a", nil)
 	traceResponse := httptest.NewRecorder()
 	handler.ServeHTTP(traceResponse, traceRequest)
 	if traceResponse.Code != http.StatusOK || traceResponse.Body.String() != validTraceMetadataJSON || reader.traceCalls != 1 {
@@ -74,23 +74,23 @@ func TestInvocationReadHandlerRejectsBeforeRouterAndPreservesReadFailures(t *tes
 		response   *invocation.RouterResponse
 		wantInvoke int
 	}{
-		{name: "unauthenticated first", authErr: ErrUnauthenticated, status: http.StatusUnauthorized, code: contracts.ErrorCodeUnauthenticated, path: "/v4/workspaces/workspace-a/invocations/inv-a"},
-		{name: "invalid path", status: http.StatusBadRequest, code: contracts.ErrorCodeValidationError, path: "/v4/workspaces/bad%20workspace/invocations/inv-a"},
-		{name: "workspace forbidden", readerErr: workspace.ErrForbidden, status: http.StatusForbidden, code: contracts.ErrorCodeForbidden, path: "/v4/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
-		{name: "workspace missing", readerErr: workspace.ErrNotFound, status: http.StatusNotFound, code: contracts.ErrorCodeNotFound, path: "/v4/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
-		{name: "workspace dependency", readerErr: workspace.ErrDependency, status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v4/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
-		{name: "read deadline", readerErr: context.DeadlineExceeded, status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v4/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
-		{name: "Router not found", response: metadataHTTPResponse(http.StatusNotFound, `{"code":"NOT_FOUND"}`), status: http.StatusNotFound, code: contracts.ErrorCodeNotFound, path: "/v4/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
-		{name: "Router dependency", response: metadataHTTPResponse(http.StatusServiceUnavailable, `{"code":"DEPENDENCY_ERROR"}`), status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v4/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
-		{name: "Router wrong media", response: &invocation.RouterResponse{StatusCode: http.StatusOK, ContentType: "text/plain", Body: io.NopCloser(strings.NewReader("internal"))}, status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v4/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
-		{name: "Router not-found wrong media", response: &invocation.RouterResponse{StatusCode: http.StatusNotFound, ContentType: "text/plain", Body: io.NopCloser(strings.NewReader("internal"))}, status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v4/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
-		{name: "Router malformed success", response: metadataHTTPResponse(http.StatusOK, `{}`), status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v4/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
-		{name: "Router content-bearing success", response: metadataHTTPResponse(http.StatusOK, strings.Replace(validInvocationMetadataJSON, `"events":[`, `"input":{"secret":"value"},"events":[`, 1)), status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v4/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
-		{name: "Router metadata exceeds separate limit", response: metadataHTTPResponse(http.StatusOK, validInvocationMetadataJSON+strings.Repeat(" ", 5000)), status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v4/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
-		{name: "Router duplicate member", response: metadataHTTPResponse(http.StatusOK, strings.Replace(validInvocationMetadataJSON, `"invocationId":"inv-a","rootTaskId"`, `"invocationId":"inv-a","invocationId":"inv-a","rootTaskId"`, 1)), status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v4/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
-		{name: "Router trailing JSON", response: metadataHTTPResponse(http.StatusOK, validInvocationMetadataJSON+`{}`), status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v4/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
-		{name: "Router unknown nested event member", response: metadataHTTPResponse(http.StatusOK, strings.Replace(validInvocationMetadataJSON, `"eventId":"event-a"`, `"eventId":"event-a","secret":"value"`, 1)), status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v4/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
-		{name: "Router malformed trace record", response: metadataHTTPResponse(http.StatusOK, strings.Replace(validTraceMetadataJSON, `,"createdAt":"2026-07-16T12:00:00Z"`, ``, 1)), status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v4/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
+		{name: "unauthenticated first", authErr: ErrUnauthenticated, status: http.StatusUnauthorized, code: contracts.ErrorCodeUnauthenticated, path: "/v1/workspaces/workspace-a/invocations/inv-a"},
+		{name: "invalid path", status: http.StatusBadRequest, code: contracts.ErrorCodeValidationError, path: "/v1/workspaces/bad%20workspace/invocations/inv-a"},
+		{name: "workspace forbidden", readerErr: workspace.ErrForbidden, status: http.StatusForbidden, code: contracts.ErrorCodeForbidden, path: "/v1/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
+		{name: "workspace missing", readerErr: workspace.ErrNotFound, status: http.StatusNotFound, code: contracts.ErrorCodeNotFound, path: "/v1/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
+		{name: "workspace dependency", readerErr: workspace.ErrDependency, status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v1/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
+		{name: "read deadline", readerErr: context.DeadlineExceeded, status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v1/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
+		{name: "Router not found", response: metadataHTTPResponse(http.StatusNotFound, `{"code":"NOT_FOUND"}`), status: http.StatusNotFound, code: contracts.ErrorCodeNotFound, path: "/v1/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
+		{name: "Router dependency", response: metadataHTTPResponse(http.StatusServiceUnavailable, `{"code":"DEPENDENCY_ERROR"}`), status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v1/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
+		{name: "Router wrong media", response: &invocation.RouterResponse{StatusCode: http.StatusOK, ContentType: "text/plain", Body: io.NopCloser(strings.NewReader("internal"))}, status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v1/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
+		{name: "Router not-found wrong media", response: &invocation.RouterResponse{StatusCode: http.StatusNotFound, ContentType: "text/plain", Body: io.NopCloser(strings.NewReader("internal"))}, status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v1/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
+		{name: "Router malformed success", response: metadataHTTPResponse(http.StatusOK, `{}`), status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v1/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
+		{name: "Router content-bearing success", response: metadataHTTPResponse(http.StatusOK, strings.Replace(validInvocationMetadataJSON, `"events":[`, `"input":{"secret":"value"},"events":[`, 1)), status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v1/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
+		{name: "Router metadata exceeds separate limit", response: metadataHTTPResponse(http.StatusOK, validInvocationMetadataJSON+strings.Repeat(" ", 5000)), status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v1/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
+		{name: "Router duplicate member", response: metadataHTTPResponse(http.StatusOK, strings.Replace(validInvocationMetadataJSON, `"invocationId":"inv-a","rootTaskId"`, `"invocationId":"inv-a","invocationId":"inv-a","rootTaskId"`, 1)), status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v1/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
+		{name: "Router trailing JSON", response: metadataHTTPResponse(http.StatusOK, validInvocationMetadataJSON+`{}`), status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v1/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
+		{name: "Router unknown nested event member", response: metadataHTTPResponse(http.StatusOK, strings.Replace(validInvocationMetadataJSON, `"eventId":"event-a"`, `"eventId":"event-a","secret":"value"`, 1)), status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v1/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
+		{name: "Router malformed trace record", response: metadataHTTPResponse(http.StatusOK, strings.Replace(validTraceMetadataJSON, `,"createdAt":"2026-07-16T12:00:00Z"`, ``, 1)), status: http.StatusServiceUnavailable, code: contracts.ErrorCodeDependency, path: "/v1/workspaces/workspace-a/invocations/inv-a", wantInvoke: 1},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -129,7 +129,7 @@ func TestInvocationReadHandlerRejectsMalformedTraceRecord(t *testing.T) {
 	reader := &metadataReadHandlerStub{traceResponse: metadataHTTPResponse(http.StatusOK, strings.Replace(validTraceMetadataJSON, `,"createdAt":"2026-07-16T12:00:00Z"`, ``, 1))}
 	handler := newInvocationReadTestHandler(t, invocationAuthenticatorStub{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, reader)
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v4/workspaces/workspace-a/traces/trace-a", nil))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/workspaces/workspace-a/traces/trace-a", nil))
 	if response.Code != http.StatusServiceUnavailable || reader.traceCalls != 1 {
 		t.Fatalf("malformed Trace response = %d, calls=%d, body=%s", response.Code, reader.traceCalls, response.Body.String())
 	}

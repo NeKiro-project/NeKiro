@@ -69,11 +69,11 @@ func (handler *Handler) Routes() http.Handler {
 func (handler *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /livez", handler.liveness)
 	mux.HandleFunc("GET /readyz", handler.readinessCheck)
-	mux.HandleFunc("POST /v3/agents", handler.register)
-	mux.HandleFunc("GET /v3/agents", handler.search)
-	mux.HandleFunc("GET /v3/agents/{agentId}/versions/{version}", handler.get)
-	mux.HandleFunc("POST /v3/agents/{agentId}/versions/{version}/publish", handler.publish)
-	mux.HandleFunc("POST /v3/agents/{agentId}/versions/{version}/disable", handler.disable)
+	mux.HandleFunc("POST /v1/agents", handler.register)
+	mux.HandleFunc("GET /v1/agents", handler.search)
+	mux.HandleFunc("GET /v1/agents/{agentId}/versions/{version}", handler.get)
+	mux.HandleFunc("POST /v1/agents/{agentId}/versions/{version}/publish", handler.publish)
+	mux.HandleFunc("POST /v1/agents/{agentId}/versions/{version}/disable", handler.disable)
 }
 
 func (handler *Handler) liveness(writer http.ResponseWriter, _ *http.Request) {

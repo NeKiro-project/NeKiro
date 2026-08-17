@@ -36,12 +36,12 @@ func NewReleaseHandler(authenticator Authenticator, service ReleaseCatalogServic
 }
 
 func (handler *ReleaseHandler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /v4/providers/{providerId}/agents/{agentId}/releases", handler.create)
-	mux.HandleFunc("GET /v4/releases/{releaseId}", handler.get)
-	mux.HandleFunc("POST /v4/releases/{releaseId}/verify", handler.verify)
-	mux.HandleFunc("POST /v4/releases/{releaseId}/publish", handler.publish)
-	mux.HandleFunc("POST /v4/releases/{releaseId}/suspend", handler.suspend)
-	mux.HandleFunc("POST /v4/releases/{releaseId}/revoke", handler.revoke)
+	mux.HandleFunc("POST /v1/providers/{providerId}/agents/{agentId}/releases", handler.create)
+	mux.HandleFunc("GET /v1/releases/{releaseId}", handler.get)
+	mux.HandleFunc("POST /v1/releases/{releaseId}/verify", handler.verify)
+	mux.HandleFunc("POST /v1/releases/{releaseId}/publish", handler.publish)
+	mux.HandleFunc("POST /v1/releases/{releaseId}/suspend", handler.suspend)
+	mux.HandleFunc("POST /v1/releases/{releaseId}/revoke", handler.revoke)
 }
 
 func (handler *ReleaseHandler) create(writer http.ResponseWriter, request *http.Request) {

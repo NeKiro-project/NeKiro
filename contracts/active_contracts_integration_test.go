@@ -13,44 +13,42 @@ import (
 
 func TestActiveContractVersionSynchronization(t *testing.T) {
 	wantConstants := map[string]string{
-		"Agent Card Schema":             "0.2",
-		"Workspace Schema":              "1",
-		"Installation Schema":           "2",
-		"Public Agent Share Schema":     "1",
-		"Invocation Event Schema":       "0.2",
-		"Platform Error Schema":         "2",
-		"Workspace Platform Error":      "3",
-		"Invocation Result Schema":      "1",
-		"Result Stream Event Schema":    "1",
-		"A2A Profile Schema":            "0.2",
-		"A2A protocol":                  "0.3.0",
-		"Northbound API":                "3",
-		"Control Plane Internal API v2": "2",
-		"Control Plane Internal API v3": "3",
-		"Router Internal API v2":        "2",
-		"Router Metadata API v3":        "3",
-		"Router Internal API v4":        "4",
-		"Router Agent Credential":       "1",
+		"Agent Card Schema":              "0.2",
+		"Workspace Schema":               "1",
+		"Installation Schema":            "2",
+		"Public Agent Share Schema":      "1",
+		"Invocation Event Schema":        "0.2",
+		"Platform Error Schema":          "2",
+		"Workspace Platform Error":       "3",
+		"Invocation Result Schema":       "1",
+		"Result Stream Event Schema":     "1",
+		"A2A Profile Schema":             "0.2",
+		"A2A protocol":                   "0.3.0",
+		"Northbound API":                 "1",
+		"Control Plane Internal API":     "1",
+		"Installed Version Internal API": "1",
+		"Router Internal API":            "1",
+		"Router Metadata API":            "1",
+		"Router Agent Credential":        "1",
 	}
 	actualConstants := map[string]string{
-		"Agent Card Schema":             AgentCardSchemaVersion,
-		"Workspace Schema":              WorkspaceSchemaVersion,
-		"Installation Schema":           InstallationSchemaVersion,
-		"Public Agent Share Schema":     PublicAgentShareSchemaVersion,
-		"Invocation Event Schema":       InvocationEventSchemaVersion,
-		"Platform Error Schema":         PlatformErrorSchemaVersion,
-		"Workspace Platform Error":      WorkspacePlatformErrorSchemaVersion,
-		"Invocation Result Schema":      InvocationResultSchemaVersion,
-		"Result Stream Event Schema":    InvocationResultStreamEventSchemaVersion,
-		"A2A Profile Schema":            A2AProfileSchemaVersion,
-		"A2A protocol":                  A2AProtocolVersion,
-		"Northbound API":                NorthboundAPIVersion,
-		"Control Plane Internal API v2": ControlPlaneInternalAPIVersion,
-		"Control Plane Internal API v3": ControlPlaneInternalV3APIVersion,
-		"Router Internal API v2":        RouterInternalAPIVersion,
-		"Router Metadata API v3":        RouterInternalMetadataAPIVersion,
-		"Router Internal API v4":        RouterInternalRuntimeAPIVersion,
-		"Router Agent Credential":       RouterAgentCredentialSchemaVersion,
+		"Agent Card Schema":              AgentCardSchemaVersion,
+		"Workspace Schema":               WorkspaceSchemaVersion,
+		"Installation Schema":            InstallationSchemaVersion,
+		"Public Agent Share Schema":      PublicAgentShareSchemaVersion,
+		"Invocation Event Schema":        InvocationEventSchemaVersion,
+		"Platform Error Schema":          PlatformErrorSchemaVersion,
+		"Workspace Platform Error":       WorkspacePlatformErrorSchemaVersion,
+		"Invocation Result Schema":       InvocationResultSchemaVersion,
+		"Result Stream Event Schema":     InvocationResultStreamEventSchemaVersion,
+		"A2A Profile Schema":             A2AProfileSchemaVersion,
+		"A2A protocol":                   A2AProtocolVersion,
+		"Northbound API":                 NorthboundAPIVersion,
+		"Control Plane Internal API":     ControlPlaneInternalAPIVersion,
+		"Installed Version Internal API": ControlPlaneInstalledVersionAPIVersion,
+		"Router Internal API":            RouterInternalRuntimeAPIVersion,
+		"Router Metadata API":            RouterInternalMetadataAPIVersion,
+		"Router Agent Credential":        RouterAgentCredentialSchemaVersion,
 	}
 	for name, want := range wantConstants {
 		if actualConstants[name] != want {
@@ -101,13 +99,13 @@ func TestActiveContractVersionSynchronization(t *testing.T) {
 		path string
 		want string
 	}{
-		{path: filepath.Join("openapi", "control-plane.v3.yaml"), want: "3.0.0"},
+		{path: filepath.Join("openapi", "control-plane.v1.yaml"), want: "1.0.0"},
 		{path: filepath.Join("openapi", "public-agent-share.v1.yaml"), want: "1.0.0"},
-		{path: filepath.Join("openapi", "control-plane-internal.v2.yaml"), want: "2.0.0"},
-		{path: filepath.Join("openapi", "control-plane-internal.v3.yaml"), want: "3.0.0"},
-		{path: filepath.Join("openapi", "router-internal.v2.yaml"), want: "2.0.0"},
-		{path: filepath.Join("openapi", "router-metadata.v3.yaml"), want: "3.0.0"},
-		{path: filepath.Join("openapi", "router-internal.v4.yaml"), want: "4.0.0"},
+		{path: filepath.Join("openapi", "control-plane-internal.v1.yaml"), want: "1.0.0"},
+		{path: filepath.Join("openapi", "control-plane-installed-version.v1.yaml"), want: "1.0.0"},
+		{path: filepath.Join("openapi", "control-plane-invocation.v1.yaml"), want: "1.0.0"},
+		{path: filepath.Join("openapi", "router-internal.v1.yaml"), want: "1.0.0"},
+		{path: filepath.Join("openapi", "router-metadata.v1.yaml"), want: "1.0.0"},
 		{path: filepath.Join("openapi", "router-topology-status.v1.yaml"), want: "1.0.0"},
 	}
 	for _, document := range documents {
@@ -130,19 +128,20 @@ func TestActiveOpenAPIToGoMappings(t *testing.T) {
 		Result:        json.RawMessage(`{"answer":42}`),
 	}
 
-	northbound := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v3.yaml"))
+	northbound := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v1.yaml"))
 	validateOpenAPIValue(
 		t,
-		northbound.Paths.Find("/v3/agents").Post.RequestBody.Value.Content["application/json"].Schema,
+		northbound.Paths.Find("/v1/agents").Post.RequestBody.Value.Content["application/json"].Schema,
 		RegisterAgentRequest{Card: card},
 	)
+	invocationAPI := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane-invocation.v1.yaml"))
 	validateOpenAPIValue(
 		t,
-		northbound.Paths.Find("/v3/workspaces/{workspaceId}/invocations").Post.Responses.Status(200).Value.Content["application/json"].Schema,
+		invocationAPI.Paths.Find("/v1/workspaces/{workspaceId}/invocations").Post.Responses.Status(200).Value.Content["application/json"].Schema,
 		result,
 	)
 
-	controlPlaneInternal := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v2.yaml"))
+	controlPlaneInternal := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v1.yaml"))
 	resolveRequest := ResolveAgentRequest{
 		InvocationID: event.InvocationID,
 		RootTaskID:   event.RootTaskID,
@@ -152,7 +151,7 @@ func TestActiveOpenAPIToGoMappings(t *testing.T) {
 		Version:      card.Version,
 		Capability:   event.Capability,
 	}
-	resolveOperation := controlPlaneInternal.Paths.Find("/internal/v2/resolve-agent").Post
+	resolveOperation := controlPlaneInternal.Paths.Find("/internal/v1/resolve-agent").Post
 	validateOpenAPIValue(t, resolveOperation.RequestBody.Value.Content["application/json"].Schema, resolveRequest)
 	resolveResponseSchema := resolveOperation.Responses.Status(200).Value.Content["application/json"].Schema
 	resolveResponse := ResolveAgentResponse{
@@ -175,7 +174,7 @@ func TestActiveOpenAPIToGoMappings(t *testing.T) {
 	partialResolveResponse.Installation.AgentCardDigest = ""
 	assertOpenAPIValueRejected(t, resolveResponseSchema, partialResolveResponse)
 
-	router := loadOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v2.yaml"))
+	router := loadOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v1.yaml"))
 	dispatchRequest := DispatchInvocationRequest{
 		InvocationID:     event.InvocationID,
 		RootTaskID:       event.RootTaskID,
@@ -188,11 +187,9 @@ func TestActiveOpenAPIToGoMappings(t *testing.T) {
 		Input:            map[string]any{"contract": "active"},
 		Stream:           false,
 	}
-	dispatchOperation := router.Paths.Find("/internal/v2/invocations").Post
+	dispatchOperation := router.Paths.Find("/internal/v1/invocations").Post
 	validateOpenAPIValue(t, dispatchOperation.RequestBody.Value.Content["application/json"].Schema, dispatchRequest)
 	validateOpenAPIValue(t, dispatchOperation.Responses.Status(200).Value.Content["application/json"].Schema, result)
-	validateOpenAPIValue(t, router.Components.Schemas["RouterEventEnvelope"], RouterEventEnvelope{Event: event})
-
 	var _ PlatformError = PlatformErrorV2{}              //nolint:staticcheck // Preserve the explicit interface assertion.
 	var _ InvocationEvent = InvocationEventV02{}         //nolint:staticcheck // Preserve the explicit interface assertion.
 	var _ RouterEventEnvelope = RouterEventEnvelopeV02{} //nolint:staticcheck // Preserve the explicit interface assertion.
@@ -261,7 +258,7 @@ func TestActiveContractCorporaAreDiscoverable(t *testing.T) {
 	}
 }
 
-func TestHistoricalContractsRemainReadableWithoutActiveDualRead(t *testing.T) {
+func TestHistoricalPayloadContractsRemainReadableWithoutActiveDualRead(t *testing.T) {
 	historicalJSON := []string{
 		"schemas/agent-card.v0.1.schema.json",
 		"schemas/invocation-event.v0.1.schema.json",
@@ -280,9 +277,6 @@ func TestHistoricalContractsRemainReadableWithoutActiveDualRead(t *testing.T) {
 			}
 		})
 	}
-	loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v1.yaml"))
-	loadOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v1.yaml"))
-
 	validator := mustValidator(t)
 	historicalCard := validAgentCard()
 	historicalCard.SchemaVersion = "0.1"
@@ -336,20 +330,17 @@ func TestActiveContractsExcludeSecretsAndResultsFromMetadata(t *testing.T) {
 }
 
 func TestActiveInternalAPIsPreserveDirectionalOwnership(t *testing.T) {
-	controlPlane := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v2.yaml"))
-	router := loadOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v2.yaml"))
+	controlPlane := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v1.yaml"))
+	router := loadOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v1.yaml"))
 
-	assertExactStringSlice(t, "Control Plane Internal paths", controlPlane.Paths.Keys(), []string{"/internal/v2/resolve-agent"})
+	assertExactStringSlice(t, "Control Plane Internal paths", controlPlane.Paths.Keys(), []string{"/internal/v1/resolve-agent"})
 	assertExactStringSlice(t, "Router Internal paths", router.Paths.Keys(), []string{
-		"/internal/v2/invocations",
-		"/internal/v2/invocations/{invocationId}",
-		"/internal/v2/invocations/{invocationId}/events",
-		"/internal/v2/traces/{traceId}",
+		"/internal/v1/invocations",
 	})
-	if router.Paths.Find("/internal/v2/resolve-agent") != nil {
+	if router.Paths.Find("/internal/v1/resolve-agent") != nil {
 		t.Fatal("Router Internal API owns Control Plane resolution")
 	}
-	if controlPlane.Paths.Find("/internal/v2/invocations") != nil {
+	if controlPlane.Paths.Find("/internal/v1/invocations") != nil {
 		t.Fatal("Control Plane Internal API owns Router dispatch")
 	}
 	if len(controlPlane.Servers) != 1 || len(router.Servers) != 1 {
@@ -365,33 +356,33 @@ func TestActiveInternalAPIsPreserveDirectionalOwnership(t *testing.T) {
 	}
 }
 
-func TestActiveRuntimeV3InternalAPIsPreserveDirectionalOwnership(t *testing.T) {
-	controlPlane := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v3.yaml"))
-	router := loadOpenAPIDocument(t, filepath.Join("openapi", "router-metadata.v3.yaml"))
-	assertExactStringSlice(t, "Control Plane Internal v3 paths", controlPlane.Paths.Keys(), []string{"/internal/v3/resolve-installed-version"})
-	assertExactStringSlice(t, "Router Metadata v3 paths", router.Paths.Keys(), []string{
-		"/internal/v3/workspaces/{workspaceId}/invocations/{invocationId}",
-		"/internal/v3/workspaces/{workspaceId}/traces/{traceId}",
+func TestActiveV1MetadataAPIsPreserveDirectionalOwnership(t *testing.T) {
+	controlPlane := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane-installed-version.v1.yaml"))
+	router := loadOpenAPIDocument(t, filepath.Join("openapi", "router-metadata.v1.yaml"))
+	assertExactStringSlice(t, "Control Plane installed-version paths", controlPlane.Paths.Keys(), []string{"/internal/v1/resolve-installed-version"})
+	assertExactStringSlice(t, "Router Metadata paths", router.Paths.Keys(), []string{
+		"/internal/v1/workspaces/{workspaceId}/invocations/{invocationId}",
+		"/internal/v1/workspaces/{workspaceId}/traces/{traceId}",
 	})
-	if router.Paths.Find("/internal/v3/resolve-installed-version") != nil {
-		t.Fatal("Router Metadata v3 owns Control Plane resolution")
+	if router.Paths.Find("/internal/v1/resolve-installed-version") != nil {
+		t.Fatal("Router Metadata owns Control Plane resolution")
 	}
-	if controlPlane.Paths.Find("/internal/v3/invocations") != nil {
-		t.Fatal("Control Plane Internal v3 owns Router dispatch")
+	if controlPlane.Paths.Find("/internal/v1/invocations") != nil {
+		t.Fatal("Control Plane installed-version API owns Router dispatch")
 	}
 	if len(controlPlane.Servers) != 1 || len(router.Servers) != 1 || controlPlane.Servers[0].URL == router.Servers[0].URL {
-		t.Fatal("active v3 internal APIs must have distinct explicit destinations")
+		t.Fatal("active v1 internal APIs must have distinct explicit destinations")
 	}
 }
 
-func TestActiveRuntimeV4RouterDispatchOwnsExecution(t *testing.T) {
-	router := loadOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v4.yaml"))
-	assertExactStringSlice(t, "Router Internal v4 paths", router.Paths.Keys(), []string{"/internal/v4/invocations"})
-	if router.Paths.Find("/internal/v4/invocations").Post == nil {
-		t.Fatal("Router Internal v4 must own dispatch")
+func TestActiveV1RouterDispatchOwnsExecution(t *testing.T) {
+	router := loadOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v1.yaml"))
+	assertExactStringSlice(t, "Router Internal v1 paths", router.Paths.Keys(), []string{"/internal/v1/invocations"})
+	if router.Paths.Find("/internal/v1/invocations").Post == nil {
+		t.Fatal("Router Internal v1 must own dispatch")
 	}
-	if router.Paths.Find("/internal/v3/invocations") != nil {
-		t.Fatal("Router Internal v4 must not serve the retired v3 dispatch route")
+	if router.Paths.Find("/internal/v4/invocations") != nil {
+		t.Fatal("Router Internal v1 must not describe the retired v4 dispatch route")
 	}
 }
 

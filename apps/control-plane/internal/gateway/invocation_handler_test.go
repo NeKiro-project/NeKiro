@@ -69,7 +69,7 @@ func TestInvocationHandlerStrictlyRejectsPreDispatchRequests(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			dispatcher := &invocationDispatcherStub{}
 			handler := newInvocationTestHandler(t, invocationAuthenticatorStub{caller: catalog.AuthenticatedCaller{ID: "owner-a"}, err: test.authErr}, dispatcher, test.limit)
-			request := httptest.NewRequest(http.MethodPost, "/v4/workspaces/workspace-a/invocations", strings.NewReader(test.body))
+			request := httptest.NewRequest(http.MethodPost, "/v1/workspaces/workspace-a/invocations", strings.NewReader(test.body))
 			request.Header.Set("Content-Type", test.contentType)
 			request.Header.Set("Accept", test.accept)
 			response := httptest.NewRecorder()
@@ -96,7 +96,7 @@ func TestInvocationHandlerForwardsExactJSONAndTrustedArguments(t *testing.T) {
 	headers.Set(TraceHeader, "router-trace")
 	dispatcher := &invocationDispatcherStub{response: &invocation.RouterResponse{StatusCode: 200, ContentType: "application/json", Headers: headers, Body: io.NopCloser(strings.NewReader(result))}}
 	handler := newInvocationTestHandler(t, invocationAuthenticatorStub{caller: catalog.AuthenticatedCaller{ID: "owner-a", AuthenticationKind: "development-static"}}, dispatcher, 4096)
-	request := httptest.NewRequest(http.MethodPost, "/v4/workspaces/workspace-a/invocations", strings.NewReader(validInvokeBody(false)))
+	request := httptest.NewRequest(http.MethodPost, "/v1/workspaces/workspace-a/invocations", strings.NewReader(validInvokeBody(false)))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/*")
 	response := httptest.NewRecorder()
@@ -225,7 +225,7 @@ func newInvocationTestHandler(t *testing.T, authenticator Authenticator, dispatc
 func invokeWithTestHandler(t *testing.T, dispatcher InvocationDispatcher) *httptest.ResponseRecorder {
 	t.Helper()
 	handler := newInvocationTestHandler(t, invocationAuthenticatorStub{caller: catalog.AuthenticatedCaller{ID: "owner-a"}}, dispatcher, 4096)
-	request := httptest.NewRequest(http.MethodPost, "/v4/workspaces/workspace-a/invocations", strings.NewReader(validInvokeBody(false)))
+	request := httptest.NewRequest(http.MethodPost, "/v1/workspaces/workspace-a/invocations", strings.NewReader(validInvokeBody(false)))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
 	response := httptest.NewRecorder()

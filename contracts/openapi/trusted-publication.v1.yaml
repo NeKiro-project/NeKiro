@@ -3,7 +3,7 @@ info:
   title: NeKiro Trusted Publication API
   version: 1.0.0
 paths:
-  /v4/providers/{providerId}/agents/{agentId}/releases:
+  /v1/providers/{providerId}/agents/{agentId}/releases:
     post:
       operationId: createAgentRelease
       security: [{ bearerAuth: [] }]
@@ -24,7 +24,7 @@ paths:
         '409': { $ref: '#/components/responses/TrustedPublicationError' }
         '503': { $ref: '#/components/responses/TrustedPublicationError' }
         '500': { $ref: '#/components/responses/TrustedPublicationError' }
-  /v4/releases/{releaseId}:
+  /v1/releases/{releaseId}:
     get:
       operationId: getAgentRelease
       security: [{ bearerAuth: [] }]
@@ -36,7 +36,7 @@ paths:
         '404': { $ref: '#/components/responses/TrustedPublicationError' }
         '503': { $ref: '#/components/responses/TrustedPublicationError' }
         '500': { $ref: '#/components/responses/TrustedPublicationError' }
-  /v4/releases/{releaseId}/verify:
+  /v1/releases/{releaseId}/verify:
     post:
       operationId: verifyAgentRelease
       security: [{ bearerAuth: [] }]
@@ -49,7 +49,7 @@ paths:
         '409': { $ref: '#/components/responses/TrustedPublicationError' }
         '503': { $ref: '#/components/responses/TrustedPublicationError' }
         '500': { $ref: '#/components/responses/TrustedPublicationError' }
-  /v4/releases/{releaseId}/publish:
+  /v1/releases/{releaseId}/publish:
     post:
       operationId: publishAgentRelease
       security: [{ bearerAuth: [] }]
@@ -62,7 +62,7 @@ paths:
         '409': { $ref: '#/components/responses/TrustedPublicationError' }
         '503': { $ref: '#/components/responses/TrustedPublicationError' }
         '500': { $ref: '#/components/responses/TrustedPublicationError' }
-  /v4/releases/{releaseId}/suspend:
+  /v1/releases/{releaseId}/suspend:
     post:
       operationId: suspendAgentRelease
       security: [{ bearerAuth: [] }]
@@ -75,7 +75,7 @@ paths:
         '409': { $ref: '#/components/responses/TrustedPublicationError' }
         '503': { $ref: '#/components/responses/TrustedPublicationError' }
         '500': { $ref: '#/components/responses/TrustedPublicationError' }
-  /v4/releases/{releaseId}/revoke:
+  /v1/releases/{releaseId}/revoke:
     post:
       operationId: revokeAgentRelease
       security: [{ bearerAuth: [] }]
@@ -88,7 +88,7 @@ paths:
         '409': { $ref: '#/components/responses/TrustedPublicationError' }
         '503': { $ref: '#/components/responses/TrustedPublicationError' }
         '500': { $ref: '#/components/responses/TrustedPublicationError' }
-  /v4/providers/{providerId}/agents/{agentId}/endpoint-bindings:
+  /v1/providers/{providerId}/agents/{agentId}/endpoint-bindings:
     post:
       operationId: createEndpointBinding
       security: [{ bearerAuth: [] }]
@@ -109,7 +109,7 @@ paths:
         '409': { $ref: '#/components/responses/TrustedPublicationError' }
         '503': { $ref: '#/components/responses/TrustedPublicationError' }
         '500': { $ref: '#/components/responses/TrustedPublicationError' }
-  /v4/providers/{providerId}/endpoint-bindings/{bindingId}:
+  /v1/providers/{providerId}/endpoint-bindings/{bindingId}:
     get:
       operationId: getEndpointBinding
       security: [{ bearerAuth: [] }]
@@ -124,7 +124,7 @@ paths:
         '400': { $ref: '#/components/responses/TrustedPublicationError' }
         '503': { $ref: '#/components/responses/TrustedPublicationError' }
         '500': { $ref: '#/components/responses/TrustedPublicationError' }
-  /v4/providers/{providerId}/endpoint-bindings/{bindingId}/challenges:
+  /v1/providers/{providerId}/endpoint-bindings/{bindingId}/challenges:
     post:
       operationId: createVerificationChallenge
       security: [{ bearerAuth: [] }]
@@ -140,7 +140,7 @@ paths:
         '409': { $ref: '#/components/responses/TrustedPublicationError' }
         '503': { $ref: '#/components/responses/TrustedPublicationError' }
         '500': { $ref: '#/components/responses/TrustedPublicationError' }
-  /v4/providers/{providerId}/endpoint-bindings/{bindingId}/challenges/{challengeId}/complete:
+  /v1/providers/{providerId}/endpoint-bindings/{bindingId}/challenges/{challengeId}/complete:
     post:
       operationId: completeVerificationChallenge
       security: [{ bearerAuth: [] }]

@@ -12,8 +12,8 @@ import (
 )
 
 type LedgerReader interface {
-	GetInvocation(context.Context, string, string) (contracts.InvocationDetailResponseV4, error)
-	GetTrace(context.Context, string, contracts.TraceID) (contracts.TraceResponseV4, error)
+	GetInvocation(context.Context, string, string) (contracts.InvocationDetailResponseV1, error)
+	GetTrace(context.Context, string, contracts.TraceID) (contracts.TraceResponseV1, error)
 }
 
 type LedgerHandler struct {
@@ -32,7 +32,7 @@ func NewLedgerHandler(reader LedgerReader) (*LedgerHandler, error) {
 	return &LedgerHandler{reader: reader, validator: validator}, nil
 }
 
-// RegisterRoutes exposes the Router Internal v3 metadata reads. The caller
+// RegisterRoutes exposes the Router Internal v1 metadata reads. The caller
 // owns the process mux and supplies the same authenticated service principal
 // boundary used by dispatch; LedgerHandler remains responsible only for
 // validating and reading its owned metadata.
@@ -43,10 +43,10 @@ func (handler *LedgerHandler) RegisterRoutes(mux *http.ServeMux, authenticator A
 	if authenticator == nil {
 		return errors.New("router read authenticator is required")
 	}
-	mux.HandleFunc("GET /internal/v3/workspaces/{workspaceId}/invocations/{invocationId}", func(writer http.ResponseWriter, request *http.Request) {
+	mux.HandleFunc("GET /internal/v1/workspaces/{workspaceId}/invocations/{invocationId}", func(writer http.ResponseWriter, request *http.Request) {
 		handler.serveInvocationRoute(writer, request, authenticator)
 	})
-	mux.HandleFunc("GET /internal/v3/workspaces/{workspaceId}/traces/{traceId}", func(writer http.ResponseWriter, request *http.Request) {
+	mux.HandleFunc("GET /internal/v1/workspaces/{workspaceId}/traces/{traceId}", func(writer http.ResponseWriter, request *http.Request) {
 		handler.serveTraceRoute(writer, request, authenticator)
 	})
 	return nil
@@ -92,7 +92,7 @@ func (handler *LedgerHandler) serveTraceRoute(writer http.ResponseWriter, reques
 }
 
 // ServeInvocationRead adapts an already authenticated and path-validated
-// Router Internal v3 request. Router authentication and mux ownership stay in
+// Router Internal v1 request. Router authentication and mux ownership stay in
 // the process integration layer.
 func (handler *LedgerHandler) ServeInvocationRead(
 	w http.ResponseWriter,
@@ -104,7 +104,7 @@ func (handler *LedgerHandler) ServeInvocationRead(
 	if err != nil {
 		return handler.writeReadError(w, traceID, err)
 	}
-	if err := handler.validator.ValidateInvocationDetailResponseV4(workspaceID, result); err != nil {
+	if err := handler.validator.ValidateInvocationDetailResponseV1(workspaceID, result); err != nil {
 		return handler.writeReadError(w, traceID, ledger.ErrDependency)
 	}
 	return writeLedgerJSON(w, http.StatusOK, result)
@@ -132,7 +132,7 @@ func (handler *LedgerHandler) serveTraceRead(
 	if err != nil {
 		return handler.writeReadError(w, requestTraceID, err)
 	}
-	if err := contracts.ValidateTraceResponseV4(workspaceID, traceID, result); err != nil {
+	if err := contracts.ValidateTraceResponseV1(workspaceID, traceID, result); err != nil {
 		return handler.writeReadError(w, requestTraceID, ledger.ErrDependency)
 	}
 	return writeLedgerJSON(w, http.StatusOK, result)

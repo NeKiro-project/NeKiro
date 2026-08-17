@@ -17,7 +17,7 @@ type Authorizer interface {
 }
 
 type Router interface {
-	Dispatch(context.Context, contracts.DispatchInvocationRequestV4, contracts.InvocationResultMode) (*RouterResponse, error)
+	Dispatch(context.Context, contracts.DispatchInvocationRequestV1, contracts.InvocationResultMode) (*RouterResponse, error)
 }
 
 type IDGenerator interface {
@@ -64,7 +64,7 @@ func (service *Service) Dispatch(
 	if err != nil {
 		return nil, &DispatchError{Code: contracts.ErrorCodeInternal, Cause: fmt.Errorf("generate root invocation correlation: %w", err)}
 	}
-	dispatch := contracts.DispatchInvocationRequestV4{
+	dispatch := contracts.DispatchInvocationRequestV1{
 		InvocationID:     invocationID,
 		RootTaskID:       rootTaskID,
 		TraceID:          traceID,

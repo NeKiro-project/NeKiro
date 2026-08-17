@@ -55,21 +55,22 @@ Console -> Control Plane -> A2A Router -> Agents
 Cross-language contracts are owned by language-neutral artifacts:
 
 - `contracts/schemas/` contains versioned JSON Schema documents.
-- `contracts/openapi/control-plane.v3.yaml` defines the active Catalog,
-  Discovery, Workspace, and Installation Northbound API; `control-plane.v2.yaml`
-  remains unchanged migration evidence. Any legacy Invocation paths still
-  present in the v3 document are migration evidence and are not served by the
-  current Gateway.
+- `contracts/openapi/control-plane.v1.yaml` defines the active Catalog,
+  Discovery, Workspace, and Installation Gateway API.
 - `contracts/openapi/public-agent-share.v1.yaml` and
   `contracts/schemas/public-agent-share.v1.schema.json` define the anonymous
-  public Agent identity projection. `GET /v4/public/agents/:publicAgentId`
+  public Agent identity projection. `GET /v1/public/agents/:publicAgentId`
   exposes only the canonical public URL and eligible published trusted Release
   facts; it never exposes an endpoint, binding, evidence, credential,
   Workspace, or Ledger data.
-- `contracts/openapi/control-plane-invocation.v4.yaml` defines the active
-  Invocation and Trace Northbound API.
-- `contracts/openapi/control-plane-internal.v2.yaml` defines Router-to-Control Plane exact Agent resolution; `control-plane-internal.v3.yaml` defines nested installed-version resolution.
-- `contracts/openapi/router-internal.v4.yaml` defines active Control Plane-to-Router dispatch and result transport; `router-metadata.v3.yaml` is the active Workspace-scoped Invocation/Trace read contract, while the complete `router-internal.v3.yaml` is historical migration evidence.
+- `contracts/openapi/control-plane-invocation.v1.yaml` defines the active
+  Invocation and Trace Gateway API.
+- `contracts/openapi/control-plane-internal.v1.yaml` defines Router-to-Control
+  Plane exact Agent resolution; `control-plane-installed-version.v1.yaml`
+  defines nested installed-version resolution.
+- `contracts/openapi/router-internal.v1.yaml` defines active Control
+  Plane-to-Router dispatch and result transport; `router-metadata.v1.yaml`
+  defines Workspace-scoped Invocation/Trace reads.
 - `contracts/openapi/router-topology-status.v1.yaml` defines the authenticated,
   read-only Router-local watched-topology status used to prove exact-Release
   lifecycle consumption without exposing endpoints or provider revision tokens.
@@ -82,9 +83,9 @@ Cross-language contracts are owned by language-neutral artifacts:
 
 Go and TypeScript types are consumers of these artifacts, never competing sources of truth. Services must not exchange internal implementation types across a process boundary.
 
-Historical v1 files remain unchanged as migration evidence. The first backend
-runtime implements only the active versions and does not introduce speculative
-dual-version behavior.
+All NeKiro-owned HTTP boundaries use v1 for the first release. Payload schemas
+retain their independent identities. Retired pre-release URL versions are not
+served and do not introduce dual-version behavior.
 
 ## Router-to-Agent authentication
 
@@ -97,33 +98,33 @@ execute runtime logic only after all claims match single-valued context
 headers. Stream and cancel requests use different credentials. No credential,
 key, signature, or `jti` enters Agent Card, result, event, or Ledger storage.
 
-## Northbound API v3: Catalog and Workspace
+## Gateway API v1: Catalog and Workspace
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/v3/agents` | Register a draft Agent Card v0.2 version |
-| `POST` | `/v3/agents/:agentId/versions/:version/publish` | Publish an immutable version |
-| `POST` | `/v3/agents/:agentId/versions/:version/disable` | Disable a version for new resolutions |
-| `GET` | `/v3/agents` | Discover published agents by query/capability/owner |
-| `GET` | `/v3/agents/:agentId/versions/:version` | Read an exact Agent Card version |
-| `POST` | `/v3/workspaces` | Create a minimal owner-controlled Workspace |
-| `GET` | `/v3/workspaces/:workspaceId` | Read an owned Workspace |
-| `POST` | `/v3/workspaces/:workspaceId/installations` | Install and accept declared permissions |
-| `GET` | `/v3/workspaces/:workspaceId/installations` | List current and historical Installations |
-| `GET` | `/v3/workspaces/:workspaceId/installations/:installationId` | Read one exact Installation |
-| `PATCH` | `/v3/workspaces/:workspaceId/installations/:installationId` | Enable or disable an installation |
-| `DELETE` | `/v3/workspaces/:workspaceId/installations/:installationId` | Uninstall and return preserved history |
+| `POST` | `/v1/agents` | Register a draft Agent Card v0.2 version |
+| `POST` | `/v1/agents/:agentId/versions/:version/publish` | Publish an immutable version |
+| `POST` | `/v1/agents/:agentId/versions/:version/disable` | Disable a version for new resolutions |
+| `GET` | `/v1/agents` | Discover published agents by query/capability/owner |
+| `GET` | `/v1/agents/:agentId/versions/:version` | Read an exact Agent Card version |
+| `POST` | `/v1/workspaces` | Create a minimal owner-controlled Workspace |
+| `GET` | `/v1/workspaces/:workspaceId` | Read an owned Workspace |
+| `POST` | `/v1/workspaces/:workspaceId/installations` | Install and accept declared permissions |
+| `GET` | `/v1/workspaces/:workspaceId/installations` | List current and historical Installations |
+| `GET` | `/v1/workspaces/:workspaceId/installations/:installationId` | Read one exact Installation |
+| `PATCH` | `/v1/workspaces/:workspaceId/installations/:installationId` | Enable or disable an installation |
+| `DELETE` | `/v1/workspaces/:workspaceId/installations/:installationId` | Uninstall and return preserved history |
 
 Public sharing is a read-only Catalog projection, not a second installation or
 invocation boundary:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/v4/public/agents/:publicAgentId` | Resolve a stable public Agent ID anonymously to exact selectable Releases |
+| `GET` | `/v1/public/agents/:publicAgentId` | Resolve a stable public Agent ID anonymously to exact selectable Releases |
 
 The Console requires an exact configured `VITE_NEKIRO_PUBLIC_AGENT_ORIGIN` and
 accepts only canonical `/a/:publicAgentId` URLs. Installation reuses the
-authenticated `/v3/workspaces/:workspaceId/installations` contract, so the
+authenticated `/v1/workspaces/:workspaceId/installations` contract, so the
 public URL never reaches Agent transport and never authorizes a Workspace.
 
 The Gateway returns Platform Error v2 for Catalog failures and Platform Error v3
@@ -132,13 +133,13 @@ cannot contain internal dependency errors, credentials, request payloads, or
 Agent output. `INSTALLATION_DISABLED` identifies Workspace authorization state
 while `AGENT_DISABLED` identifies Catalog version state.
 
-## Northbound Invocation API v4
+## Gateway Invocation API v1
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/v4/workspaces/:workspaceId/invocations` | Authorize, dispatch, and return a transient JSON or SSE result |
-| `GET` | `/v4/workspaces/:workspaceId/invocations/:invocationId` | Read one Workspace-scoped invocation and metadata-only Ledger events |
-| `GET` | `/v4/workspaces/:workspaceId/traces/:traceId` | Read Workspace-scoped metadata-only parent/child invocation lineage |
+| `POST` | `/v1/workspaces/:workspaceId/invocations` | Authorize, dispatch, and return a transient JSON or SSE result |
+| `GET` | `/v1/workspaces/:workspaceId/invocations/:invocationId` | Read one Workspace-scoped invocation and metadata-only Ledger events |
+| `GET` | `/v1/workspaces/:workspaceId/traces/:traceId` | Read Workspace-scoped metadata-only parent/child invocation lineage |
 
 The Invocation Gateway uses Platform Error v4 after the runtime acceptance
 boundary. Trace correlation is required; Invocation and root Task correlation
@@ -149,21 +150,21 @@ represented as not found, an empty list, or success.
 
 | Method | Path | Owner | Purpose |
 | --- | --- | --- | --- |
-| `POST` | `/internal/v2/resolve-agent` | Control Plane | Resolve an authorized installed exact Agent Card v0.2 and capability |
-| `POST` | `/internal/v3/resolve-installed-version` | Control Plane | Resolve the exact enabled Installation pin for a nested call |
-| `POST` | `/internal/v4/invocations` | Router | Execute an authorized root invocation and return a transient JSON or SSE result |
-| `GET` | `/internal/v3/workspaces/:workspaceId/invocations/:invocationId` | Router | Read Workspace-scoped metadata-only Invocation detail |
-| `GET` | `/internal/v3/workspaces/:workspaceId/traces/:traceId` | Router | Read Workspace-scoped metadata-only lineage |
+| `POST` | `/internal/v1/resolve-agent` | Control Plane | Resolve an authorized installed exact Agent Card v0.2 and capability |
+| `POST` | `/internal/v1/resolve-installed-version` | Control Plane | Resolve the exact enabled Installation pin for a nested call |
+| `POST` | `/internal/v1/invocations` | Router | Execute an authorized root invocation and return a transient JSON or SSE result |
+| `GET` | `/internal/v1/workspaces/:workspaceId/invocations/:invocationId` | Router | Read Workspace-scoped metadata-only Invocation detail |
+| `GET` | `/internal/v1/workspaces/:workspaceId/traces/:traceId` | Router | Read Workspace-scoped metadata-only lineage |
 
-Control Plane Internal v2/v3 are served by the Control Plane and called by the
-Router. Router Internal dispatch v4 is served by the Router and called by the Control
-Plane. Their server destinations are distinct and explicitly configured. The
-Router resolves cards through the internal Control Plane API and must not query
+Control Plane Internal v1 is served by the Control Plane and called by the
+Router. Router Internal v1 is served by the Router and called by the Control
+Plane. Their destinations are distinct and explicitly configured. The Router
+resolves Cards through the internal Control Plane API and must not query
 Registry or Workspace tables directly.
 
 ## Invocation Result Delivery
 
-`POST /v4/workspaces/:workspaceId/invocations` is the only Northbound result
+`POST /v1/workspaces/:workspaceId/invocations` is the only Northbound result
 channel. `stream=false` returns one `application/json` Invocation Result v1.
 `stream=true` returns ordered `text/event-stream` Invocation Result Stream
 Event v2 values on the same response. The request mode and `Accept` header must

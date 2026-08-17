@@ -57,7 +57,7 @@ func (stub *resolverStub) Resolve(ctx context.Context, request contracts.Resolve
 }
 
 type transportStub struct {
-	dispatch  contracts.DispatchInvocationRequestV4
+	dispatch  contracts.DispatchInvocationRequestV1
 	resolved  contracts.ResolveAgentResponse
 	result    json.RawMessage
 	calls     int
@@ -66,7 +66,7 @@ type transportStub struct {
 }
 
 func TestValidateDispatchRejectsRootParentLineage(t *testing.T) {
-	request := contracts.DispatchInvocationRequestV4{
+	request := contracts.DispatchInvocationRequestV1{
 		InvocationID: "inv-root", RootTaskID: "task-root", ParentInvocationID: "inv-parent",
 		TraceID: "trc_root_1", Caller: contracts.Caller{Type: "user", ID: "user-1"},
 		WorkspaceID: "workspace-1", TargetAgentID: "agent-1", AgentCardVersion: "1.0.0",
@@ -77,13 +77,15 @@ func TestValidateDispatchRejectsRootParentLineage(t *testing.T) {
 	}
 }
 
-func TestDispatchV3RouteIsRetired(t *testing.T) {
+func TestPreReleaseDispatchRoutesAreRetired(t *testing.T) {
 	resolver := &resolverStub{}
 	handler := newDispatchTestHandler(t, authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, 1024)
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/internal/v3/invocations", strings.NewReader(validDispatchBody(false))))
-	if response.Code != http.StatusNotFound || resolver.calls != 0 {
-		t.Fatalf("status=%d resolver calls=%d", response.Code, resolver.calls)
+	for _, path := range []string{"/internal/v2/invocations", "/internal/v3/invocations", "/internal/v4/invocations"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, strings.NewReader(validDispatchBody(false))))
+		if response.Code != http.StatusNotFound || resolver.calls != 0 {
+			t.Fatalf("path=%s status=%d resolver calls=%d", path, response.Code, resolver.calls)
+		}
 	}
 }
 
@@ -93,7 +95,7 @@ type streamingTransportStub struct {
 	err    error
 }
 
-func (stub *streamingTransportStub) SendStreaming(_ context.Context, _ contracts.DispatchInvocationRequestV4, _ contracts.ResolveAgentResponse) iter.Seq2[streammodel.Event, error] {
+func (stub *streamingTransportStub) SendStreaming(_ context.Context, _ contracts.DispatchInvocationRequestV1, _ contracts.ResolveAgentResponse) iter.Seq2[streammodel.Event, error] {
 	return func(yield func(streammodel.Event, error) bool) {
 		for _, event := range stub.events {
 			if !yield(event, nil) {
@@ -106,11 +108,11 @@ func (stub *streamingTransportStub) SendStreaming(_ context.Context, _ contracts
 	}
 }
 
-func (stub *streamingTransportStub) ValidateStreamingTarget(_ contracts.DispatchInvocationRequestV4, _ contracts.ResolveAgentResponse) error {
+func (stub *streamingTransportStub) ValidateStreamingTarget(_ contracts.DispatchInvocationRequestV1, _ contracts.ResolveAgentResponse) error {
 	return stub.targetErr
 }
 
-func (stub *streamingTransportStub) ValidateStreamingInput(_ contracts.DispatchInvocationRequestV4, _ contracts.ResolveAgentResponse) error {
+func (stub *streamingTransportStub) ValidateStreamingInput(_ contracts.DispatchInvocationRequestV1, _ contracts.ResolveAgentResponse) error {
 	return nil
 }
 
@@ -125,7 +127,7 @@ type deadlineTransportStub struct {
 	deadlineAt time.Time
 }
 
-func (stub *deadlineTransportStub) SendNonStreaming(ctx context.Context, dispatch contracts.DispatchInvocationRequestV4, resolved contracts.ResolveAgentResponse) (json.RawMessage, error) {
+func (stub *deadlineTransportStub) SendNonStreaming(ctx context.Context, dispatch contracts.DispatchInvocationRequestV1, resolved contracts.ResolveAgentResponse) (json.RawMessage, error) {
 	stub.calls++
 	stub.dispatch = dispatch
 	stub.resolved = resolved
@@ -134,7 +136,7 @@ func (stub *deadlineTransportStub) SendNonStreaming(ctx context.Context, dispatc
 	return nil, ctx.Err()
 }
 
-func (stub *inputPreflightTransportStub) ValidateNonStreamingInput(contracts.DispatchInvocationRequestV4, contracts.ResolveAgentResponse) error {
+func (stub *inputPreflightTransportStub) ValidateNonStreamingInput(contracts.DispatchInvocationRequestV1, contracts.ResolveAgentResponse) error {
 	stub.preflightCalls++
 	return stub.preflightErr
 }
@@ -150,18 +152,18 @@ func (err codedTransportError) PlatformErrorCode() contracts.PlatformErrorCode {
 	return err.code
 }
 
-func (stub *transportStub) SendNonStreaming(_ context.Context, dispatch contracts.DispatchInvocationRequestV4, resolved contracts.ResolveAgentResponse) (json.RawMessage, error) {
+func (stub *transportStub) SendNonStreaming(_ context.Context, dispatch contracts.DispatchInvocationRequestV1, resolved contracts.ResolveAgentResponse) (json.RawMessage, error) {
 	stub.calls++
 	stub.dispatch = dispatch
 	stub.resolved = resolved
 	return stub.result, stub.err
 }
 
-func (stub *transportStub) ValidateNonStreamingTarget(contracts.DispatchInvocationRequestV4, contracts.ResolveAgentResponse) error {
+func (stub *transportStub) ValidateNonStreamingTarget(contracts.DispatchInvocationRequestV1, contracts.ResolveAgentResponse) error {
 	return stub.targetErr
 }
 
-func (stub *transportStub) ValidateNonStreamingInput(contracts.DispatchInvocationRequestV4, contracts.ResolveAgentResponse) error {
+func (stub *transportStub) ValidateNonStreamingInput(contracts.DispatchInvocationRequestV1, contracts.ResolveAgentResponse) error {
 	return nil
 }
 
@@ -414,7 +416,7 @@ func TestDispatchChildRejectsResolvedReleaseProvenanceMismatchBeforeLedger(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	dispatch := contracts.DispatchInvocationRequestV4{
+	dispatch := contracts.DispatchInvocationRequestV1{
 		InvocationID: "inv-child", RootTaskID: "task-root", ParentInvocationID: "inv-parent", TraceID: "trace-child",
 		Caller: contracts.Caller{Type: "agent", ID: "agent-parent"}, WorkspaceID: "workspace-a",
 		TargetAgentID: "agent-a", AgentCardVersion: "1.0.0", AgentReleaseID: "release-request",
@@ -525,7 +527,7 @@ func TestDispatchWithLedgerCancellationAfterAcceptanceCommitsTerminal(t *testing
 	transport := &transportStub{result: json.RawMessage(`{"kind":"message"}`)}
 	ledger := &cancelingLedgerRecorder{cancel: cancel}
 	handler := newDispatchLedgerTestHandler(t, authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096)
-	request := httptest.NewRequest(http.MethodPost, "/internal/v4/invocations", strings.NewReader(validDispatchBody(false))).WithContext(requestContext)
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/invocations", strings.NewReader(validDispatchBody(false))).WithContext(requestContext)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
 	response := httptest.NewRecorder()
@@ -547,7 +549,7 @@ func TestDispatchWithLedgerTimeoutAfterAcceptanceCommitsTerminal(t *testing.T) {
 	transport := &transportStub{result: json.RawMessage(`{"kind":"message"}`)}
 	ledger := &cancelingLedgerRecorder{delay: 25 * time.Millisecond}
 	handler := newDispatchLedgerTestHandler(t, authStub{caller: auth.Caller{ID: "control-plane"}}, resolver, transport, ledger, 4096)
-	request := httptest.NewRequest(http.MethodPost, "/internal/v4/invocations", strings.NewReader(validDispatchBody(false))).WithContext(requestContext)
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/invocations", strings.NewReader(validDispatchBody(false))).WithContext(requestContext)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
 	response := httptest.NewRecorder()
@@ -878,7 +880,7 @@ func TestDispatchStreamingCancellationDuringTerminalCommitUsesBoundedLedgerConte
 	}
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
-	request := httptest.NewRequest(http.MethodPost, "/internal/v4/invocations", strings.NewReader(validDispatchBody(true))).WithContext(requestContext)
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/invocations", strings.NewReader(validDispatchBody(true))).WithContext(requestContext)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "text/event-stream")
 	response := httptest.NewRecorder()
@@ -901,7 +903,7 @@ func TestDispatchStreamingCancellationDuringChunkCommitRecordsCanceledTerminal(t
 	}
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
-	request := httptest.NewRequest(http.MethodPost, "/internal/v4/invocations", strings.NewReader(validDispatchBody(true))).WithContext(requestContext)
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/invocations", strings.NewReader(validDispatchBody(true))).WithContext(requestContext)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "text/event-stream")
 	response := httptest.NewRecorder()
@@ -962,7 +964,7 @@ func TestDispatchStreamingWriterFailureCommitsNonSuccessLedgerTerminal(t *testin
 	}
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
-	request := httptest.NewRequest(http.MethodPost, "/internal/v4/invocations", strings.NewReader(validDispatchBody(true)))
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/invocations", strings.NewReader(validDispatchBody(true)))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "text/event-stream")
 	writer := &failingStreamWriter{header: make(http.Header)}
@@ -1142,7 +1144,7 @@ func assertLedgerLifecycle(t *testing.T, events []contracts.InvocationEventV03, 
 }
 
 func invokeDispatch(handler http.Handler, contentType, accept, body string) *httptest.ResponseRecorder {
-	request := httptest.NewRequest(http.MethodPost, "/internal/v4/invocations", strings.NewReader(body))
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/invocations", strings.NewReader(body))
 	request.Header.Set("Content-Type", contentType)
 	request.Header.Set("Accept", accept)
 	response := httptest.NewRecorder()

@@ -18,7 +18,7 @@ func TestNewStoreRequiresPool(t *testing.T) {
 }
 
 func TestOrderTraceProjectionsBuildsParentBeforeChild(t *testing.T) {
-	values := []contracts.InvocationRecordV4{
+	values := []contracts.InvocationRecordV1{
 		{InvocationID: "child", ParentInvocationID: "parent"},
 		{InvocationID: "parent"},
 		{InvocationID: "root"},
@@ -33,7 +33,7 @@ func TestOrderTraceProjectionsBuildsParentBeforeChild(t *testing.T) {
 }
 
 func TestOrderTraceProjectionsRejectsMissingOrCyclicLineage(t *testing.T) {
-	for _, values := range [][]contracts.InvocationRecordV4{
+	for _, values := range [][]contracts.InvocationRecordV1{
 		{{InvocationID: "child", ParentInvocationID: "missing"}},
 		{{InvocationID: "a", ParentInvocationID: "b"}, {InvocationID: "b", ParentInvocationID: "a"}},
 	} {

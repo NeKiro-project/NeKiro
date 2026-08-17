@@ -140,7 +140,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	if err := validateControlPlaneURL(versionURL, "/internal/v3/resolve-installed-version"); err != nil {
+	if err := validateControlPlaneURL(versionURL, "/internal/v1/resolve-installed-version"); err != nil {
 		return Config{}, fmt.Errorf("NEKIRO_CONTROL_PLANE_VERSION_URL is invalid: %w", err)
 	}
 	token, err := required("NEKIRO_CONTROL_PLANE_SERVICE_TOKEN")
@@ -573,7 +573,7 @@ func validateListenAddress(value string) error {
 }
 
 func validateResolveURL(value string) error {
-	return validateControlPlaneURL(value, "/internal/v2/resolve-agent")
+	return validateControlPlaneURL(value, "/internal/v1/resolve-agent")
 }
 
 func validateControlPlaneURL(value, requiredPath string) error {

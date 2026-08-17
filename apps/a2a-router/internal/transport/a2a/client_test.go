@@ -78,7 +78,7 @@ func TestClientDoesNotFollowAgentRedirects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient = %v", err)
 	}
-	_, err = client.SendNonStreaming(t.Context(), contracts.DispatchInvocationRequestV4{
+	_, err = client.SendNonStreaming(t.Context(), contracts.DispatchInvocationRequestV1{
 		InvocationID: "inv-a", RootTaskID: "task-a", TraceID: "trace-a",
 		Caller: contracts.Caller{Type: "user", ID: "owner-a"}, WorkspaceID: "workspace-a",
 		TargetAgentID: "agent-a", AgentCardVersion: "1.0.0", Capability: "capability-a",
@@ -115,7 +115,7 @@ func TestClientSendNonStreamingMapsDispatchToA2A(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient = %v", err)
 	}
-	result, err := client.SendNonStreaming(t.Context(), contracts.DispatchInvocationRequestV4{
+	result, err := client.SendNonStreaming(t.Context(), contracts.DispatchInvocationRequestV1{
 		InvocationID: "inv-a", RootTaskID: "task-a", TraceID: "trace-a",
 		Caller: contracts.Caller{Type: "user", ID: "owner-a"}, WorkspaceID: "workspace-a",
 		TargetAgentID: "agent-a", AgentCardVersion: "1.0.0", Capability: "capability-a",
@@ -152,7 +152,7 @@ func TestClientPinsSelectedTargetOncePerNonStreamingInvocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.SendNonStreaming(t.Context(), contracts.DispatchInvocationRequestV4{
+	if _, err := client.SendNonStreaming(t.Context(), contracts.DispatchInvocationRequestV1{
 		InvocationID: "inv-pin", RootTaskID: "task-pin", TraceID: "trace-pin",
 		Caller: contracts.Caller{Type: "user", ID: "owner-a"}, WorkspaceID: "workspace-a",
 		TargetAgentID: "agent-a", AgentCardVersion: "1.0.0", Capability: "capability-a",
@@ -269,7 +269,7 @@ func TestClientSendStreamingMapsA2AEventsAndTrustedHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dispatch := contracts.DispatchInvocationRequestV4{
+	dispatch := contracts.DispatchInvocationRequestV1{
 		InvocationID: "inv-a", RootTaskID: "task-a", TraceID: "trace-a",
 		Caller: contracts.Caller{Type: "user", ID: "owner-a"}, WorkspaceID: "workspace-a",
 		TargetAgentID: "agent-a", AgentCardVersion: "1.0.0", Capability: "capability-a",
@@ -310,7 +310,7 @@ func TestClientPinsSelectedTargetOnceForCompleteStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dispatch := contracts.DispatchInvocationRequestV4{
+	dispatch := contracts.DispatchInvocationRequestV1{
 		InvocationID: "inv-stream-pin", RootTaskID: "task-stream-pin", TraceID: "trace-stream-pin",
 		Caller: contracts.Caller{Type: "user", ID: "owner-a"}, WorkspaceID: "workspace-a",
 		TargetAgentID: "agent-a", AgentCardVersion: "1.0.0", Capability: "capability-a",
@@ -346,7 +346,7 @@ func TestClientStreamingRejectsInvalidJSONRPCEnvelopeBeforeEventMapping(t *testi
 			if err != nil {
 				t.Fatal(err)
 			}
-			dispatch := contracts.DispatchInvocationRequestV4{
+			dispatch := contracts.DispatchInvocationRequestV1{
 				InvocationID: "inv-a", RootTaskID: "task-a", TraceID: "trace-a",
 				Caller: contracts.Caller{Type: "user", ID: "owner-a"}, WorkspaceID: "workspace-a",
 				TargetAgentID: "agent-a", AgentCardVersion: "1.0.0", Capability: "capability-a",
@@ -452,7 +452,7 @@ func TestClientRejectsMalformedMessageResultInNonStreamingDispatch(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.SendNonStreaming(t.Context(), contracts.DispatchInvocationRequestV4{
+	_, err = client.SendNonStreaming(t.Context(), contracts.DispatchInvocationRequestV1{
 		InvocationID: "inv-a", RootTaskID: "task-a", TraceID: "trace-a",
 		Caller: contracts.Caller{Type: "user", ID: "owner-a"}, WorkspaceID: "workspace-a",
 		TargetAgentID: "agent-a", AgentCardVersion: "1.0.0", Capability: "capability-a",

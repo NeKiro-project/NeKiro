@@ -17,9 +17,9 @@ const (
 	WorkspacePlatformErrorSchemaVersion = "3"
 	A2AProfileSchemaVersion             = A2AProfileSchemaVersionV02
 	A2AProtocolVersion                  = A2AProfileProtocolVersion
-	NorthboundAPIVersion                = "3"
-	ControlPlaneInternalAPIVersion      = "2"
-	RouterInternalAPIVersion            = "2"
+	NorthboundAPIVersion                = "1"
+	ControlPlaneInternalAPIVersion      = "1"
+	RouterInternalAPIVersion            = "1"
 	DiscoveryDefaultLimit               = 25
 	DiscoveryMinimumLimit               = 1
 	DiscoveryMaximumLimit               = 100

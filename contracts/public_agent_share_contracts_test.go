@@ -9,7 +9,7 @@ import (
 
 func TestPublicAgentShareOpenAPIAndSchemaMapping(t *testing.T) {
 	document := loadOpenAPIDocument(t, filepath.Join("openapi", "public-agent-share.v1.yaml"))
-	operation := document.Paths.Find("/v4/public/agents/{publicAgentId}").Get
+	operation := document.Paths.Find("/v1/public/agents/{publicAgentId}").Get
 	if operation == nil || operation.Security == nil || len(*operation.Security) != 0 {
 		t.Fatal("public resolution must be explicitly anonymous")
 	}
@@ -37,7 +37,7 @@ func TestPublicAgentShareOpenAPIAndSchemaMapping(t *testing.T) {
 }
 
 func TestCatalogEntryPublicIdentityFieldsArePairedInOpenAPI(t *testing.T) {
-	document := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v3.yaml"))
+	document := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v1.yaml"))
 	schema := document.Components.Schemas["CatalogEntry"].Value
 	if len(schema.DependentRequired) != 2 {
 		t.Fatal("CatalogEntry public identity fields must be paired")

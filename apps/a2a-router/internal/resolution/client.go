@@ -41,7 +41,7 @@ func NewClient(doer HTTPDoer, url, token string, responseLimit int64) (*Client, 
 }
 
 // NewClientWithVersionURL creates a resolution client with an optional
-// Control Plane Internal v3 version resolution endpoint.
+// Control Plane Internal v1 version resolution endpoint.
 func NewClientWithVersionURL(doer HTTPDoer, url, versionURL, token string, responseLimit int64) (*Client, error) {
 	if doer == nil || url == "" || token == "" || responseLimit < contracts.RuntimeByteLimitMinimum || responseLimit > contracts.RuntimeByteLimitMaximum {
 		return nil, errors.New("resolution client dependencies are required")
@@ -147,7 +147,7 @@ func readBounded(reader io.Reader, limit int64) ([]byte, error) {
 	return data, nil
 }
 
-// ResolveInstalledVersion calls the Control Plane Internal v3 endpoint to
+// ResolveInstalledVersion calls the Control Plane Internal v1 endpoint to
 // resolve the deterministic installed Agent Card version from the enabled
 // Installation. It returns the exact pinned version.
 func (client *Client) ResolveInstalledVersion(ctx context.Context, requestValue contracts.ResolveInstalledVersionRequest) (contracts.ResolveInstalledVersionResponse, error) {

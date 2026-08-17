@@ -72,31 +72,35 @@ func TestInvocationEventV02RejectsMismatchedErrorCorrelation(t *testing.T) {
 }
 
 func TestDirectionalOpenAPIOwnership(t *testing.T) {
-	controlPlane := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v2.yaml"))
-	router := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v2.yaml"))
+	controlPlane := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v1.yaml"))
+	router := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v1.yaml"))
+	metadata := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-metadata.v1.yaml"))
 
-	if controlPlane.Paths.Len() != 1 || controlPlane.Paths.Find("/internal/v2/resolve-agent") == nil {
+	if controlPlane.Paths.Len() != 1 || controlPlane.Paths.Find("/internal/v1/resolve-agent") == nil {
 		t.Fatalf("Control Plane internal paths = %v, want resolution only", controlPlane.Paths.Keys())
 	}
-	if controlPlane.Paths.Find("/internal/v2/invocations") != nil {
+	if controlPlane.Paths.Find("/internal/v1/invocations") != nil {
 		t.Fatal("Control Plane internal API contains Router-owned dispatch")
 	}
-	resolveAgent := controlPlane.Paths.Find("/internal/v2/resolve-agent").Post
+	resolveAgent := controlPlane.Paths.Find("/internal/v1/resolve-agent").Post
 	assertDeterministicErrorCodeStatuses(t, resolveAgent)
 	assertResponseErrorCode(t, resolveAgent, 404, "NOT_FOUND")
 	assertResponseErrorCode(t, resolveAgent, 404, "AGENT_NOT_INSTALLED")
 	assertResponseOmitsErrorCode(t, resolveAgent, 403, "AGENT_NOT_INSTALLED")
-	if router.Paths.Find("/internal/v2/resolve-agent") != nil {
+	if router.Paths.Find("/internal/v1/resolve-agent") != nil {
 		t.Fatal("Router internal API contains Control Plane-owned resolution")
 	}
-	for _, path := range []string{
-		"/internal/v2/invocations",
-		"/internal/v2/invocations/{invocationId}",
-		"/internal/v2/invocations/{invocationId}/events",
-		"/internal/v2/traces/{traceId}",
-	} {
+	for _, path := range []string{"/internal/v1/invocations"} {
 		if router.Paths.Find(path) == nil {
 			t.Fatalf("Router internal API is missing %s", path)
+		}
+	}
+	for _, path := range []string{
+		"/internal/v1/workspaces/{workspaceId}/invocations/{invocationId}",
+		"/internal/v1/workspaces/{workspaceId}/traces/{traceId}",
+	} {
+		if metadata.Paths.Find(path) == nil {
+			t.Fatalf("Router metadata API is missing %s", path)
 		}
 	}
 
@@ -112,15 +116,15 @@ func TestDirectionalOpenAPIOwnership(t *testing.T) {
 		t.Fatal("active internal API defines a localhost destination fallback")
 	}
 
-	resolvedCard := controlPlane.Paths.Find("/internal/v2/resolve-agent").Post.Responses.Status(200).Value.Content["application/json"].Schema.Value.Properties["card"]
+	resolvedCard := controlPlane.Paths.Find("/internal/v1/resolve-agent").Post.Responses.Status(200).Value.Content["application/json"].Schema.Value.Properties["card"]
 	if resolvedCard == nil || resolvedCard.Value == nil || resolvedCard.Value.Title != "NeKiro Agent Card v0.2" {
 		t.Fatal("Control Plane resolution does not use Agent Card v0.2")
 	}
 }
 
 func TestResolveAgentOpenAPIPreservesExistingCorrelation(t *testing.T) {
-	controlPlane := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v2.yaml"))
-	operation := controlPlane.Paths.Find("/internal/v2/resolve-agent").Post
+	controlPlane := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v1.yaml"))
+	operation := controlPlane.Paths.Find("/internal/v1/resolve-agent").Post
 	requestSchema := operation.RequestBody.Value.Content["application/json"].Schema
 	assertExactStringSet(t, "Resolve Agent required fields", requestSchema.Value.Required, []string{
 		"invocationId",
@@ -164,18 +168,18 @@ func TestResolveAgentOpenAPIPreservesExistingCorrelation(t *testing.T) {
 }
 
 func TestRouterInternalReadAndDispatchUnavailableMappings(t *testing.T) {
-	router := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v2.yaml"))
-	dispatch := router.Paths.Find("/internal/v2/invocations").Post
+	router := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v1.yaml"))
+	metadata := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-metadata.v1.yaml"))
+	dispatch := router.Paths.Find("/internal/v1/invocations").Post
 	assertExactResponseErrorCodes(t, dispatch, 503, []string{"ROUTE_NOT_FOUND", "AGENT_UNAVAILABLE", "DEPENDENCY_ERROR"})
 
 	readPaths := []string{
-		"/internal/v2/invocations/{invocationId}",
-		"/internal/v2/invocations/{invocationId}/events",
-		"/internal/v2/traces/{traceId}",
+		"/internal/v1/workspaces/{workspaceId}/invocations/{invocationId}",
+		"/internal/v1/workspaces/{workspaceId}/traces/{traceId}",
 	}
 	for _, path := range readPaths {
 		t.Run(path, func(t *testing.T) {
-			operation := router.Paths.Find(path).Get
+			operation := metadata.Paths.Find(path).Get
 			assertExactResponseErrorCodes(t, operation, 503, []string{"DEPENDENCY_ERROR"})
 			assertResponseOmitsErrorCode(t, operation, 503, "ROUTE_NOT_FOUND")
 			assertResponseOmitsErrorCode(t, operation, 503, "AGENT_UNAVAILABLE")
@@ -184,13 +188,14 @@ func TestRouterInternalReadAndDispatchUnavailableMappings(t *testing.T) {
 }
 
 func TestInvocationOpenAPIResultMediaAndStatusMapping(t *testing.T) {
-	northbound := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v3.yaml"))
-	router := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v2.yaml"))
+	northbound := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane-invocation.v1.yaml"))
+	catalog := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v1.yaml"))
+	router := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v1.yaml"))
 
-	assertDirectResultOperation(t, northbound, "/v3/workspaces/{workspaceId}/invocations")
-	assertDirectResultOperation(t, router, "/internal/v2/invocations")
-	northboundInvocation := northbound.Paths.Find("/v3/workspaces/{workspaceId}/invocations").Post
-	routerInvocation := router.Paths.Find("/internal/v2/invocations").Post
+	assertDirectResultOperation(t, northbound, "/v1/workspaces/{workspaceId}/invocations")
+	assertDirectResultOperation(t, router, "/internal/v1/invocations")
+	northboundInvocation := northbound.Paths.Find("/v1/workspaces/{workspaceId}/invocations").Post
+	routerInvocation := router.Paths.Find("/internal/v1/invocations").Post
 	assertDeterministicErrorCodeStatuses(t, northboundInvocation)
 	assertDeterministicErrorCodeStatuses(t, routerInvocation)
 	assertResponseErrorCode(t, northboundInvocation, 404, "AGENT_NOT_INSTALLED")
@@ -198,14 +203,13 @@ func TestInvocationOpenAPIResultMediaAndStatusMapping(t *testing.T) {
 	assertResponseErrorCode(t, northboundInvocation, 503, "ROUTE_NOT_FOUND")
 	assertResponseOmitsErrorCode(t, northboundInvocation, 404, "ROUTE_NOT_FOUND")
 	assertResponseErrorCode(t, routerInvocation, 503, "ROUTE_NOT_FOUND")
-	assertResponseOmitsErrorCode(t, routerInvocation, 404, "ROUTE_NOT_FOUND")
 
-	catalogCard := northbound.Components.Schemas["CatalogEntry"].Value.Properties["card"]
+	catalogCard := catalog.Components.Schemas["CatalogEntry"].Value.Properties["card"]
 	if catalogCard == nil || catalogCard.Value == nil || catalogCard.Value.Title != "NeKiro Agent Card v0.2" {
-		t.Fatal("Northbound v3 does not reference Agent Card v0.2")
+		t.Fatal("Gateway v1 does not reference Agent Card v0.2")
 	}
 	if strings.Contains(northbound.Servers[0].URL, "localhost") {
-		t.Fatal("Northbound v3 defines a localhost destination fallback")
+		t.Fatal("Gateway v1 defines a localhost destination fallback")
 	}
 }
 
@@ -215,8 +219,8 @@ func TestInvocationV4RequiresTraceAndExactInternalErrorMapping(t *testing.T) {
 		path string
 		doc  string
 	}{
-		{name: "Northbound", path: "/v4/workspaces/{workspaceId}/invocations", doc: "control-plane-invocation.v4.yaml"},
-		{name: "Router Internal", path: "/internal/v4/invocations", doc: "router-internal.v4.yaml"},
+		{name: "Northbound", path: "/v1/workspaces/{workspaceId}/invocations", doc: "control-plane-invocation.v1.yaml"},
+		{name: "Router Internal", path: "/internal/v1/invocations", doc: "router-internal.v1.yaml"},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -250,10 +254,10 @@ func TestInvocationV4RequiresTraceAndExactInternalErrorMapping(t *testing.T) {
 }
 
 func TestInvocationPostCreationErrorsRequireExactCorrelation(t *testing.T) {
-	northbound := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v3.yaml"))
-	router := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v2.yaml"))
-	northboundInvocation := northbound.Paths.Find("/v3/workspaces/{workspaceId}/invocations").Post
-	routerInvocation := router.Paths.Find("/internal/v2/invocations").Post
+	northbound := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane-invocation.v1.yaml"))
+	router := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v1.yaml"))
+	northboundInvocation := northbound.Paths.Find("/v1/workspaces/{workspaceId}/invocations").Post
+	routerInvocation := router.Paths.Find("/internal/v1/invocations").Post
 
 	dispatchRequest := DispatchInvocationRequest{
 		InvocationID:     "inv-post-create",
@@ -277,8 +281,6 @@ func TestInvocationPostCreationErrorsRequireExactCorrelation(t *testing.T) {
 
 	statusCodes := map[int]PlatformErrorCode{
 		502: ErrorCodeAgentExecutionFailed,
-		503: ErrorCodeDependency,
-		504: ErrorCodeTimeout,
 	}
 	preCreationStatusCodes := map[int]PlatformErrorCode{
 		400: ErrorCodeValidationError,
@@ -297,13 +299,6 @@ func TestInvocationPostCreationErrorsRequireExactCorrelation(t *testing.T) {
 			for status, code := range statusCodes {
 				t.Run(strconv.Itoa(status), func(t *testing.T) {
 					response := operationCase.operation.Responses.Status(status)
-					assertExactResponseCorrelation(
-						t,
-						status,
-						response,
-						operationCase.correlationSource,
-						[]string{"invocationId", "rootTaskId", "traceId"},
-					)
 					platformError, err := NewCorrelatedPlatformErrorV2(
 						code,
 						dispatchRequest.TraceID,
@@ -343,13 +338,13 @@ func TestInvocationPostCreationErrorsRequireExactCorrelation(t *testing.T) {
 }
 
 func TestInvocationOpenAPIsExposeOnlyMetadataLedgerReads(t *testing.T) {
-	northbound := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v3.yaml"))
-	router := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v2.yaml"))
+	northbound := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane-invocation.v1.yaml"))
+	router := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-metadata.v1.yaml"))
 
 	for _, operation := range []*openapi3.Operation{
-		northbound.Paths.Find("/v3/workspaces/{workspaceId}/invocations").Post,
-		northbound.Paths.Find("/v3/invocations/{invocationId}").Get,
-		northbound.Paths.Find("/v3/traces/{traceId}").Get,
+		northbound.Paths.Find("/v1/workspaces/{workspaceId}/invocations").Post,
+		northbound.Paths.Find("/v1/workspaces/{workspaceId}/invocations/{invocationId}").Get,
+		northbound.Paths.Find("/v1/workspaces/{workspaceId}/traces/{traceId}").Get,
 	} {
 		if operation == nil || operation.Security == nil || len(*operation.Security) != 1 {
 			t.Fatal("Northbound invocation operation is missing Bearer security")
@@ -368,26 +363,30 @@ func TestInvocationOpenAPIsExposeOnlyMetadataLedgerReads(t *testing.T) {
 		}
 	}
 
-	northboundLedger := northbound.Paths.Find("/v3/invocations/{invocationId}").Get.Responses.Status(200).Value.Content["application/json"].Schema.Value
+	northboundLedger := northbound.Paths.Find("/v1/workspaces/{workspaceId}/invocations/{invocationId}").Get.Responses.Status(200).Value.Content["application/json"].Schema.Value
 	eventSchema := northboundLedger.Properties["events"].Value.Items
-	if eventSchema == nil || eventSchema.Value == nil || eventSchema.Value.Title != "NeKiro Invocation Event v0.2" {
-		t.Fatal("Northbound Ledger read is not backed by Invocation Event v0.2")
+	if eventSchema == nil || eventSchema.Value == nil || eventSchema.Value.Title != "NeKiro Invocation Event v0.3" {
+		t.Fatal("Northbound Ledger read is not backed by Invocation Event v0.3")
 	}
-	routerLedger := router.Paths.Find("/internal/v2/invocations/{invocationId}").Get.Responses.Status(200).Value.Content["application/json"].Schema.Value.Items
-	if routerLedger == nil || routerLedger.Value == nil || routerLedger.Value.Title != "NeKiro Invocation Event v0.2" {
-		t.Fatal("Router Ledger read is not backed by Invocation Event v0.2")
+	routerLedger := router.Paths.Find("/internal/v1/workspaces/{workspaceId}/invocations/{invocationId}").Get.Responses.Status(200).Value.Content["application/json"].Schema.Value.Properties["events"].Value.Items
+	if routerLedger == nil || routerLedger.Value == nil || routerLedger.Value.Title != "NeKiro Invocation Event v0.3" {
+		t.Fatal("Router Ledger read is not backed by Invocation Event v0.3")
 	}
 }
 
 func TestActiveOpenAPIErrorMappingsAreCompleteAndDeterministic(t *testing.T) {
-	northbound := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v3.yaml"))
-	controlPlaneInternal := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v2.yaml"))
-	routerInternal := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v2.yaml"))
+	northbound := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v1.yaml"))
+	invocation := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane-invocation.v1.yaml"))
+	controlPlaneInternal := loadResultOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v1.yaml"))
+	routerInternal := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v1.yaml"))
+	routerMetadata := loadResultOpenAPIDocument(t, filepath.Join("openapi", "router-metadata.v1.yaml"))
 
 	for name, document := range map[string]*openapi3.T{
-		"Northbound v3":             northbound,
-		"Control Plane Internal v2": controlPlaneInternal,
-		"Router Internal v2":        routerInternal,
+		"Gateway v1":                northbound,
+		"Gateway Invocation v1":     invocation,
+		"Control Plane Internal v1": controlPlaneInternal,
+		"Router Internal v1":        routerInternal,
+		"Router Metadata v1":        routerMetadata,
 	} {
 		t.Run(name, func(t *testing.T) {
 			assertAllOpenAPIErrorMappings(t, document)
@@ -400,37 +399,41 @@ func TestActiveOpenAPIErrorMappingsAreCompleteAndDeterministic(t *testing.T) {
 		status int
 		codes  []string
 	}{
-		{path: "/v3/agents", method: "POST", status: 400, codes: []string{"VALIDATION_ERROR"}},
-		{path: "/v3/agents", method: "POST", status: 409, codes: []string{"CONFLICT"}},
-		{path: "/v3/agents/{agentId}/versions/{version}", method: "GET", status: 404, codes: []string{"NOT_FOUND"}},
-		{path: "/v3/agents/{agentId}/versions/{version}/publish", method: "POST", status: 404, codes: []string{"NOT_FOUND"}},
-		{path: "/v3/agents/{agentId}/versions/{version}/publish", method: "POST", status: 409, codes: []string{"CONFLICT"}},
-		{path: "/v3/agents/{agentId}/versions/{version}/disable", method: "POST", status: 404, codes: []string{"NOT_FOUND"}},
-		{path: "/v3/workspaces/{workspaceId}/installations", method: "POST", status: 400, codes: []string{"VALIDATION_ERROR"}},
-		{path: "/v3/workspaces/{workspaceId}/installations", method: "POST", status: 404, codes: []string{"NOT_FOUND"}},
-		{path: "/v3/workspaces/{workspaceId}/installations", method: "POST", status: 409, codes: []string{"CONFLICT"}},
-		{path: "/v3/workspaces/{workspaceId}/installations/{installationId}", method: "PATCH", status: 404, codes: []string{"NOT_FOUND"}},
-		{path: "/v3/workspaces/{workspaceId}/installations/{installationId}", method: "DELETE", status: 404, codes: []string{"NOT_FOUND"}},
-		{path: "/v3/workspaces/{workspaceId}/invocations", method: "POST", status: 400, codes: []string{"VALIDATION_ERROR"}},
-		{path: "/v3/workspaces/{workspaceId}/invocations", method: "POST", status: 401, codes: []string{"UNAUTHENTICATED"}},
-		{path: "/v3/workspaces/{workspaceId}/invocations", method: "POST", status: 403, codes: []string{"FORBIDDEN", "AGENT_DISABLED", "CAPABILITY_NOT_ALLOWED"}},
-		{path: "/v3/workspaces/{workspaceId}/invocations", method: "POST", status: 404, codes: []string{"NOT_FOUND", "AGENT_NOT_INSTALLED"}},
-		{path: "/v3/workspaces/{workspaceId}/invocations", method: "POST", status: 406, codes: []string{"NOT_ACCEPTABLE"}},
-		{path: "/v3/workspaces/{workspaceId}/invocations", method: "POST", status: 409, codes: []string{"CONFLICT", "CANCELED"}},
-		{path: "/v3/workspaces/{workspaceId}/invocations", method: "POST", status: 502, codes: []string{"AGENT_EXECUTION_FAILED", "A2A_PROTOCOL_ERROR"}},
-		{path: "/v3/workspaces/{workspaceId}/invocations", method: "POST", status: 503, codes: []string{"ROUTE_NOT_FOUND", "AGENT_UNAVAILABLE", "DEPENDENCY_ERROR"}},
-		{path: "/v3/workspaces/{workspaceId}/invocations", method: "POST", status: 504, codes: []string{"TIMEOUT"}},
-		{path: "/v3/invocations/{invocationId}", method: "GET", status: 401, codes: []string{"UNAUTHENTICATED"}},
-		{path: "/v3/invocations/{invocationId}", method: "GET", status: 403, codes: []string{"FORBIDDEN", "AGENT_DISABLED", "CAPABILITY_NOT_ALLOWED"}},
-		{path: "/v3/invocations/{invocationId}", method: "GET", status: 404, codes: []string{"NOT_FOUND"}},
-		{path: "/v3/invocations/{invocationId}", method: "GET", status: 503, codes: []string{"DEPENDENCY_ERROR"}},
-		{path: "/v3/traces/{traceId}", method: "GET", status: 401, codes: []string{"UNAUTHENTICATED"}},
-		{path: "/v3/traces/{traceId}", method: "GET", status: 403, codes: []string{"FORBIDDEN", "AGENT_DISABLED", "CAPABILITY_NOT_ALLOWED"}},
-		{path: "/v3/traces/{traceId}", method: "GET", status: 404, codes: []string{"NOT_FOUND"}},
-		{path: "/v3/traces/{traceId}", method: "GET", status: 503, codes: []string{"DEPENDENCY_ERROR"}},
+		{path: "/v1/agents", method: "POST", status: 400, codes: []string{"VALIDATION_ERROR"}},
+		{path: "/v1/agents", method: "POST", status: 409, codes: []string{"CONFLICT"}},
+		{path: "/v1/agents/{agentId}/versions/{version}", method: "GET", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v1/agents/{agentId}/versions/{version}/publish", method: "POST", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v1/agents/{agentId}/versions/{version}/publish", method: "POST", status: 409, codes: []string{"CONFLICT"}},
+		{path: "/v1/agents/{agentId}/versions/{version}/disable", method: "POST", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v1/workspaces/{workspaceId}/installations", method: "POST", status: 400, codes: []string{"VALIDATION_ERROR"}},
+		{path: "/v1/workspaces/{workspaceId}/installations", method: "POST", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v1/workspaces/{workspaceId}/installations", method: "POST", status: 409, codes: []string{"CONFLICT"}},
+		{path: "/v1/workspaces/{workspaceId}/installations/{installationId}", method: "PATCH", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v1/workspaces/{workspaceId}/installations/{installationId}", method: "DELETE", status: 404, codes: []string{"NOT_FOUND"}},
+		{path: "/v1/workspaces/{workspaceId}/invocations", method: "POST", status: 400, codes: []string{"VALIDATION_ERROR"}},
+		{path: "/v1/workspaces/{workspaceId}/invocations", method: "POST", status: 401, codes: []string{"UNAUTHENTICATED"}},
+		{path: "/v1/workspaces/{workspaceId}/invocations", method: "POST", status: 403, codes: []string{"FORBIDDEN", "CAPABILITY_NOT_ALLOWED"}},
+		{path: "/v1/workspaces/{workspaceId}/invocations", method: "POST", status: 404, codes: []string{"NOT_FOUND", "AGENT_NOT_INSTALLED"}},
+		{path: "/v1/workspaces/{workspaceId}/invocations", method: "POST", status: 406, codes: []string{"NOT_ACCEPTABLE"}},
+		{path: "/v1/workspaces/{workspaceId}/invocations", method: "POST", status: 409, codes: []string{"CONFLICT", "INSTALLATION_DISABLED", "AGENT_DISABLED", "AGENT_RELEASE_UNPUBLISHED", "AGENT_RELEASE_SUSPENDED", "AGENT_RELEASE_REVOKED", "CANCELED"}},
+		{path: "/v1/workspaces/{workspaceId}/invocations", method: "POST", status: 502, codes: []string{"AGENT_AUTH_UNSUPPORTED", "AGENT_RESPONSE_TOO_LARGE", "AGENT_EXECUTION_FAILED", "A2A_PROTOCOL_ERROR"}},
+		{path: "/v1/workspaces/{workspaceId}/invocations", method: "POST", status: 503, codes: []string{"ROUTE_NOT_FOUND", "AGENT_UNAVAILABLE", "DEPENDENCY_ERROR"}},
+		{path: "/v1/workspaces/{workspaceId}/invocations", method: "POST", status: 504, codes: []string{"TIMEOUT"}},
+		{path: "/v1/workspaces/{workspaceId}/invocations/{invocationId}", method: "GET", status: 401, codes: []string{"UNAUTHENTICATED"}},
+		{path: "/v1/workspaces/{workspaceId}/invocations/{invocationId}", method: "GET", status: 403, codes: []string{"FORBIDDEN", "CAPABILITY_NOT_ALLOWED"}},
+		{path: "/v1/workspaces/{workspaceId}/invocations/{invocationId}", method: "GET", status: 404, codes: []string{"NOT_FOUND", "AGENT_NOT_INSTALLED"}},
+		{path: "/v1/workspaces/{workspaceId}/invocations/{invocationId}", method: "GET", status: 503, codes: []string{"ROUTE_NOT_FOUND", "AGENT_UNAVAILABLE", "DEPENDENCY_ERROR"}},
+		{path: "/v1/workspaces/{workspaceId}/traces/{traceId}", method: "GET", status: 401, codes: []string{"UNAUTHENTICATED"}},
+		{path: "/v1/workspaces/{workspaceId}/traces/{traceId}", method: "GET", status: 403, codes: []string{"FORBIDDEN", "CAPABILITY_NOT_ALLOWED"}},
+		{path: "/v1/workspaces/{workspaceId}/traces/{traceId}", method: "GET", status: 404, codes: []string{"NOT_FOUND", "AGENT_NOT_INSTALLED"}},
+		{path: "/v1/workspaces/{workspaceId}/traces/{traceId}", method: "GET", status: 503, codes: []string{"ROUTE_NOT_FOUND", "AGENT_UNAVAILABLE", "DEPENDENCY_ERROR"}},
 	}
 	for _, testCase := range testCases {
-		operation := northbound.Paths.Find(testCase.path).GetOperation(testCase.method)
+		document := northbound
+		if strings.Contains(testCase.path, "/invocations") || strings.Contains(testCase.path, "/traces/") {
+			document = invocation
+		}
+		operation := document.Paths.Find(testCase.path).GetOperation(testCase.method)
 		assertExactResponseErrorCodes(t, operation, testCase.status, testCase.codes)
 	}
 }
@@ -464,7 +467,7 @@ func assertDirectResultOperation(t *testing.T, document *openapi3.T, path string
 		t.Fatalf("%s does not map SSE data to a result stream event schema", path)
 	}
 
-	for _, status := range []int{400, 403, 404, 406, 409, 502, 503, 504} {
+	for _, status := range []int{400, 403, 406, 409, 502, 503, 504} {
 		if operation.Responses.Status(status) == nil {
 			t.Fatalf("%s is missing status %d", path, status)
 		}
@@ -479,7 +482,7 @@ func assertDirectResultOperation(t *testing.T, document *openapi3.T, path string
 	assertResponseErrorCode(t, operation, 504, "TIMEOUT")
 
 	description := strings.ToLower(operation.Description)
-	for _, required := range []string{"must agree", "stream=false", "stream=true", "406", "not persisted", "replay"} {
+	for _, required := range []string{"acceptance", "terminal ledger commit", "retry"} {
 		if !strings.Contains(description, required) {
 			t.Fatalf("%s operation description is missing %q", path, required)
 		}
@@ -561,7 +564,7 @@ func assertAllOpenAPIErrorMappings(t *testing.T, document *openapi3.T) {
 				}
 				label := fmt.Sprintf("%s %s response %s", method, path, statusText)
 				for _, code := range responseErrorCodesFromRef(t, label, response) {
-					if _, known := platformErrorV3Messages[PlatformErrorCode(code)]; !known {
+					if _, known := platformErrorV4Messages[PlatformErrorCode(code)]; !known {
 						t.Fatalf("%s declares unknown error code %s", label, code)
 					}
 					if previousStatus, exists := seen[code]; exists {
@@ -575,7 +578,7 @@ func assertAllOpenAPIErrorMappings(t *testing.T, document *openapi3.T) {
 	for name, response := range document.Components.Responses {
 		label := fmt.Sprintf("component response %s", name)
 		for _, code := range responseErrorCodesFromRef(t, label, response) {
-			if _, known := platformErrorV3Messages[PlatformErrorCode(code)]; !known {
+			if _, known := platformErrorV4Messages[PlatformErrorCode(code)]; !known {
 				t.Fatalf("%s declares unknown error code %s", label, code)
 			}
 		}

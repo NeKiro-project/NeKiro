@@ -47,7 +47,7 @@ func TestReleaseHandlerCreatesExactReleaseWithoutProofMaterial(t *testing.T) {
 	evidence := [32]byte{4, 5, 6}
 	service := &fakeReleaseCatalog{release: catalog.AgentRelease{ReleaseID: "release-a", ProviderID: "provider-a", AgentID: "agent-a", AgentCardVersion: "1.0.0", CardDigest: digest, EndpointBindingID: "binding-a", EndpointOrigin: "https://agent.example", EndpointPath: "/a2a", VerificationMethod: catalog.VerificationMethodHTTPWellKnown, VerificationEvidenceDigest: &evidence, State: catalog.ReleaseVerified, CreatedAt: now, UpdatedAt: now, VerifiedAt: &now}}
 	handler := newReleaseTestHandler(t, service)
-	request := httptest.NewRequest(http.MethodPost, "/v4/providers/provider-a/agents/agent-a/releases", strings.NewReader(`{"version":"1.0.0","endpointBindingId":"binding-a"}`))
+	request := httptest.NewRequest(http.MethodPost, "/v1/providers/provider-a/agents/agent-a/releases", strings.NewReader(`{"version":"1.0.0","endpointBindingId":"binding-a"}`))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
@@ -66,7 +66,7 @@ func TestReleaseHandlerCreatesExactReleaseWithoutProofMaterial(t *testing.T) {
 func TestReleaseHandlerMapsIllegalTransitionToTypedConflict(t *testing.T) {
 	handler := newReleaseTestHandler(t, &fakeReleaseCatalog{err: catalog.ErrReleaseConflict})
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v4/releases/release-a/publish", nil))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/releases/release-a/publish", nil))
 	if recorder.Code != http.StatusConflict {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}

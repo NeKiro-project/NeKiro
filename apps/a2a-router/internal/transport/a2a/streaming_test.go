@@ -130,7 +130,7 @@ func TestClientStreamingMakesOneCancelAttemptAfterDeadline(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	dispatch := contracts.DispatchInvocationRequestV4{
+	dispatch := contracts.DispatchInvocationRequestV1{
 		InvocationID: "inv-a", RootTaskID: "task-a", TraceID: "trace-a",
 		Caller: contracts.Caller{Type: "user", ID: "owner-a"}, WorkspaceID: "workspace-a",
 		TargetAgentID: "agent-a", AgentCardVersion: "1.0.0", Capability: "capability-a",

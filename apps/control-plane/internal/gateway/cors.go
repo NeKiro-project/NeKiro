@@ -21,7 +21,7 @@ func CORS(allowedOrigins []string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		origin := request.Header.Get("Origin")
 		_, originAllowed := allowed[origin]
-		publicRoute := strings.HasPrefix(request.URL.Path, "/v3/") || strings.HasPrefix(request.URL.Path, "/v4/")
+		publicRoute := strings.HasPrefix(request.URL.Path, "/v1/") || strings.HasPrefix(request.URL.Path, "/v1/")
 		if origin != "" && originAllowed && publicRoute {
 			writer.Header().Set("Vary", "Origin")
 			writer.Header().Set("Access-Control-Allow-Origin", origin)

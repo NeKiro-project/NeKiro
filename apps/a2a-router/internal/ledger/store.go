@@ -75,7 +75,7 @@ func (store *Store) Append(ctx context.Context, event contracts.InvocationEventV
 		if err != nil {
 			return dependencyError("read Invocation history", err)
 		}
-		if err := store.validator.ValidateInvocationDetailResponseV4(projection.WorkspaceID, contracts.InvocationDetailResponseV4{
+		if err := store.validator.ValidateInvocationDetailResponseV1(projection.WorkspaceID, contracts.InvocationDetailResponseV1{
 			Invocation: projection,
 			Events:     history,
 		}); err != nil {
@@ -116,7 +116,7 @@ func (store *Store) Append(ctx context.Context, event contracts.InvocationEventV
 	return nil
 }
 
-func (store *Store) GetInvocation(ctx context.Context, workspaceID, invocationID string) (result contracts.InvocationDetailResponseV4, returnErr error) {
+func (store *Store) GetInvocation(ctx context.Context, workspaceID, invocationID string) (result contracts.InvocationDetailResponseV1, returnErr error) {
 	tx, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return result, dependencyError("begin Invocation read", err)
@@ -134,7 +134,7 @@ WHERE workspace_id = $1 AND invocation_id = $2`, workspaceID, invocationID))
 	if err != nil {
 		return result, dependencyError("read Invocation events", err)
 	}
-	if err := store.validator.ValidateInvocationDetailResponseV4(workspaceID, result); err != nil {
+	if err := store.validator.ValidateInvocationDetailResponseV1(workspaceID, result); err != nil {
 		return result, dependencyError("validate stored Invocation detail", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -147,7 +147,7 @@ WHERE workspace_id = $1 AND invocation_id = $2`, workspaceID, invocationID))
 // trusted nested adapter. The adapter verifies the authenticated credential's
 // Workspace and Agent against the returned parent before deriving a child;
 // the inherited Workspace is then checked again by Control Plane resolution.
-func (store *Store) GetInvocationByParentID(ctx context.Context, invocationID string) (result contracts.InvocationDetailResponseV4, returnErr error) {
+func (store *Store) GetInvocationByParentID(ctx context.Context, invocationID string) (result contracts.InvocationDetailResponseV1, returnErr error) {
 	tx, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return result, dependencyError("begin parent Invocation read", err)
@@ -165,7 +165,7 @@ WHERE invocation_id = $1`, invocationID))
 	if err != nil {
 		return result, dependencyError("read parent Invocation events", err)
 	}
-	if err := store.validator.ValidateInvocationDetailResponseV4(result.Invocation.WorkspaceID, result); err != nil {
+	if err := store.validator.ValidateInvocationDetailResponseV1(result.Invocation.WorkspaceID, result); err != nil {
 		return result, dependencyError("validate stored parent Invocation detail", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -174,42 +174,42 @@ WHERE invocation_id = $1`, invocationID))
 	return result, nil
 }
 
-func (store *Store) GetTrace(ctx context.Context, workspaceID string, traceID contracts.TraceID) (contracts.TraceResponseV4, error) {
+func (store *Store) GetTrace(ctx context.Context, workspaceID string, traceID contracts.TraceID) (contracts.TraceResponseV1, error) {
 	rows, err := store.pool.Query(ctx, projectionSelect+`
 WHERE workspace_id = $1 AND trace_id = $2
 ORDER BY created_at ASC, invocation_id ASC`, workspaceID, traceID)
 	if err != nil {
-		return contracts.TraceResponseV4{}, dependencyError("read Trace projections", err)
+		return contracts.TraceResponseV1{}, dependencyError("read Trace projections", err)
 	}
 	defer rows.Close()
-	result := contracts.TraceResponseV4{TraceID: traceID}
+	result := contracts.TraceResponseV1{TraceID: traceID}
 	for rows.Next() {
 		projection, err := scanProjection(rows)
 		if err != nil {
-			return contracts.TraceResponseV4{}, dependencyError("scan Trace projection", err)
+			return contracts.TraceResponseV1{}, dependencyError("scan Trace projection", err)
 		}
 		result.Invocations = append(result.Invocations, projection)
 	}
 	if err := rows.Err(); err != nil {
-		return contracts.TraceResponseV4{}, dependencyError("iterate Trace projections", err)
+		return contracts.TraceResponseV1{}, dependencyError("iterate Trace projections", err)
 	}
 	if len(result.Invocations) == 0 {
-		return contracts.TraceResponseV4{}, ErrNotFound
+		return contracts.TraceResponseV1{}, ErrNotFound
 	}
 	result.Invocations, err = orderTraceProjections(result.Invocations)
 	if err != nil {
-		return contracts.TraceResponseV4{}, dependencyError("order stored Trace", err)
+		return contracts.TraceResponseV1{}, dependencyError("order stored Trace", err)
 	}
-	if err := contracts.ValidateTraceResponseV4(workspaceID, traceID, result); err != nil {
-		return contracts.TraceResponseV4{}, dependencyError("validate stored Trace", err)
+	if err := contracts.ValidateTraceResponseV1(workspaceID, traceID, result); err != nil {
+		return contracts.TraceResponseV1{}, dependencyError("validate stored Trace", err)
 	}
 	return result, nil
 }
 
-func orderTraceProjections(values []contracts.InvocationRecordV4) ([]contracts.InvocationRecordV4, error) {
-	ordered := make([]contracts.InvocationRecordV4, 0, len(values))
+func orderTraceProjections(values []contracts.InvocationRecordV1) ([]contracts.InvocationRecordV1, error) {
+	ordered := make([]contracts.InvocationRecordV1, 0, len(values))
 	emitted := make(map[string]struct{}, len(values))
-	remaining := append([]contracts.InvocationRecordV4(nil), values...)
+	remaining := append([]contracts.InvocationRecordV1(nil), values...)
 	for len(remaining) > 0 {
 		next := remaining[:0]
 		progress := false
@@ -269,7 +269,7 @@ SELECT invocation_id, root_task_id, parent_invocation_id, trace_id,
        created_at, updated_at
 FROM ledger.invocations `
 
-func lockProjection(ctx context.Context, tx pgx.Tx, invocationID string) (contracts.InvocationRecordV4, error) {
+func lockProjection(ctx context.Context, tx pgx.Tx, invocationID string) (contracts.InvocationRecordV1, error) {
 	return scanProjection(tx.QueryRow(ctx, projectionSelect+`WHERE invocation_id = $1 FOR UPDATE`, invocationID))
 }
 
@@ -357,8 +357,8 @@ WHERE invocation_id = $1 ORDER BY sequence ASC`, invocationID)
 
 type scanner interface{ Scan(...any) error }
 
-func scanProjection(row scanner) (contracts.InvocationRecordV4, error) {
-	var value contracts.InvocationRecordV4
+func scanProjection(row scanner) (contracts.InvocationRecordV1, error) {
+	var value contracts.InvocationRecordV1
 	var parent, errorCode sql.NullString
 	var releaseID sql.NullString
 	var cardDigest []byte

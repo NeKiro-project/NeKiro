@@ -487,10 +487,10 @@ func TestA2AProfileUsesOfficialSDK(t *testing.T) {
 
 func TestOpenAPIDocuments(t *testing.T) {
 	for _, path := range []string{
-		filepath.Join("openapi", "control-plane.v2.yaml"),
-		filepath.Join("openapi", "control-plane.v3.yaml"),
-		filepath.Join("openapi", "control-plane-internal.v2.yaml"),
-		filepath.Join("openapi", "router-internal.v2.yaml"),
+		filepath.Join("openapi", "control-plane.v1.yaml"),
+		filepath.Join("openapi", "control-plane.v1.yaml"),
+		filepath.Join("openapi", "control-plane-internal.v1.yaml"),
+		filepath.Join("openapi", "router-internal.v1.yaml"),
 	} {
 		t.Run(path, func(t *testing.T) {
 			loadOpenAPIDocument(t, path)
@@ -554,19 +554,6 @@ func TestGoDTOsMatchOpenAPI(t *testing.T) {
 	catalogEntry := CatalogEntry{Card: card, PublicationStatus: "published", RegisteredAt: now, PublishedAt: &now}
 	installation := validInstallation()
 	event := validStartedEvent()
-	record := InvocationRecord{
-		InvocationID:     event.InvocationID,
-		RootTaskID:       event.RootTaskID,
-		TraceID:          event.TraceID,
-		Caller:           event.Caller,
-		WorkspaceID:      event.WorkspaceID,
-		TargetAgentID:    event.TargetAgentID,
-		AgentCardVersion: event.AgentCardVersion,
-		Capability:       event.Capability,
-		Status:           event.Status,
-		CreatedAt:        now,
-		UpdatedAt:        now,
-	}
 	result := InvocationResult{
 		SchemaVersion: InvocationResultSchemaVersion,
 		InvocationID:  event.InvocationID,
@@ -576,7 +563,8 @@ func TestGoDTOsMatchOpenAPI(t *testing.T) {
 		Result:        json.RawMessage(`{"summary":"contract accepted"}`),
 	}
 
-	controlPlane := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v3.yaml"))
+	controlPlane := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v1.yaml"))
+	invocationAPI := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane-invocation.v1.yaml"))
 	controlCases := []struct {
 		name   string
 		schema *openapi3.SchemaRef
@@ -584,48 +572,38 @@ func TestGoDTOsMatchOpenAPI(t *testing.T) {
 	}{
 		{
 			name:   "register request",
-			schema: controlPlane.Paths.Find("/v3/agents").Post.RequestBody.Value.Content["application/json"].Schema,
+			schema: controlPlane.Paths.Find("/v1/agents").Post.RequestBody.Value.Content["application/json"].Schema,
 			value:  RegisterAgentRequest{Card: card},
 		},
 		{
 			name:   "search response",
-			schema: controlPlane.Paths.Find("/v3/agents").Get.Responses.Status(200).Value.Content["application/json"].Schema,
+			schema: controlPlane.Paths.Find("/v1/agents").Get.Responses.Status(200).Value.Content["application/json"].Schema,
 			value:  SearchAgentsResponse{Items: []CatalogEntry{catalogEntry}},
 		},
 		{
 			name:   "install request",
-			schema: controlPlane.Paths.Find("/v3/workspaces/{workspaceId}/installations").Post.RequestBody.Value.Content["application/json"].Schema,
+			schema: controlPlane.Paths.Find("/v1/workspaces/{workspaceId}/installations").Post.RequestBody.Value.Content["application/json"].Schema,
 			value:  InstallAgentRequest{AgentID: card.AgentID, VersionConstraint: "^1.0.0", AcceptedPermissions: []string{"document.read"}},
 		},
 		{
 			name:   "installation response",
-			schema: controlPlane.Paths.Find("/v3/workspaces/{workspaceId}/installations").Post.Responses.Status(201).Value.Content["application/json"].Schema,
+			schema: controlPlane.Paths.Find("/v1/workspaces/{workspaceId}/installations").Post.Responses.Status(201).Value.Content["application/json"].Schema,
 			value:  installation,
 		},
 		{
 			name:   "update installation request",
-			schema: controlPlane.Paths.Find("/v3/workspaces/{workspaceId}/installations/{installationId}").Patch.RequestBody.Value.Content["application/json"].Schema,
+			schema: controlPlane.Paths.Find("/v1/workspaces/{workspaceId}/installations/{installationId}").Patch.RequestBody.Value.Content["application/json"].Schema,
 			value:  UpdateInstallationRequest{Status: "disabled"},
 		},
 		{
 			name:   "invoke request",
-			schema: controlPlane.Paths.Find("/v3/workspaces/{workspaceId}/invocations").Post.RequestBody.Value.Content["application/json"].Schema,
+			schema: invocationAPI.Paths.Find("/v1/workspaces/{workspaceId}/invocations").Post.RequestBody.Value.Content["application/json"].Schema,
 			value:  InvokeAgentRequest{AgentID: card.AgentID, Capability: "contract.review", Input: map[string]any{"text": "contract"}, Stream: true},
 		},
 		{
 			name:   "invocation result",
-			schema: controlPlane.Paths.Find("/v3/workspaces/{workspaceId}/invocations").Post.Responses.Status(200).Value.Content["application/json"].Schema,
+			schema: invocationAPI.Paths.Find("/v1/workspaces/{workspaceId}/invocations").Post.Responses.Status(200).Value.Content["application/json"].Schema,
 			value:  result,
-		},
-		{
-			name:   "invocation detail",
-			schema: controlPlane.Paths.Find("/v3/invocations/{invocationId}").Get.Responses.Status(200).Value.Content["application/json"].Schema,
-			value:  InvocationDetailResponse{Invocation: record, Events: []InvocationEvent{event}},
-		},
-		{
-			name:   "trace response",
-			schema: controlPlane.Paths.Find("/v3/traces/{traceId}").Get.Responses.Status(200).Value.Content["application/json"].Schema,
-			value:  TraceResponse{TraceID: event.TraceID, Invocations: []InvocationRecord{record}},
 		},
 	}
 	for _, testCase := range controlCases {
@@ -634,15 +612,8 @@ func TestGoDTOsMatchOpenAPI(t *testing.T) {
 		})
 	}
 
-	controlPlaneInternal := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v2.yaml"))
-	router := loadOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v2.yaml"))
-	streamOperation := router.Paths.Find("/internal/v2/invocations/{invocationId}/events")
-	if streamOperation == nil || streamOperation.Get == nil {
-		t.Fatal("Router SSE operation is missing")
-	}
-	if _, exists := streamOperation.Get.Responses.Status(200).Value.Content["text/event-stream"]; !exists {
-		t.Fatal("Router SSE response does not declare text/event-stream")
-	}
+	controlPlaneInternal := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane-internal.v1.yaml"))
+	router := loadOpenAPIDocument(t, filepath.Join("openapi", "router-internal.v1.yaml"))
 	resolvedInstallation := ResolvedInstallation{
 		InstallationID:      installation.InstallationID,
 		WorkspaceID:         installation.WorkspaceID,
@@ -658,7 +629,7 @@ func TestGoDTOsMatchOpenAPI(t *testing.T) {
 	}{
 		{
 			name:   "resolve request",
-			schema: controlPlaneInternal.Paths.Find("/internal/v2/resolve-agent").Post.RequestBody.Value.Content["application/json"].Schema,
+			schema: controlPlaneInternal.Paths.Find("/internal/v1/resolve-agent").Post.RequestBody.Value.Content["application/json"].Schema,
 			value: ResolveAgentRequest{
 				InvocationID: event.InvocationID, RootTaskID: event.RootTaskID, TraceID: event.TraceID,
 				WorkspaceID: installation.WorkspaceID, AgentID: card.AgentID, Version: card.Version, Capability: "contract.review",
@@ -666,12 +637,12 @@ func TestGoDTOsMatchOpenAPI(t *testing.T) {
 		},
 		{
 			name:   "resolve response",
-			schema: controlPlaneInternal.Paths.Find("/internal/v2/resolve-agent").Post.Responses.Status(200).Value.Content["application/json"].Schema,
+			schema: controlPlaneInternal.Paths.Find("/internal/v1/resolve-agent").Post.Responses.Status(200).Value.Content["application/json"].Schema,
 			value:  ResolveAgentResponse{Card: card, Installation: resolvedInstallation},
 		},
 		{
 			name:   "dispatch request",
-			schema: router.Paths.Find("/internal/v2/invocations").Post.RequestBody.Value.Content["application/json"].Schema,
+			schema: router.Paths.Find("/internal/v1/invocations").Post.RequestBody.Value.Content["application/json"].Schema,
 			value: DispatchInvocationRequest{
 				InvocationID: event.InvocationID, RootTaskID: event.RootTaskID, TraceID: event.TraceID,
 				Caller: event.Caller, WorkspaceID: event.WorkspaceID, TargetAgentID: event.TargetAgentID,
@@ -681,13 +652,8 @@ func TestGoDTOsMatchOpenAPI(t *testing.T) {
 		},
 		{
 			name:   "dispatch result",
-			schema: router.Paths.Find("/internal/v2/invocations").Post.Responses.Status(200).Value.Content["application/json"].Schema,
+			schema: router.Paths.Find("/internal/v1/invocations").Post.Responses.Status(200).Value.Content["application/json"].Schema,
 			value:  result,
-		},
-		{
-			name:   "router event envelope",
-			schema: router.Components.Schemas["RouterEventEnvelope"],
-			value:  RouterEventEnvelope{Event: event},
 		},
 	}
 	for _, testCase := range internalCases {
@@ -698,8 +664,8 @@ func TestGoDTOsMatchOpenAPI(t *testing.T) {
 }
 
 func TestSearchAgentsQueryMatchesOpenAPI(t *testing.T) {
-	document := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v3.yaml"))
-	operation := document.Paths.Find("/v3/agents").Get
+	document := loadOpenAPIDocument(t, filepath.Join("openapi", "control-plane.v1.yaml"))
+	operation := document.Paths.Find("/v1/agents").Get
 	query := SearchAgentsQuery{
 		Query:      stringPointer("contract"),
 		Capability: stringPointer("contract.review"),

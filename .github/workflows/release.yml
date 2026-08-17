@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out annotated release tag
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Validate release identity
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'release tag must be a stable semantic version such as v0.1.0' >&2
+            exit 1
+          fi
+          test "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" = tag
+          test "$(git rev-list -n 1 "refs/tags/$GITHUB_REF_NAME")" = "$GITHUB_SHA"
+
+      - name: Authenticate to GHCR
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build and publish immutable images
+        shell: bash
+        run: |
+          docker buildx create --use --name nekiro-release
+          for component in control-plane a2a-router; do
+            image="ghcr.io/nekiro-project/nekiro-${component}:${GITHUB_REF_NAME}"
+            dockerfile="apps/${component}/Dockerfile"
+            docker buildx build \
+              --file "$dockerfile" \
+              --platform linux/amd64,linux/arm64 \
+              --provenance=mode=max \
+              --sbom=true \
+              --tag "$image" \
+              --push \
+              .
+          done
+
+      - name: Record immutable image digests
+        shell: bash
+        run: |
+          control_image="ghcr.io/nekiro-project/nekiro-control-plane:${GITHUB_REF_NAME}"
+          router_image="ghcr.io/nekiro-project/nekiro-a2a-router:${GITHUB_REF_NAME}"
+          control_digest=$(docker buildx imagetools inspect "$control_image" | awk '/^Digest:/ { print $2; exit }')
+          router_digest=$(docker buildx imagetools inspect "$router_image" | awk '/^Digest:/ { print $2; exit }')
+          for digest in "$control_digest" "$router_digest"; do
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          done
+          jq -n \
+            --arg tag "$GITHUB_REF_NAME" \
+            --arg commit "$GITHUB_SHA" \
+            --arg controlImage "$control_image" \
+            --arg controlDigest "$control_digest" \
+            --arg routerImage "$router_image" \
+            --arg routerDigest "$router_digest" \
+            '{schemaVersion:"1",tag:$tag,commitSha:$commit,platformApiVersion:"v1",images:{controlPlane:{reference:$controlImage,digest:$controlDigest},a2aRouter:{reference:$routerImage,digest:$routerDigest}}}' \
+            > images.json
+          jq -e . images.json >/dev/null
+          sha256sum images.json > checksums.txt
+
+      - name: Publish GitHub release evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" images.json checksums.txt --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "NeKiro Core $GITHUB_REF_NAME"
